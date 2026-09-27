@@ -1,0 +1,3 @@
+ALTER TABLE "Product"
+DROP COLUMN IF EXISTS "color",
+DROP COLUMN IF EXISTS "size";

@@ -1,0 +1,534 @@
+﻿diff --git a/src/app/(admin)/inventory/page.tsx b/src/app/(admin)/inventory/page.tsx
+index b0a5bef..c2a934c 100644
+--- a/src/app/(admin)/inventory/page.tsx
++++ b/src/app/(admin)/inventory/page.tsx
+@@ -2,7 +2,7 @@
+ 
+ import Image from "next/image";
+ import { Fragment, useEffect, useState, type FormEvent } from "react";
+-import { AlertTriangle, CheckCircle2, Package, Pencil, Plus, Search, TrendingDown, UploadCloud, Warehouse, X, Trash2 } from "lucide-react";
++import { Package, PencilLine, Plus, TrendDown, Warehouse, X, Trash } from "@phosphor-icons/react";
+ 
+ interface ProductRecord {
+   id: string;
+@@ -45,13 +45,11 @@ interface ProductFormState {
+ export default function InventoryPage() {
+   const [products, setProducts] = useState<ProductRecord[]>([]);
+   const [categories, setCategories] = useState<CategoryRecord[]>([]);
+-  const [form, setForm] = useState({ productId: "", type: "STOCK_IN", quantity: "0", remarks: "", minStock: "0", mode: "MOVEMENT" as "MOVEMENT" | "THRESHOLD" });
++  const [form, setForm] = useState({ productId: "", type: "STOCK_IN", quantity: "1", remarks: "", minStock: "5", mode: "MOVEMENT" as "MOVEMENT" | "THRESHOLD" });
+   const [showProductModal, setShowProductModal] = useState(false);
+   const [isSavingProduct, setIsSavingProduct] = useState(false);
+   const [isDeletingProductId, setIsDeletingProductId] = useState<string | null>(null);
+-  const [productToDelete, setProductToDelete] = useState<ProductRecord | null>(null);
+   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
+-  const [isInventorySubmitting, setIsInventorySubmitting] = useState(false);
+   const [successMessage, setSuccessMessage] = useState("");
+   const [productFormMessage, setProductFormMessage] = useState("");
+   const [activeInventorySection, setActiveInventorySection] = useState<string>("");
+@@ -65,21 +63,18 @@ export default function InventoryPage() {
+     price: "",
+     cost: "",
+     stock: "",
+-    minStock: "0",
++    minStock: "5",
+     categoryId: "",
+     isActive: true,
+     imageUrls: [],
+   });
+   const [searchQuery, setSearchQuery] = useState("");
+   const [categoryFilter, setCategoryFilter] = useState("");
+-  const [adjustmentProductSearch, setAdjustmentProductSearch] = useState("");
+-  const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
+-  const isAdmin = userRole === "ADMIN";
+ 
+   async function loadData() {
+     const [productsResponse, categoriesResponse] = await Promise.all([
+-      fetch("/api/admin/products", { cache: "no-store" }),
+-      fetch("/api/admin/categories", { cache: "no-store" }),
++      fetch("/api/admin/products"),
++      fetch("/api/admin/categories"),
+     ]);
+     const productData = await productsResponse.json();
+     const categoriesData = await categoriesResponse.json();
+@@ -90,14 +85,6 @@ export default function InventoryPage() {
+   useEffect(() => {
+     let isMounted = true;
+ 
+-    async function loadUserRole() {
+-      const response = await fetch("/api/auth/profile");
+-      const data = await response.json();
+-      if (isMounted && (data?.user?.role === "ADMIN" || data?.user?.role === "STAFF")) {
+-        setUserRole(data.user.role);
+-      }
+-    }
+-
+     const syncActiveInventorySection = () => {
+       if (typeof window === "undefined") return;
+       setActiveInventorySection(window.location.hash.replace("#", ""));
+@@ -109,7 +96,6 @@ export default function InventoryPage() {
+     }
+ 
+     void fetchData();
+-    void loadUserRole();
+     syncActiveInventorySection();
+     window.addEventListener("hashchange", syncActiveInventorySection);
+ 
+@@ -150,7 +136,7 @@ export default function InventoryPage() {
+       price: "",
+       cost: "",
+       stock: "",
+-      minStock: "0",
++      minStock: "5",
+       categoryId: categories[0]?.id ?? "",
+       isActive: true,
+       imageUrls: [],
+@@ -208,52 +194,6 @@ export default function InventoryPage() {
+     }));
+   }
+ 
+-  function renderAdjustmentProductPicker(type: "STOCK_IN" | "STOCK_OUT" | "ADJUSTMENT") {
+-    const query = adjustmentProductSearch.trim().toLowerCase();
+-    const selectedProduct = products.find((product) => product.id === form.productId);
+-    const matchingProducts = products
+-      .filter((product) => {
+-        const matchesSearch = `${product.name} ${product.sku} ${product.category?.name ?? ""}`.toLowerCase().includes(query);
+-        const matchesCategory = !categoryFilter || product.categoryId === categoryFilter;
+-        const hasStockForRemoval = type !== "STOCK_OUT" || Number(product.stock ?? 0) > 0;
+-        return matchesSearch && matchesCategory && product.isActive !== false && hasStockForRemoval;
+-      });
+-
+-    return (
+-      <div className="space-y-2">
+-        <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">Product</label>
+-        <div className="relative">
+-          <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+-          <input
+-            value={selectedProduct && !adjustmentProductSearch ? selectedProduct.name : adjustmentProductSearch}
+-            onChange={(event) => setAdjustmentProductSearch(event.target.value)}
+-            onFocus={() => {
+-              if (selectedProduct) setAdjustmentProductSearch("");
+-            }}
+-            placeholder="Search by product name or SKU"
+-            className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-9 pr-3 text-sm text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500"
+-          />
+-        </div>
+-        <div className="max-h-56 space-y-1 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/70">
+-          {matchingProducts.length > 0 ? matchingProducts.map((product) => (
+-            <button
+-              key={product.id}
+-              type="button"
+-              onClick={() => {
+-                setForm({ ...form, productId: product.id, type, mode: type === "ADJUSTMENT" ? "THRESHOLD" : "MOVEMENT" });
+-                setAdjustmentProductSearch("");
+-              }}
+-              className={`flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left transition ${form.productId === product.id ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100" : "hover:bg-white dark:hover:bg-slate-700"}`}
+-            >
+-              <span className="min-w-0"><span className="block truncate text-sm font-semibold">{product.name}</span><span className="block truncate text-xs text-slate-500 dark:text-slate-400">{product.category?.name ?? "Uncategorized"} ┬╖ SKU {product.sku}</span></span>
+-              <span className="shrink-0 text-right text-xs text-slate-500 dark:text-slate-400">Stock {product.stock}<br />Min {product.minStock}</span>
+-            </button>
+-          )) : <div className="px-3 py-4 text-center text-sm text-slate-500 dark:text-slate-400">No matching products</div>}
+-        </div>
+-      </div>
+-    );
+-  }
+-
+   async function submitInventoryPayload(payload: {
+     productId: string;
+     type: "STOCK_IN" | "STOCK_OUT" | "ADJUSTMENT";
+@@ -261,34 +201,22 @@ export default function InventoryPage() {
+     remarks: string;
+     minStock: number;
+   }) {
+-    setIsInventorySubmitting(true);
+-    try {
+-      const response = await fetch("/api/admin/inventory", {
+-        method: "POST",
+-        headers: { "Content-Type": "application/json" },
+-        body: JSON.stringify(payload),
+-      });
+-
+-      if (!response.ok) {
+-        const data = await response.json().catch(() => ({}));
+-        setProductFormMessage(data?.message ?? "Unable to update inventory.");
+-        return;
+-      }
++    const response = await fetch("/api/admin/inventory", {
++      method: "POST",
++      headers: { "Content-Type": "application/json" },
++      body: JSON.stringify(payload),
++    });
+ 
+-      setForm({ productId: "", type: "STOCK_IN", quantity: "0", remarks: "", minStock: "0", mode: "MOVEMENT" });
+-      setSuccessMessage(payload.type === "STOCK_IN" ? "Stock in completed successfully." : payload.type === "STOCK_OUT" ? "Stock out completed successfully." : "Minimum stock threshold updated successfully.");
+-      setShowSuccessOverlay(true);
+-      window.setTimeout(() => setShowSuccessOverlay(false), 1400);
+-      try {
+-        await loadData();
+-      } catch {
+-        // The inventory update already succeeded; keep the success state visible.
+-      }
+-    } catch {
+-      setProductFormMessage("Unable to update inventory.");
+-    } finally {
+-      setIsInventorySubmitting(false);
++    if (!response.ok) {
++      const data = await response.json().catch(() => ({}));
++      window.alert(data?.message ?? "Unable to update inventory.");
++      return;
+     }
++
++    setForm({ productId: "", type: "STOCK_IN", quantity: "1", remarks: "", minStock: "5", mode: "MOVEMENT" });
++    await loadData();
++    setShowSuccessOverlay(true);
++    window.setTimeout(() => setShowSuccessOverlay(false), 1200);
+   }
+ 
+   async function handleProductSubmit() {
+@@ -347,26 +275,24 @@ export default function InventoryPage() {
+     window.setTimeout(() => setShowSuccessOverlay(false), 1200);
+   }
+ 
+-  async function confirmDeleteProduct() {
+-    if (!productToDelete) return;
+-
++  async function handleDeleteProduct(productId: string) {
++    if (!window.confirm("Are you sure you want to delete this product? This action cannot be undone.")) return;
+     try {
+-      setIsDeletingProductId(productToDelete.id);
+-      const res = await fetch(`/api/admin/products?id=${encodeURIComponent(productToDelete.id)}`, { method: "DELETE" });
++      setIsDeletingProductId(productId);
++      const res = await fetch(`/api/admin/products?id=${encodeURIComponent(productId)}`, { method: "DELETE" });
+       const data = await res.json();
+       setIsDeletingProductId(null);
+       if (!res.ok) {
+-        setProductFormMessage(data?.message ?? "Unable to delete product.");
++        window.alert(data?.message ?? "Unable to delete product.");
+         return;
+       }
+-      setProductToDelete(null);
+       await loadData();
+       setSuccessMessage("Product deleted.");
+       setShowSuccessOverlay(true);
+       window.setTimeout(() => setShowSuccessOverlay(false), 1200);
+     } catch {
+       setIsDeletingProductId(null);
+-      setProductFormMessage("Unable to delete product.");
++      window.alert("Unable to delete product.");
+     }
+   }
+ 
+@@ -386,6 +312,7 @@ export default function InventoryPage() {
+       minStock: Number(form.minStock || 0),
+     });
+ 
++    setSuccessMessage("Stock in updated successfully.");
+   }
+ 
+   async function handleStockOutContentSubmit(e: FormEvent<HTMLFormElement>) {
+@@ -403,6 +330,7 @@ export default function InventoryPage() {
+       minStock: Number(form.minStock || 0),
+     });
+ 
++    setSuccessMessage("Stock out updated successfully.");
+   }
+ 
+   async function handleThresholdContentSubmit(e: FormEvent<HTMLFormElement>) {
+@@ -420,6 +348,7 @@ export default function InventoryPage() {
+       minStock: Number(form.minStock || 0),
+     });
+ 
++    setSuccessMessage("Minimum stock threshold updated successfully.");
+   }
+ 
+   const totalStockValue = products.reduce((sum, product) => sum + Number(product.cost ?? 0) * Number(product.stock ?? 0), 0);
+@@ -435,7 +364,7 @@ export default function InventoryPage() {
+   });
+ 
+   return (
+-    <div className="flex flex-1 flex-col space-y-6 bg-white/60 text-slate-800 dark:bg-slate-950/40 dark:text-slate-100">
++    <div className="flex min-h-full flex-1 flex-col space-y-6 text-slate-800 dark:text-slate-100">
+       <div className="overflow-hidden rounded-sm border border-slate-200/70 bg-linear-to-br from-slate-50 via-white to-emerald-50 p-6 text-slate-900 shadow-sm dark:border-slate-800 dark:from-slate-950 dark:via-slate-900 dark:to-emerald-950 dark:text-white">
+         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+           <div>
+@@ -451,50 +380,20 @@ export default function InventoryPage() {
+         </div>
+       </div>
+ 
+-      {isInventorySubmitting ? (
+-        <div className="fixed inset-0 z-100 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm" aria-busy="true" aria-live="polite">
+-          <div className="w-full max-w-sm rounded-2xl border border-emerald-200 bg-white p-7 text-center shadow-2xl dark:border-emerald-900/50 dark:bg-slate-900">
+-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 dark:border-emerald-900/60 dark:bg-emerald-950/40"><div className="h-7 w-7 animate-spin rounded-full border-2 border-emerald-300 border-t-emerald-700 dark:border-emerald-700 dark:border-t-emerald-300" /></div>
+-            <h3 className="mt-5 text-lg font-semibold text-slate-900 dark:text-white">Updating inventory</h3>
+-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Please wait while the stock movement is saved.</p>
+-          </div>
+-        </div>
+-      ) : null}
+-
+       {showSuccessOverlay ? (
+-        <div className="fixed inset-0 z-100 flex items-center justify-center bg-slate-950/60 px-4 backdrop-blur-sm">
+-          <div className="w-full max-w-sm rounded-2xl border border-emerald-200 bg-white p-7 text-center shadow-2xl dark:border-emerald-900/50 dark:bg-slate-900">
+-            <div className="relative mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 animate-[inventory-success-pop_500ms_cubic-bezier(0.22,1,0.36,1)_both] dark:bg-emerald-950/40 dark:text-emerald-400">
+-              <div className="absolute inset-0 rounded-full border-2 border-emerald-300/70 animate-[inventory-success-ring_800ms_ease-out_100ms_both] dark:border-emerald-700/60" />
+-              <CheckCircle2 className="relative h-10 w-10 animate-[inventory-success-check_400ms_cubic-bezier(0.22,1,0.36,1)_160ms_both]" />
++        <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/60 px-4 backdrop-blur-sm">
++          <div className="w-full max-w-sm rounded-sm border border-emerald-200 bg-white p-6 text-center shadow-2xl dark:border-emerald-900/50 dark:bg-slate-900">
++            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/40">
++              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-8 w-8 text-emerald-600 dark:text-emerald-400 success-check">
++                <path strokeLinecap="round" strokeLinejoin="round" d="M5 12.5l4 4 10-10" />
++              </svg>
+             </div>
+-            <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-400">Inventory updated</p>
+-            <h3 className="mt-2 text-xl font-semibold text-slate-900 dark:text-white">Success</h3>
++            <h3 className="mt-4 text-lg font-semibold text-slate-900 dark:text-white">Success</h3>
+             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{successMessage}</p>
+           </div>
+         </div>
+       ) : null}
+ 
+-      {productToDelete ? (
+-        <div className="fixed inset-0 z-100 flex items-center justify-center bg-slate-950/65 px-4 backdrop-blur-sm" role="presentation">
+-          <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900" role="dialog" aria-modal="true" aria-labelledby="delete-product-title">
+-            <div className="flex items-start gap-3">
+-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300"><AlertTriangle className="h-5 w-5" /></div>
+-              <div className="min-w-0">
+-                <h2 id="delete-product-title" className="text-lg font-semibold text-slate-950 dark:text-white">Are you sure?</h2>
+-                <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">This permanently removes the product. Its activity history will be preserved.</p>
+-              </div>
+-              <button type="button" onClick={() => setProductToDelete(null)} disabled={Boolean(isDeletingProductId)} className="ml-auto rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-900 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-white" aria-label="Close delete confirmation"><X className="h-5 w-5" /></button>
+-            </div>
+-            <div className="mt-5 rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 dark:bg-slate-800 dark:text-slate-100">{productToDelete.name}</div>
+-            <div className="mt-6 flex justify-end gap-3">
+-              <button type="button" onClick={() => setProductToDelete(null)} disabled={Boolean(isDeletingProductId)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Cancel</button>
+-              <button type="button" onClick={() => void confirmDeleteProduct()} disabled={Boolean(isDeletingProductId)} className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60">{isDeletingProductId ? "Deleting..." : "Delete product"}</button>
+-            </div>
+-          </div>
+-        </div>
+-      ) : null}
+-
+       {!isInventorySubSectionView ? (
+         <>
+           <div id="inventory-summary" className="grid gap-3 md:grid-cols-4">
+@@ -532,7 +431,7 @@ export default function InventoryPage() {
+                   <div className="mt-1 text-[22px] font-semibold leading-none text-slate-900 dark:text-white">Γé▒{totalStockValue.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                 </div>
+                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500 text-white">
+-                  <TrendingDown className="h-4.5 w-4.5" />
++                  <TrendDown className="h-4.5 w-4.5" />
+                 </div>
+               </div>
+             </div>
+@@ -545,7 +444,7 @@ export default function InventoryPage() {
+                   <div className="mt-1 text-[22px] font-semibold leading-none text-slate-900 dark:text-white">{lowStockCount}</div>
+                 </div>
+                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-500 text-white">
+-                  <TrendingDown className="h-4.5 w-4.5" />
++                  <TrendDown className="h-4.5 w-4.5" />
+                 </div>
+               </div>
+             </div>
+@@ -564,7 +463,7 @@ export default function InventoryPage() {
+                 aria-label="Add product"
+                 className="inline-flex h-8 items-center justify-center gap-1.5 self-start rounded-lg bg-slate-900 px-3 text-sm font-semibold text-white transition hover:bg-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white sm:self-auto"
+               >
+-                <Plus className="h-4 w-4" strokeWidth={2.5} />
++                <Plus className="h-4 w-4" weight="bold" />
+                 <span>Add product</span>
+               </button>
+             </div>
+@@ -654,7 +553,7 @@ export default function InventoryPage() {
+                         </td>
+                         <td className="w-20 px-3 py-3 whitespace-nowrap">
+                           <div className="flex gap-2 justify-center">
+-                            {isAdmin ? <button
++                            <button
+                               type="button"
+                               onClick={() => openEditProductModal(product)}
+                               title="Edit product"
+@@ -662,19 +561,19 @@ export default function InventoryPage() {
+                               className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-800"
+                             >
+                               <span className="sr-only">Edit product</span>
+-                              <Pencil className="h-4 w-4" />
+-                            </button> : null}
++                              <PencilLine className="h-4 w-4" />
++                            </button>
+ 
+                             <button
+                               type="button"
+-                              onClick={() => setProductToDelete(product)}
++                              onClick={() => handleDeleteProduct(product.id)}
+                               disabled={isDeletingProductId === product.id}
+                               title="Delete product"
+                               aria-label={`Delete product ${product.name}`}
+                               className="h-8 w-8 inline-flex items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-60 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-950/50"
+                             >
+                               <span className="sr-only">Delete product</span>
+-                              <Trash2 className="h-4 w-4" />
++                              <Trash className="h-4 w-4" />
+                             </button>
+                           </div>
+                         </td>
+@@ -701,7 +600,12 @@ export default function InventoryPage() {
+               </div>
+ 
+               <form onSubmit={handleStockInContentSubmit} className="space-y-3">
+-                {renderAdjustmentProductPicker("STOCK_IN")}
++                <select value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value, type: "STOCK_IN", mode: "MOVEMENT" })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
++                  <option value="">Select product</option>
++                  {products.map((product) => (
++                    <option key={product.id} value={product.id}>{product.name}</option>
++                  ))}
++                </select>
+ 
+                 <div>
+                   <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Quantity</label>
+@@ -724,7 +628,12 @@ export default function InventoryPage() {
+               </div>
+ 
+               <form onSubmit={handleStockOutContentSubmit} className="space-y-3">
+-                {renderAdjustmentProductPicker("STOCK_OUT")}
++                <select value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value, type: "STOCK_OUT", mode: "MOVEMENT" })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
++                  <option value="">Select product</option>
++                  {products.map((product) => (
++                    <option key={product.id} value={product.id}>{product.name}</option>
++                  ))}
++                </select>
+ 
+                 <div>
+                   <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-200">Quantity</label>
+@@ -747,7 +656,12 @@ export default function InventoryPage() {
+               </div>
+ 
+               <form onSubmit={handleThresholdContentSubmit} className="space-y-3">
+-                {renderAdjustmentProductPicker("ADJUSTMENT")}
++                <select value={form.productId} onChange={(e) => setForm({ ...form, productId: e.target.value, type: "STOCK_IN", mode: "THRESHOLD" })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">
++                  <option value="">Select product</option>
++                  {products.map((product) => (
++                    <option key={product.id} value={product.id}>{product.name}</option>
++                  ))}
++                </select>
+ 
+                 <textarea placeholder="Remarks" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" rows={3} />
+                 <button type="submit" className="w-full rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600 dark:bg-amber-400 dark:text-slate-900 dark:hover:bg-amber-300">Save threshold</button>
+@@ -758,23 +672,22 @@ export default function InventoryPage() {
+       )}
+ 
+       {showProductModal ? (
+-        <div className="fixed inset-0 z-100 flex items-center justify-center overflow-hidden bg-slate-950/60 px-4 py-4 backdrop-blur-sm" role="presentation">
+-          <div className="admin-modal-scrollbar max-h-[calc(100dvh-2rem)] w-full max-w-6xl overflow-y-auto rounded-3xl border border-slate-200 border-t-4 border-t-emerald-500 bg-slate-50 p-4 shadow-2xl dark:border-slate-700 dark:border-t-emerald-400 dark:bg-slate-950 sm:p-6 lg:p-7" role="dialog" aria-modal="true" aria-labelledby="product-modal-title">
++        <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-950/60 px-4 backdrop-blur-sm">
++          <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-700 dark:bg-slate-900 sm:p-8">
+             {/* Header */}
+-            <div className="sticky top-0 z-10 mb-6 flex items-start justify-between rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
++            <div className="mb-6 flex items-start justify-between">
+               <div>
+-                <div className="mb-2 text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-600 dark:text-emerald-400">{productForm.id ? "Product editor" : "New inventory item"}</div>
+-                <h2 id="product-modal-title" className="text-2xl font-bold text-slate-900 dark:text-white">
++                <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+                   {productForm.id ? "Edit Product" : "Create Product"}
+                 </h2>
+-                <p className="mt-1 max-w-xl text-sm leading-5 text-slate-600 dark:text-slate-400">
++                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                   {productForm.id ? "Update product details and inventory." : "Add a new product to your inventory."}
+                 </p>
+               </div>
+               <button 
+                 type="button" 
+                 onClick={() => setShowProductModal(false)} 
+-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white p-2 text-slate-500 shadow-sm transition hover:bg-slate-100 hover:text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-slate-200"
++                className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+               >
+                 <X className="h-5 w-5" />
+               </button>
+@@ -790,13 +703,19 @@ export default function InventoryPage() {
+             {/* Form Sections */}
+             <div className="space-y-6">
+               {/* Product Image Section */}
+-              <div className="grid gap-6 rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900 lg:grid-cols-[220px_minmax(0,1fr)]">
+-                <h3 className="mb-4 text-sm font-bold uppercase tracking-[0.18em] text-slate-900 dark:text-white">1. Product image</h3>
+-                <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center dark:border-slate-600 dark:bg-slate-800">
+-                  <UploadCloud className="h-7 w-7 text-emerald-600 dark:text-emerald-400" />
+-                  <p className="mt-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Upload a cover image</p>
+-                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">JPEG, PNG, WebP, or AVIF</p>
+-                  <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-emerald-700 dark:bg-emerald-500 dark:text-slate-950"><UploadCloud className="h-4 w-4" />{isUploadingImage ? "Uploading..." : "Choose image"}<input type="file" accept="image/*" onChange={(e) => handleImageUpload(e.target.files)} disabled={isUploadingImage} className="hidden" /></label>
++              <div className="rounded-xl border border-slate-200 p-5 dark:border-slate-700 dark:bg-slate-800/50">
++                <h3 className="mb-4 text-sm font-semibold text-slate-900 dark:text-white">Product Image</h3>
++                <div className="rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 p-3 text-center dark:border-slate-600 dark:bg-slate-800">
++                  <input
++                    type="file"
++                    accept="image/*"
++                    onChange={(e) => handleImageUpload(e.target.files)}
++                    disabled={isUploadingImage}
++                    className="block w-full cursor-pointer text-xs text-slate-600 dark:text-slate-300"
++                  />
++                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
++                    Click to upload (JPEG, PNG, WebP, AVIF)
++                  </p>
+                 </div>
+                 {formImageUrl && (
+                   <div className="mt-3 flex justify-start">
+@@ -821,10 +740,10 @@ export default function InventoryPage() {
+               </div>
+ 
+               {/* Basic Information Section */}
+-              <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-700 dark:bg-slate-900">
+-                <h3 className="mb-4 text-sm font-bold uppercase tracking-[0.18em] text-slate-900 dark:text-white">2. Basic information</h3>
+-                <div className="grid gap-4 lg:grid-cols-2">
+-                  <div className="lg:col-span-2">
++              <div className="rounded-xl border border-slate-200 p-5 dark:border-slate-700 dark:bg-slate-800/50">
++                <h3 className="mb-4 text-sm font-semibold text-slate-900 dark:text-white">Basic Information</h3>
++                <div className="grid gap-4">
++                  <div>
+                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Product Name</label>
+                     <input
+                       value={productForm.name}
+@@ -833,7 +752,7 @@ export default function InventoryPage() {
+                       className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:ring-2 focus:ring-slate-200 outline-none dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:ring-slate-800"
+                     />
+                   </div>
+-                  <div className="grid gap-4 sm:grid-cols-2 lg:col-span-2">
++                  <div className="grid gap-4 sm:grid-cols-2">
+                     <div>
+                       <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Product Code (SKU)</label>
+                       <input
+@@ -856,7 +775,7 @@ export default function InventoryPage() {
+                       </select>
+                     </div>
+                   </div>
+-                  <div className="lg:col-span-2">
++                  <div>
+                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Description</label>
+                     <textarea
+                       value={productForm.description}
+@@ -871,9 +790,9 @@ export default function InventoryPage() {
+ 
+               {/* Pricing & Inventory Section */}
+               <div className="rounded-xl border border-slate-200 p-5 dark:border-slate-700 dark:bg-slate-800/50">
+-                <h3 className="mb-4 text-sm font-bold uppercase tracking-[0.18em] text-slate-900 dark:text-white">3. Pricing and inventory</h3>
+-                <div className="grid gap-4 sm:grid-cols-4">
+-                  <div className="sm:col-span-2">
++                <h3 className="mb-4 text-sm font-semibold text-slate-900 dark:text-white">Pricing & Inventory</h3>
++                <div className="grid gap-4 sm:grid-cols-2">
++                  <div>
+                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Cost Price</label>
+                     <div className="mt-2 flex items-center">
+                       <span className="text-slate-600 dark:text-slate-400">Γé▒</span>
+@@ -888,7 +807,7 @@ export default function InventoryPage() {
+                       />
+                     </div>
+                   </div>
+-                  <div className="sm:col-span-2">
++                  <div>
+                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Selling Price</label>
+                     <div className="mt-2 flex items-center">
+                       <span className="text-slate-600 dark:text-slate-400">Γé▒</span>
+@@ -930,7 +849,7 @@ export default function InventoryPage() {
+             </div>
+ 
+             {/* Action Buttons */}
+-            <div className="sticky bottom-0 mt-6 flex flex-col-reverse justify-end gap-3 border-t border-slate-200 bg-slate-50/95 pt-5 backdrop-blur dark:border-slate-700 dark:bg-slate-950/95 sm:flex-row">
++            <div className="mt-8 flex justify-end gap-3 border-t border-slate-200 pt-6 dark:border-slate-700">
+               <button 
+                 type="button" 
+                 onClick={() => setShowProductModal(false)} 

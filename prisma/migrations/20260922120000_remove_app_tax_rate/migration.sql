@@ -1,0 +1,2 @@
+ALTER TABLE "AppSetting"
+  DROP COLUMN IF EXISTS "taxRate";

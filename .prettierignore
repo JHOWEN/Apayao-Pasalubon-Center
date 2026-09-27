@@ -1,0 +1,13 @@
+node_modules
+.next
+.next-dev
+.turbo
+dist
+build
+coverage
+.env
+.env.*
+package-lock.json
+public/uploads
+public/products
+.prisma

@@ -1,0 +1,5 @@
+ALTER TABLE "Order"
+  ADD COLUMN IF NOT EXISTS "pickupTime" TEXT;
+
+ALTER TABLE "Order"
+  ALTER COLUMN "pickupDate" DROP NOT NULL;

@@ -1,0 +1,6 @@
+ALTER TABLE "Product"
+ADD COLUMN "unit" TEXT NOT NULL DEFAULT 'piece',
+ADD COLUMN "measurementValue" DOUBLE PRECISION,
+ADD COLUMN "measurementUnit" TEXT,
+ADD COLUMN "color" TEXT,
+ADD COLUMN "size" TEXT;

@@ -1,0 +1,91 @@
+warning: in the working copy of '.github/copilot-instructions.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of '.vscode/settings.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'ADMIN_PAYMENT_UI_GUIDE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'ENV_SETUP.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'PRODUCT_DETAIL_ANALYSIS.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'SECURITY_ARCHITECTURE.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'eslint.config.mjs', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'next.config.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package-lock.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(auth)/forgot-password/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(auth)/login/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(auth)/register/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(auth)/reset-password/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(ecommerce)/cart/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(ecommerce)/checkout/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(ecommerce)/layout.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(ecommerce)/orders/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(ecommerce)/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(ecommerce)/products/[id]/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/(ecommerce)/profile/page.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/app/globals.css', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ecommerce/product-card.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/ecommerce/product-group-card.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/components/layout/admin-sidebar.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tsconfig.json', LF will be replaced by CRLF the next time Git touches it
+[1mdiff --git a/.github/copilot-instructions.md b/.github/copilot-instructions.md[m
+[1mindex 52fee2c..3a400cb 100644[m
+[1m--- a/.github/copilot-instructions.md[m
+[1m+++ b/.github/copilot-instructions.md[m
+[36m@@ -1,12 +1,14 @@[m
+ # APC Inventory repository instructions[m
+ [m
+ ## Project overview[m
+[32m+[m
+ - This repository is a Next.js App Router inventory and sales management system.[m
+ - The main app is split into admin, auth, and ecommerce routes under src/app.[m
+ - API handlers live in src/app/api and should keep database access and validation logic close to the route.[m
+ - Shared business logic should live in src/lib, while reusable UI should live in src/components.[m
+ [m
+ ## Folder purpose map[m
+[32m+[m
+ - src/app: route-level pages, layouts, and API endpoints for the application.[m
+ - src/components: reusable UI components grouped by feature area such as admin, ecommerce, layout, and ui.[m
+ - src/lib: shared application utilities and helper modules such as auth, cart, cookies, and Prisma client access.[m
+[36m@@ -20,9 +22,31 @@[m
+ - src/validators: Zod schemas and input validation logic for forms and API requests.[m
+ - public: static assets such as icons, images, logos, and uploaded files.[m
+ [m
+[31m-## Conventions for future changes[m
+[32m+[m[32m##Conventions for future changes[m
+[32m+[m
+ - Prefer keeping feature-specific code in the nearest matching folder.[m
+ - Keep server-side logic in src/lib or route handlers, not in components.[m
+ - Use src/validators for request validation and src/types for shared data contracts.[m
+ - When a new reusable helper is needed, place it in the most specific existing folder instead of creating a new top-level area without intent.[m
+ - Keep the folder structure consistent with the app’s admin/ecommerce split and the current Next.js App Router architecture.[m
+[32m+[m
+[32m+[m[32m## AI behavior and audit constraints[m
+[32m+[m
+[32m+[m[32m- Default to documentation, analysis, and recommendations unless the user explicitly asks for code changes or implementation work.[m
+[32m+[m[32m- During audit, inspection, or production-readiness review tasks, do not modify application logic, database schema, API behavior, UI logic, or business rules unless the user explicitly instructs otherwise.[m
+[32m+[m[32m- Prefer creating documentation files such as upgrade plans, audit notes, risk assessments, or checklists over changing working code during review-only tasks.[m
+[32m+[m[32m- If a user asks for a fix or implementation, perform the relevant code changes only after confirming the exact requirement and scope.[m
+[32m+[m[32m- Preserve current production behavior during audit-only work and avoid unnecessary refactors or cleanup that are not requested.[m
+[32m+[m[32m- When preparing audit output, clearly distinguish between findings, recommendations, and future implementation work; do not mix inspection-only conclusions with unapproved code changes.[m
+[32m+[m
+[32m+[m[32m## Admin payment approval UI guidance[m
+[32m+[m
+[32m+[m[32m- The admin payment approval flow belongs in the admin orders dashboard and should follow the workflow described in ADMIN_PAYMENT_UI_GUIDE.md.[m
+[32m+[m[32m- For online payment methods such as GCash or PayMaya, show the approval action only when the order is in a valid review state: payment status is PAID and order status is PENDING_PAYMENT.[m
+[32m+[m[32m- Do not show payment approval buttons for cash orders; cash orders should follow the confirm/complete flow instead of a payment approval flow.[m
+[32m+[m[32m- If payment is pending, failed, or cancelled, keep the payment state visible but do not allow approval.[m
+[32m+[m[32m- The UI must reflect the server-backed payment and order state accurately, never assume client-side values are valid.[m
+[32m+[m[32m- Do not change the meaning of payment status badges or order status labels without updating the business logic and the UI guide together.[m
+[32m+[m[32m- Keep payment approval distinct from general order confirmation: approval is for online payment verification, while confirmation is for order progression or cash settlement.[m
+[32m+[m[32m- Cash payment must not be treated as paid before the order reaches completion; the effective cash payment status should remain pending until the order is completed.[m
+[32m+[m[32m- For future implementation work, prefer a single source of truth for order lifecycle rules instead of duplicating logic between UI, route handlers, and shared helpers.[m
+[1mdiff --git a/.vscode/settings.json b/.vscode/settings.json[m
+[1mindex 6010a74..6bdf2f8 100644[m
+[1m--- a/.vscode/settings.json[m
+[1m+++ b/.vscode/settings.json[m
+[36m@@ -1,24 +1,42 @@[m
+ {[m
+[31m-    "prisma.pinToPrisma6": true,[m
+[31m-    "claudeCode.useTerminal": true,[m
+[31m-    "files.exclude": {[m
+[31m-        "**/node_modules": true,[m
+[31m-        "**/introspected.prisma": true[m
+[31m-    },[m
+[31m-    "files.watcherExclude"

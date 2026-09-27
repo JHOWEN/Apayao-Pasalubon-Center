@@ -1,0 +1,325 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                              String          @id @default(cuid())
+  name                            String
+  email                           String          @unique
+  password                        String
+  phone                           String?
+  address                         String?
+  role                            Role            @default(CUSTOMER)
+  createdAt                       DateTime        @default(now())
+  updatedAt                       DateTime        @updatedAt
+  imageUrl                        String?
+  emailVerified                   Boolean         @default(false)
+  emailVerificationToken          String?
+  emailVerificationTokenExpiresAt DateTime?
+  passwordResetToken              String?
+  passwordResetTokenExpiresAt     DateTime?
+  isBlocked                       Boolean         @default(false)
+  activities                      ActivityLog[]
+  cart                            Cart?
+  orders                          Order[]
+  reviews                         ProductReview[]
+
+  @@index([role])
+}
+
+model Category {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+}
+
+model Product {
+  id                String                 @id @default(cuid())
+  name              String
+  sku               String                 @unique
+  description       String?
+  imageUrl          String?
+  price             Decimal                @db.Decimal(10, 2)
+  cost              Decimal                @db.Decimal(10, 2)
+  stock             Int                    @default(0)
+  minStock          Int                    @default(5)
+  isActive          Boolean                @default(true)
+  status            ProductStatus          @default(PUBLISHED)
+  hasVariants       Boolean                @default(false)
+  sellingMode       ProductSellingMode     @default(SIMPLE)
+  categoryId        String
+  optionType        String?
+  optionName        String?
+  optionValues      String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  cartItems         CartItem[]
+  inventoryLogs     InventoryTransaction[]
+  orderItems        OrderItem[]
+  category          Category               @relation(fields: [categoryId], references: [id])
+  variants          ProductVariant[]
+  reviews           ProductReview[]
+  productGroupItems ProductGroupItem[]
+
+  @@index([categoryId])
+}
+
+model ProductVariant {
+  id            String                 @id @default(cuid())
+  productId     String
+  sku           String                 @unique
+  price         Decimal                @db.Decimal(10, 2)
+  cost          Decimal                @db.Decimal(10, 2)
+  stock         Int                    @default(0)
+  minStock      Int                    @default(5)
+  isActive      Boolean                @default(true)
+  attributes    String?
+  imageUrl      String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  cartItems     CartItem[]
+  inventoryLogs InventoryTransaction[]
+  orderItems    OrderItem[]
+  product       Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model Cart {
+  id        String     @id @default(cuid())
+  userId    String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  user      User       @relation(fields: [userId], references: [id])
+  items     CartItem[]
+}
+
+model CartItem {
+  id        String          @id @default(cuid())
+  cartId    String
+  productId String
+  quantity  Int
+  createdAt DateTime        @default(now())
+  variantId String?
+  cart      Cart            @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product   Product         @relation(fields: [productId], references: [id])
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+}
+
+model Order {
+  id                String        @id @default(cuid())
+  orderNumber       String        @unique
+  idempotencyKey    String?       @unique
+  userId            String?
+  customerName      String
+  customerPhone     String
+  pickupDate        DateTime?
+  pickupTime        String?
+  totalAmount       Decimal       @db.Decimal(10, 2)
+  paymentMethod     PaymentMethod @default(CASH)
+  paymentStatus     PaymentStatus @default(PENDING)
+  paymentReference  String?
+  proofOfPaymentUrl String?
+  paidAt            DateTime?
+  status            OrderStatus   @default(PENDING_PAYMENT)
+  isWalkIn          Boolean       @default(false)
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  user              User?         @relation(fields: [userId], references: [id])
+  items             OrderItem[]
+
+  @@index([status, createdAt])
+  @@index([paymentStatus, createdAt])
+  @@index([userId, createdAt])
+  @@index([pickupDate, status])
+}
+
+model OrderItem {
+  id        String          @id @default(cuid())
+  orderId   String
+  productId String
+  quantity  Int
+  price     Decimal         @db.Decimal(10, 2)
+  subtotal  Decimal         @db.Decimal(10, 2)
+  variantId String?
+  order     Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product         @relation(fields: [productId], references: [id])
+  variant   ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
+}
+
+model InventoryTransaction {
+  id               String          @id @default(cuid())
+  productId        String?
+  productName      String?
+  type             InventoryType
+  eventType        String?
+  quantity         Int
+  stockBefore      Int?
+  stockAfter       Int?
+  reservedBefore   Int?
+  reservedAfter    Int?
+  remarks          String?
+  performedByName  String?
+  performedByType  String?
+  source           String?
+  customerName     String?
+  orderNumber      String?
+  paymentMethod    PaymentMethod?
+  paymentStatus    PaymentStatus?
+  paymentReference String?
+  createdAt        DateTime        @default(now())
+  isArchived       Boolean         @default(false)
+  archivedAt       DateTime?
+  variantId        String?
+  product          Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variant          ProductVariant? @relation(fields: [variantId], references: [id])
+
+  @@index([type, createdAt])
+  @@index([eventType, createdAt])
+  @@index([orderNumber])
+  @@index([variantId, createdAt])
+  @@index([source, createdAt])
+}
+
+model ProductGroup {
+  id          String             @id @default(cuid())
+  name        String
+  description String?
+  imageUrl    String?
+  optionType  String
+  optionName  String?
+  unit        String?
+  status      ProductGroupStatus @default(DRAFT)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  items       ProductGroupItem[]
+}
+
+model ProductGroupItem {
+  id                 String       @id @default(cuid())
+  productGroupId     String
+  inventoryProductId String
+  optionValue        String
+  sortOrder          Int          @default(0)
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  productGroup       ProductGroup @relation(fields: [productGroupId], references: [id], onDelete: Cascade)
+  inventoryProduct   Product      @relation(fields: [inventoryProductId], references: [id], onDelete: Restrict)
+
+  @@unique([productGroupId, inventoryProductId])
+  @@index([productGroupId])
+  @@index([inventoryProductId])
+}
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  userId      String
+  action      String
+  description String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model AppSetting {
+  id                 String   @id @default(cuid())
+  key                String   @unique @default("default")
+  appName            String   @default("APC Inventory")
+  currency           String   @default("PHP")
+  gcashAccountName   String?
+  gcashAccountNumber String?
+  gcashQrCodeUrl     String?
+  mayaAccountName    String?
+  mayaAccountNumber  String?
+  mayaQrCodeUrl      String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+
+model RateLimitEntry {
+  key          String    @id
+  count        Int       @default(0)
+  resetAt      DateTime
+  blockedUntil DateTime?
+  updatedAt    DateTime  @updatedAt
+}
+
+model ProductReview {
+  id          String   @id @default(cuid())
+  productId   String
+  userId      String
+  rating      Int
+  comment     String?
+  optionValue String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  product     Product  @relation(fields: [productId], references: [id])
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, productId])
+  @@index([productId, createdAt])
+}
+
+enum Role {
+  ADMIN
+  STAFF
+  CUSTOMER
+}
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+  ARCHIVED
+}
+
+enum ProductSellingMode {
+  SIMPLE
+  PARENT_AND_VARIANTS
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PENDING
+  CONFIRMED
+  PREPARING
+  READY_FOR_PICKUP
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  GCASH
+  PAYMAYA
+}
+
+enum InventoryType {
+  STOCK_IN
+  STOCK_OUT
+  ADJUSTMENT
+  RETURN
+}
+
+enum ProductGroupStatus {
+  DRAFT
+  PUBLISHED
+}
