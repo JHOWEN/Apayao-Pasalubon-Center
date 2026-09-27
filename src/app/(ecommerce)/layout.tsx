@@ -130,17 +130,23 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     const readNotifications = (): OrderStatusNotification[] => {
       try {
         const stored = JSON.parse(window.localStorage.getItem(notificationsKey) ?? "[]");
-        return Array.isArray(stored) ? stored : [];
+        if (!Array.isArray(stored)) return [];
+
+        const latest = stored.slice(0, 1);
+        if (stored.length > latest.length) {
+          window.localStorage.setItem(notificationsKey, JSON.stringify(latest));
+        }
+        return latest;
       } catch {
         return [];
       }
     };
 
     const saveNotifications = (next: OrderStatusNotification[]) => {
-      const limited = next.slice(0, 20);
-      window.localStorage.setItem(notificationsKey, JSON.stringify(limited));
-      setOrderNotifications(limited);
-      setNotificationCount(limited.length);
+      const latest = next.slice(0, 1);
+      window.localStorage.setItem(notificationsKey, JSON.stringify(latest));
+      setOrderNotifications(latest);
+      setNotificationCount(latest.length);
     };
 
     const loadOrderStatuses = async () => {

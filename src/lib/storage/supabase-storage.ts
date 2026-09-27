@@ -55,7 +55,11 @@ export class SupabaseStorageService implements StorageService {
     const normalizedKey = key.replace(/^\/+/, "");
     let lastError = "No signed URL returned.";
 
-    for (let attempt = 0; attempt < 2; attempt += 1) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, 250 * 2 ** (attempt - 1)));
+      }
+
       const { data, error } = await this.client.storage.from(bucket).createSignedUrl(normalizedKey, expiresIn);
       if (!error && data?.signedUrl) {
         return data.signedUrl;

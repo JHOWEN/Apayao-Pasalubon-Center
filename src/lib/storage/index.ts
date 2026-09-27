@@ -21,13 +21,10 @@ export async function resolvePaymentProofUrl(value?: string | null) {
   try {
     return await storageService.createSignedUrl(PAYMENT_PROOF_BUCKET, value, 300);
   } catch (error) {
-    const fallbackUrl = storageService.getPublicUrl(PAYMENT_PROOF_BUCKET, value);
-    console.warn("Payment proof signed URL failed; falling back to public storage URL.", {
-      value,
-      fallbackUrl,
+    console.warn("Unable to create a signed URL for a payment proof.", {
       error: error instanceof Error ? error.message : String(error),
     });
-    return fallbackUrl;
+    return null;
   }
 }
 
