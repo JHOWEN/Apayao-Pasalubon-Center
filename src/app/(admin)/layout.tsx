@@ -263,7 +263,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             <div className="flex items-center gap-2 sm:gap-2.5">
               {/* Storefront preview shortcut */}
               <Link
-                href="http://10.168.176.110:3000/"
+                href="/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="hidden sm:inline-flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition-all duration-150 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-white active:scale-[0.98]"

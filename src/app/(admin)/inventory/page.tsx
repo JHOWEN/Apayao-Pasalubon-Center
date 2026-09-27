@@ -1709,7 +1709,6 @@ export default function InventoryPage() {
               </div>
 
               <div className="flex gap-3">
-                <button type="button" onClick={clearMovementSelection} className="rounded-lg border border-slate-200 px-4 py-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800">Reset</button>
                 <button type="submit" disabled={!movementProductId || isLoadingMovementProducts || Boolean(movementProductId && !movementProduct) || (movementHasVariants && !movementVariantId) || (!movementAction.includes("threshold") && movementQuantityNumber <= 0) || (movementAction === "stock-out" && movementQuantityNumber > movementCurrentStock) || isSubmittingMovement} className={`flex-1 rounded-lg px-4 py-2.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 ${movementAction === "stock-in" ? "bg-emerald-600 hover:bg-emerald-700" : movementAction === "stock-out" ? "bg-rose-600 hover:bg-rose-700" : "bg-amber-600 hover:bg-amber-700"}`}>
                   {isSubmittingMovement ? "Saving update..." : movementAction === "stock-in" ? "Save Stock In" : movementAction === "stock-out" ? "Save Stock Out" : "Save Threshold"}
                 </button>
