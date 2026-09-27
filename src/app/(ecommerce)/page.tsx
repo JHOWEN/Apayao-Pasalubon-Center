@@ -703,7 +703,7 @@ function EcommerceHomeContent() {
                 Support & Location
               </span>
               <h3 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">
-                Need Help or Visiting Us?
+                Get in Touch or Visit Us
               </h3>
             </div>
             <p className="text-xs text-slate-400">

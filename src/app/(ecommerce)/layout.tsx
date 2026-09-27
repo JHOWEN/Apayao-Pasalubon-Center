@@ -148,7 +148,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
         if (!Array.isArray(orders)) return;
 
         const activeOrders = (orders as Array<{ id: string; orderNumber: string; status: string }>)
-          .filter((order) => order.status !== "COMPLETED")
+          .filter((order) => order.status !== "COMPLETED" && order.status !== "CANCELLED")
           .map((order) => {
             return {
               id: order.id,
