@@ -18,11 +18,10 @@ type OrderStatusNotification = {
   id: string;
   orderNumber: string;
   status: string;
-  message: string;
-  createdAt: string;
 };
 
 const orderStatusLabels: Record<string, string> = {
+  PENDING_PAYMENT: "Awaiting payment",
   PENDING: "Pending",
   CONFIRMED: "Confirmed",
   PREPARING: "Preparing",
@@ -83,8 +82,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
 
     const updateCount = () => {
       setCartCount(getCartCount());
-      const storedCount = Number(window.localStorage.getItem("apc-customer-notifications") ?? "0");
-      setNotificationCount(Number.isFinite(storedCount) ? storedCount : 0);
     };
 
     const refreshProfile = () => {
@@ -110,13 +107,11 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     window.addEventListener("apc-user-updated", refreshProfile);
     window.addEventListener("apc-cart-toss", triggerCartToss);
     window.addEventListener("apc-cart-stock-warning", showStockWarning);
-    window.addEventListener("apc-customer-notifications-updated", updateCount);
     return () => {
       window.removeEventListener("storage", updateCount);
       window.removeEventListener("apc-user-updated", refreshProfile);
       window.removeEventListener("apc-cart-toss", triggerCartToss);
       window.removeEventListener("apc-cart-stock-warning", showStockWarning);
-      window.removeEventListener("apc-customer-notifications-updated", updateCount);
       if (stockWarningTimeout !== undefined) window.clearTimeout(stockWarningTimeout);
     };
   }, []);
@@ -125,28 +120,20 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     if (!user) return;
 
     const notificationsKey = "apc-customer-order-status-notifications";
-    const snapshotKey = "apc-customer-order-status-snapshot";
 
     const readNotifications = (): OrderStatusNotification[] => {
       try {
         const stored = JSON.parse(window.localStorage.getItem(notificationsKey) ?? "[]");
-        if (!Array.isArray(stored)) return [];
-
-        const latest = stored.slice(0, 1);
-        if (stored.length > latest.length) {
-          window.localStorage.setItem(notificationsKey, JSON.stringify(latest));
-        }
-        return latest;
+        return Array.isArray(stored) ? stored : [];
       } catch {
         return [];
       }
     };
 
     const saveNotifications = (next: OrderStatusNotification[]) => {
-      const latest = next.slice(0, 1);
-      window.localStorage.setItem(notificationsKey, JSON.stringify(latest));
-      setOrderNotifications(latest);
-      setNotificationCount(latest.length);
+      window.localStorage.setItem(notificationsKey, JSON.stringify(next));
+      setOrderNotifications(next);
+      setNotificationCount(next.length);
     };
 
     const loadOrderStatuses = async () => {
@@ -160,35 +147,17 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
         const orders = await response.json();
         if (!Array.isArray(orders)) return;
 
-        const nextSnapshot: Record<string, { status?: string; orderNumber?: string }> = Object.fromEntries(
-          orders.map((order: { id?: string; status?: string; orderNumber?: string }) => [
-            order.id,
-            { status: order.status, orderNumber: order.orderNumber },
-          ]),
-        );
-        const previousSnapshot = JSON.parse(window.localStorage.getItem(snapshotKey) ?? "null") as Record<string, { status?: string; orderNumber?: string }> | null;
+        const activeOrders = (orders as Array<{ id: string; orderNumber: string; status: string }>)
+          .filter((order) => order.status !== "COMPLETED")
+          .map((order) => {
+            return {
+              id: order.id,
+              orderNumber: order.orderNumber,
+              status: order.status,
+            };
+          });
 
-        if (previousSnapshot) {
-          const changes = Object.keys(nextSnapshot)
-            .filter((id) => previousSnapshot[id]?.status && previousSnapshot[id].status !== nextSnapshot[id].status)
-            .map((id) => {
-              const current = nextSnapshot[id];
-
-              return {
-              id: `${id}-${current.status}-${Date.now()}`,
-              orderNumber: current.orderNumber ?? "",
-              status: current.status ?? "",
-              message: `Order #${current.orderNumber ?? ""} is now ${orderStatusLabels[current.status ?? ""] ?? current.status}.`,
-              createdAt: new Date().toISOString(),
-              };
-            });
-
-          if (changes.length) {
-            saveNotifications([...changes, ...readNotifications()]);
-          }
-        }
-
-        window.localStorage.setItem(snapshotKey, JSON.stringify(nextSnapshot));
+        saveNotifications(activeOrders);
       } catch {
         // Keep the existing notifications when status polling is unavailable.
       }
@@ -231,17 +200,13 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                 <span className="text-xs font-bold uppercase tracking-wider text-white">Order updates</span>
               </div>
               {orderNotifications.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    window.localStorage.removeItem("apc-customer-order-status-notifications");
-                    setOrderNotifications([]);
-                    setNotificationCount(0);
-                  }}
-                  className="rounded-lg px-2 py-0.5 text-[11px] font-semibold text-[#ffb36f] hover:text-[#ff8a1e] hover:bg-white/5 transition-colors"
+                <Link
+                  href="/orders"
+                  onClick={() => setIsNotificationsOpen(false)}
+                  className="rounded-lg px-2 py-0.5 text-[11px] font-semibold text-[#ffb36f] transition-colors hover:bg-white/5 hover:text-[#ff8a1e]"
                 >
-                  Clear all
-                </button>
+                  View orders
+                </Link>
               )}
             </div>
             <div className="max-h-72 space-y-2 overflow-y-auto pt-3 pr-0.5">
@@ -259,9 +224,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                         {orderStatusLabels[notification.status] ?? notification.status}
                       </span>
                     </div>
-                    <p className="mt-1 text-[11px] text-slate-400 leading-relaxed">
-                      {notification.message}
-                    </p>
                   </div>
                 ))
               ) : (
