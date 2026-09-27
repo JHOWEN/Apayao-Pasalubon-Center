@@ -853,7 +853,8 @@ export default function AdminOrdersPage() {
               <tr className="border-b border-slate-200 bg-slate-50/80 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
                 <th className="py-3 px-4">Order</th>
                 <th className="py-3 px-4">Customer</th>
-                <th className="py-3 px-4">Schedule</th>
+                <th className="py-3 px-4">Channel</th>
+                <th className="py-3 px-4">Pickup</th>
                 <th className="py-3 px-4">Items</th>
                 <th className="py-3 px-4">Payment</th>
                 <th className="py-3 px-4">Status</th>
@@ -865,28 +866,22 @@ export default function AdminOrdersPage() {
               {isLoading ? (
                 Array.from({ length: 5 }).map((_, rowIndex) => (
                   <tr key={`orders-skeleton-${rowIndex}`} className="animate-pulse">
-                    {Array.from({ length: 8 }).map((__, cellIndex) => (
+                    {Array.from({ length: 9 }).map((__, cellIndex) => (
                       <td key={`orders-skeleton-${rowIndex}-${cellIndex}`} className="px-4 py-4">
-                        <div className={`h-3 rounded bg-slate-200 dark:bg-slate-700 ${cellIndex === 7 ? "ml-auto w-12" : cellIndex === 1 ? "w-28" : "w-20"}`} />
+                        <div className={`h-3 rounded bg-slate-200 dark:bg-slate-700 ${cellIndex === 8 ? "ml-auto w-12" : cellIndex === 1 ? "w-28" : "w-20"}`} />
                       </td>
                     ))}
                   </tr>
                 ))
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     <Package className="mx-auto mb-2 h-7 w-7 text-slate-300 dark:text-slate-600" />
                     <span>No orders match your selected filter criteria.</span>
                   </td>
                 </tr>
               ) : (
                 paginatedOrders.items.map((order) => {
-                  const scheduleLabel = order.isWalkIn
-                    ? "Walk-in"
-                    : order.pickupDate
-                    ? "Pickup"
-                    : "Pick up schedule not set";
-
                   return (
                     <Fragment key={order.id}>
                       <tr className="transition hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
@@ -914,18 +909,27 @@ export default function AdminOrdersPage() {
                           </span>
                         </td>
 
-                        {/* Schedule / Pickup Date */}
+                        {/* Sales Channel */}
+                        <td className="py-3 px-4">
+                          <span className="inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                            {order.isWalkIn ? "POS" : "Ecommerce"}
+                          </span>
+                        </td>
+
+                        {/* Pickup Schedule */}
                         <td className="py-3 px-4">
                           <span className="block font-medium text-slate-800 dark:text-slate-200">
-                            {order.pickupDate
+                            {order.isWalkIn
+                              ? "Not applicable"
+                              : order.pickupDate
                               ? new Date(order.pickupDate).toLocaleDateString("en-US", {
                                   month: "short",
                                   day: "numeric",
                                   year: "numeric",
                                 })
-                              : "Pick up schedule not set"}
+                              : "Schedule not set"}
                           </span>
-                          {order.pickupTime && (
+                          {!order.isWalkIn && order.pickupTime && (
                             <span className="mt-1 block text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
                               <span className="mr-1 font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                                 Time
@@ -933,9 +937,6 @@ export default function AdminOrdersPage() {
                               {formatPickupTimeLabel(order.pickupTime)}
                             </span>
                           )}
-                          <span className="inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-400">
-                            {scheduleLabel}
-                          </span>
                         </td>
 
                         {/* Items */}
@@ -965,18 +966,6 @@ export default function AdminOrdersPage() {
                                 )}
                                 {getPaymentLabel(order.paymentStatus, order.paymentMethod, order.status)}
                               </span>
-
-                              {/* Clickable Quick Proof Indicator if uploaded and payment requires review */}
-                              {order.paymentMethod !== "CASH" && order.proofOfPaymentUrl && (
-                                <button
-                                  type="button"
-                                  onClick={() => setPaymentProofViewerUrl(order.proofOfPaymentUrl ?? null)}
-                                  className="rounded-md border border-blue-200 bg-blue-50 p-1 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-300"
-                                  title="View uploaded payment receipt"
-                                >
-                                  <Eye className="h-3 w-3" />
-                                </button>
-                              )}
                             </div>
                             <span className="text-[11px] text-slate-400">
                               Method: {order.paymentMethod ?? "CASH"}
