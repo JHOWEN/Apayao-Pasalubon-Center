@@ -5,7 +5,6 @@ import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
   Layers3,
   Package,
   Pencil,
@@ -25,6 +24,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import AttributeManager, { type Attribute } from "@/components/admin/AttributeManager";
+import { AdminToast } from "@/components/admin/admin-toast";
 import VariantGenerator, { type Variant } from "@/components/admin/VariantGenerator";
 import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
 import {
@@ -260,7 +260,6 @@ export default function InventoryPage() {
   function triggerSuccessToast(message: string) {
     setSuccessMessage(message);
     setShowSuccessToast(true);
-    window.setTimeout(() => setShowSuccessToast(false), 3000);
   }
 
   function openMovementSection(action: InventoryMovementAction, target?: { productId?: string; variantId?: string } | null) {
@@ -766,10 +765,7 @@ export default function InventoryPage() {
     <div className="flex flex-1 flex-col space-y-6">
       {/* Toast Notification */}
       {showSuccessToast && (
-        <div className="fixed left-1/2 top-20 z-70 flex -translate-x-1/2 items-center gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-lg dark:border-emerald-900/60 dark:bg-emerald-950 dark:text-emerald-200 animate-in fade-in slide-in-from-top-2 duration-200">
-          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
-          <span>{successMessage}</span>
-        </div>
+        <AdminToast type="success" message={successMessage} onDismiss={() => setShowSuccessToast(false)} />
       )}
 
       {/* Delete Product Confirmation Dialog */}

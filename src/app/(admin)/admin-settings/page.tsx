@@ -1,11 +1,10 @@
 "use client";
 
 import NextImage from "next/image";
+import { AdminToast } from "@/components/admin/admin-toast";
 import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
 import {
-  AlertCircle,
   Check,
-  CheckCircle2,
   Copy,
   CreditCard,
   Info,
@@ -130,9 +129,6 @@ export default function AdminSettingsPage() {
 
   const showToast = (type: "success" | "error", message: string) => {
     setToast({ show: true, type, message });
-    setTimeout(() => {
-      setToast((prev) => ({ ...prev, show: false }));
-    }, 2800);
   };
 
   useEffect(() => {
@@ -568,16 +564,11 @@ export default function AdminSettingsPage() {
     <div className="space-y-6 pb-16 text-slate-900 dark:text-slate-100">
       {/* Universal Floating Toast */}
       {toast.show && (
-        <div className="fixed left-1/2 top-20 z-70 flex -translate-x-1/2 animate-in fade-in slide-in-from-bottom-5 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xl dark:border-slate-800 dark:bg-slate-900">
-          {toast.type === "success" ? (
-            <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-          ) : (
-            <AlertCircle className="h-4 w-4 text-rose-600 dark:text-rose-400" />
-          )}
-          <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
-            {toast.message}
-          </span>
-        </div>
+        <AdminToast
+          type={toast.type}
+          message={toast.message}
+          onDismiss={() => setToast((current) => ({ ...current, show: false }))}
+        />
       )}
 
       {/* 1. Header with Role Indicator */}

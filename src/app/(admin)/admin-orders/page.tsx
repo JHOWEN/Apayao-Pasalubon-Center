@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
+import { AdminToast } from "@/components/admin/admin-toast";
 import styles from "./admin-orders.module.css";
 import {
   AlertTriangle,
@@ -103,6 +104,7 @@ export default function AdminOrdersPage() {
   const [statusUpdateFeedback, setStatusUpdateFeedback] = useState<{
     title: string;
     message: string;
+    type: "success" | "error";
   } | null>(null);
   const [, setIsProcessingPaymentAction] = useState(false);
 
@@ -372,6 +374,7 @@ export default function AdminOrdersPage() {
       setStatusUpdateFeedback({
         title: "Status not updated",
         message: data.message ?? "Unable to update order status.",
+        type: "error",
       });
       return false;
     }
@@ -412,6 +415,7 @@ export default function AdminOrdersPage() {
       setStatusUpdateFeedback({
         title: "Payment approval failed",
         message: data.message ?? "Unable to approve payment.",
+        type: "error",
       });
       return;
     }
@@ -426,6 +430,7 @@ export default function AdminOrdersPage() {
     setStatusUpdateFeedback({
       title: "Payment approved",
       message: "Payment confirmed for order. Stock has been reserved.",
+      type: "success",
     });
   }
 
@@ -444,6 +449,7 @@ export default function AdminOrdersPage() {
       setStatusUpdateFeedback({
         title: "Payment decline failed",
         message: data.message ?? "Unable to decline payment.",
+        type: "error",
       });
       return;
     }
@@ -458,6 +464,7 @@ export default function AdminOrdersPage() {
     setStatusUpdateFeedback({
       title: "Payment declined",
       message: "Order was cancelled and stock was released.",
+      type: "success",
     });
   }
 
@@ -581,16 +588,6 @@ export default function AdminOrdersPage() {
       window.clearInterval(intervalId);
     };
   }, [loadOrders]);
-
-  useEffect(() => {
-    if (!statusUpdateFeedback) return;
-
-    const timer = window.setTimeout(() => {
-      setStatusUpdateFeedback(null);
-    }, 1600);
-
-    return () => window.clearTimeout(timer);
-  }, [statusUpdateFeedback]);
 
   const detailOrder = orders.find((order) => order.id === detailOrderId) ?? null;
 
@@ -1544,6 +1541,7 @@ export default function AdminOrdersPage() {
                     setStatusUpdateFeedback({
                       title: "Order Updated",
                       message: `${manageModal.orderNumber} status changed to ${getStatusLabel(manageModal.status)}.`,
+                      type: "success",
                     });
                   }
                 }}
@@ -1636,15 +1634,12 @@ export default function AdminOrdersPage() {
 
       {/* 8. Toast Feedback Alert */}
       {statusUpdateFeedback && (
-        <div className="fixed left-1/2 top-20 z-70 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-emerald-200 bg-white p-4 shadow-lg dark:border-slate-700 dark:bg-slate-900 animate-in fade-in">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
-            <CheckCircle className="h-4 w-4" />
-          </div>
-          <div>
-            <h4 className="text-xs font-bold text-slate-900 dark:text-white">{statusUpdateFeedback.title}</h4>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">{statusUpdateFeedback.message}</p>
-          </div>
-        </div>
+        <AdminToast
+          type={statusUpdateFeedback.type}
+          title={statusUpdateFeedback.title}
+          message={statusUpdateFeedback.message}
+          onDismiss={() => setStatusUpdateFeedback(null)}
+        />
       )}
     </div>
   );

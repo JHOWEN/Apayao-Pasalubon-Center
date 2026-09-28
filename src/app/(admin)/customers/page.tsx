@@ -1,9 +1,9 @@
 "use client";
+import { AdminToast } from "@/components/admin/admin-toast";
 
 import {
   AlertTriangle,
   Ban,
-  Check,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -85,12 +85,6 @@ export default function CustomersPage() {
   const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Auto dismiss toast
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 3500);
-    return () => clearTimeout(timer);
-  }, [toast]);
-
   // Lock body scroll when any modal is active
   useEffect(() => {
     const hasModal = Boolean(viewingCustomer || editingCustomer || blockingCustomer);
@@ -386,25 +380,7 @@ export default function CustomersPage() {
     <div className="flex flex-1 flex-col space-y-6">
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed left-1/2 top-20 z-70 flex -translate-x-1/2 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs font-semibold shadow-xl dark:border-slate-800 dark:bg-slate-900 animate-in slide-in-from-bottom-5">
-          {toast.type === "success" ? (
-            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
-              <Check className="h-3 w-3" />
-            </div>
-          ) : (
-            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950 dark:text-rose-400">
-              <AlertTriangle className="h-3 w-3" />
-            </div>
-          )}
-          <span className="text-slate-900 dark:text-white">{toast.message}</span>
-          <button
-            type="button"
-            onClick={() => setToast(null)}
-            className="ml-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        <AdminToast type={toast.type} message={toast.message} onDismiss={() => setToast(null)} />
       )}
 
       {/* Page Header */}

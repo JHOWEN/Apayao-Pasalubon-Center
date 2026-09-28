@@ -2,10 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertCircle,
   AlertTriangle,
   Check,
-  CheckCircle2,
   FolderOpen,
   Loader2,
   PencilLine,
@@ -17,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
+import { AdminToast } from "@/components/admin/admin-toast";
 import {
   ADMIN_MODAL_BACKDROP_CLASS,
   ADMIN_MODAL_PANEL_CLASS,
@@ -54,14 +53,6 @@ export default function CategoriesPage() {
   }, [categoryToDelete]);
 
   // Auto-dismiss status toast after 3 seconds
-  useEffect(() => {
-    if (!status) return;
-    const timer = window.setTimeout(() => {
-      setStatus(null);
-    }, 3200);
-    return () => window.clearTimeout(timer);
-  }, [status]);
-
   async function loadCategories(isManualRefresh = false) {
     if (isManualRefresh) setIsRefreshing(true);
     try {
@@ -218,31 +209,7 @@ export default function CategoriesPage() {
     <div className="space-y-5 text-slate-800 dark:text-slate-100">
       {/* Toast Notification */}
       {status && (
-        <div className="fixed left-1/2 top-20 z-80 flex -translate-x-1/2 justify-center px-4 pointer-events-none">
-          <div className="w-full max-w-sm pointer-events-auto">
-            <div
-              className={`flex items-center gap-2.5 rounded-lg border px-4 py-3 text-xs font-semibold shadow-lg transition-all ${
-                status.type === "success"
-                  ? "border-emerald-200 bg-emerald-600 text-white dark:border-emerald-800 dark:bg-emerald-700"
-                  : "border-rose-200 bg-rose-600 text-white dark:border-rose-800 dark:bg-rose-700"
-              }`}
-            >
-              {status.type === "success" ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-              ) : (
-                <AlertCircle className="h-4 w-4 shrink-0" />
-              )}
-              <span className="flex-1 wrap-break-words">{status.text}</span>
-              <button
-                type="button"
-                onClick={() => setStatus(null)}
-                className="rounded p-0.5 text-white/80 hover:bg-white/20 hover:text-white"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
+        <AdminToast type={status.type} message={status.text} onDismiss={() => setStatus(null)} />
       )}
 
       {/* Page Header */}

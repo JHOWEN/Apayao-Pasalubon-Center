@@ -4,9 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
-  AlertCircle,
   Check,
-  CheckCircle2,
   Edit2,
   ExternalLink,
   Eye,
@@ -25,6 +23,7 @@ import {
 } from "lucide-react";
 import { parseImageUrls } from "@/features/catalog/utils/product-images";
 import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
+import { AdminToast } from "@/components/admin/admin-toast";
 import {
   ADMIN_MODAL_BACKDROP_CLASS,
   ADMIN_MODAL_PANEL_CLASS,
@@ -416,35 +415,17 @@ export default function ProductsPage() {
     });
   }, [products, statusFilter, searchQuery]);
 
+  const isSuccessStatus = ["success", "marked as", "saved"].some((text) => status.toLowerCase().includes(text));
+
   return (
     <div className="space-y-5 text-slate-800 dark:text-slate-100">
       {/* Toast / Notification Banner */}
       {status ? (
-        <div className="fixed left-1/2 top-20 z-80 flex -translate-x-1/2 justify-center px-4 pointer-events-none">
-          <div className="w-full max-w-sm pointer-events-auto">
-            <div
-              className={`flex items-center gap-2.5 rounded-lg border px-4 py-3 text-xs font-semibold shadow-lg transition-all ${
-                status.toLowerCase().includes("success") || status.toLowerCase().includes("marked as") || status.toLowerCase().includes("saved")
-                  ? "border-emerald-200 bg-emerald-600 text-white dark:border-emerald-800 dark:bg-emerald-700"
-                  : "border-amber-200 bg-amber-600 text-white dark:border-amber-800 dark:bg-amber-700"
-              }`}
-            >
-              {status.toLowerCase().includes("success") || status.toLowerCase().includes("marked as") || status.toLowerCase().includes("saved") ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-              ) : (
-                <AlertCircle className="h-4 w-4 shrink-0" />
-              )}
-              <span className="flex-1 wrap-break-words">{status}</span>
-              <button
-                type="button"
-                onClick={() => setStatus("")}
-                className="rounded p-0.5 text-white/80 hover:bg-white/20 hover:text-white"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        </div>
+        <AdminToast
+          type={isSuccessStatus ? "success" : "error"}
+          message={status}
+          onDismiss={() => setStatus("")}
+        />
       ) : null}
 
       {/* Page Header */}
