@@ -6,6 +6,7 @@ import {
   ArchiveRestore,
   ArrowDownRight,
   ArrowUpRight,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
@@ -14,6 +15,7 @@ import {
   Clock,
   Download,
   FileText,
+  ListFilter,
   Package,
   RefreshCw,
   RotateCcw,
@@ -220,10 +222,19 @@ export default function InventoryTransactionsPage() {
   const hasFilters = Boolean(
     search ||
     movementFilter !== "ALL" ||
+    sourceFilter !== "ALL" ||
     archiveFilter !== "all" ||
     fromDate ||
     toDate,
   );
+  const activeFilterCount = [
+    search.trim(),
+    movementFilter !== "ALL",
+    sourceFilter !== "ALL",
+    archiveFilter !== "all",
+    fromDate,
+    toDate,
+  ].filter(Boolean).length;
   const visibleAllSelected =
     records.length > 0 &&
     records.every((record) => selectedIds.includes(record.id));
@@ -329,9 +340,11 @@ export default function InventoryTransactionsPage() {
         : records;
       const rows = [
         [
+          "Transaction ID",
           "Date",
           "Product",
           "Movement",
+          "Event Type",
           "Stock Change",
           "Stock Before",
           "Stock After",
@@ -340,15 +353,22 @@ export default function InventoryTransactionsPage() {
           "Channel",
           "Customer",
           "Order",
+          "Payment Method",
+          "Payment Status",
+          "Payment Reference",
+          "Archived",
+          "Archived At",
           "Remarks",
         ],
         ...exportRows.map((record) => [
+          record.id,
           new Date(record.createdAt).toLocaleString(),
           record.productDisplayName ||
             record.productName ||
             record.product?.name ||
             "Unknown product",
           movementLabel(record.type, record.remarks, record.eventType),
+          record.eventType || "",
           stockChangeLabel(record),
           record.stockBefore ?? "Not recorded",
           record.stockAfter ?? "Not recorded",
@@ -357,6 +377,11 @@ export default function InventoryTransactionsPage() {
           sourceLabel(record.source),
           record.customerName || "",
           record.orderNumber || "",
+          record.paymentMethod || "",
+          record.paymentStatus || "",
+          record.paymentReference || "",
+          record.isArchived ? "Yes" : "No",
+          record.archivedAt ? new Date(record.archivedAt).toLocaleString() : "",
           record.remarks || "",
         ]),
       ];
@@ -458,107 +483,141 @@ export default function InventoryTransactionsPage() {
         ))}
       </div>
 
-      <section className="space-y-3 rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-64 flex-1">
-            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <input
-              value={search}
-              onChange={(event) => changeFilter(setSearch, event.target.value)}
-              placeholder="Search product, variant, staff, order, or remarks..."
-              className="w-full rounded-lg border border-slate-200 bg-slate-50/70 py-2 pl-9 pr-3 text-sm outline-none focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-800"
-            />
+      <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <ListFilter className="h-4 w-4 text-slate-500" />
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Filter ledger</h2>
+            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {activeFilterCount} active
+            </span>
           </div>
-          {(
-            [
-              "ALL",
-              "STOCK_IN",
-              "STOCK_OUT",
-              "ADJUSTMENT",
-              "RETURN",
-            ] as ActivityFilter[]
-          ).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => changeFilter(setMovementFilter, value)}
-              className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${movementFilter === value ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400"}`}
-            >
-              {value === "ALL" ? "All" : value.replace("_", " ")}{" "}
-              {value === "ALL"
-                ? `(${totalCount})`
-                : `(${countsByType[value as keyof typeof countsByType] ?? 0})`}
-            </button>
-          ))}
-          <select
-            value={sourceFilter}
-            onChange={(event) => changeFilter(setSourceFilter, event.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
-            aria-label="Transaction source filter"
-          >
-            <option value="ALL">All sources</option>
-            <option value="ECOMMERCE">Ecommerce</option>
-            <option value="POS">POS</option>
-            <option value="INVENTORY">Inventory</option>
-          </select>
-          <button
-            type="button"
-            onClick={() =>
-              changeFilter(
-                setArchiveFilter,
-                archiveFilter === "all" ? "archived" : "all",
-              )
-            }
-            className="rounded-lg bg-amber-100 px-2.5 py-1.5 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
-          >
-            {archiveFilter === "all" ? "Archived" : "Active"}
-          </button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 text-xs dark:border-slate-800">
-          <span className="font-medium text-slate-500">Date range:</span>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(event) => changeFilter(setFromDate, event.target.value)}
-            className="rounded-lg border border-slate-200 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-800"
-          />
-          <span className="text-slate-400">to</span>
-          <input
-            type="date"
-            value={toDate}
-            onChange={(event) => changeFilter(setToDate, event.target.value)}
-            className="rounded-lg border border-slate-200 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-800"
-          />
-          <button
-            type="button"
-            onClick={() => applyDatePreset(0)}
-            className="rounded-md border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            onClick={() => applyDatePreset(7)}
-            className="rounded-md border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            7 Days
-          </button>
-          <button
-            type="button"
-            onClick={() => applyDatePreset(30)}
-            className="rounded-md border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-          >
-            30 Days
-          </button>
           {hasFilters && (
             <button
               type="button"
               onClick={resetFilters}
-              className="font-semibold text-rose-600"
+              className="text-xs font-semibold text-rose-700 hover:text-rose-800 dark:text-rose-300"
             >
-              Reset filters
+              Clear filters
             </button>
           )}
+        </div>
+
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input
+            value={search}
+            onChange={(event) => changeFilter(setSearch, event.target.value)}
+            placeholder="Search product, variant, staff, order, customer, or remarks"
+            className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+            aria-label="Search inventory transactions"
+          />
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase text-slate-500">Movement type</p>
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {(
+              [
+                ["ALL", "All activity"],
+                ["STOCK_IN", "Stock in"],
+                ["STOCK_OUT", "Stock out"],
+                ["ADJUSTMENT", "Adjustments"],
+                ["RETURN", "Returns"],
+                ["POS_SALE", "POS sales"],
+                ["THRESHOLD_ADJUSTMENT", "Thresholds"],
+              ] as [ActivityFilter, string][]
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => changeFilter(setMovementFilter, value)}
+                aria-pressed={movementFilter === value}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-2 text-xs font-semibold transition ${movementFilter === value ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"}`}
+              >
+                {label}
+                <span className={movementFilter === value ? "text-white/70 dark:text-slate-600" : "text-slate-400"}>
+                  {value === "ALL" ? totalCount : countsByType[value as keyof typeof countsByType] ?? 0}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-4 border-t border-slate-100 pt-4 dark:border-slate-800 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <label className="space-y-1.5 text-xs">
+              <span className="font-semibold text-slate-600 dark:text-slate-300">Source</span>
+              <select
+                value={sourceFilter}
+                onChange={(event) => changeFilter(setSourceFilter, event.target.value)}
+                className="h-9 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                aria-label="Transaction source filter"
+              >
+                <option value="ALL">All sources</option>
+                <option value="ECOMMERCE">Storefront</option>
+                <option value="POS">POS terminal</option>
+                <option value="INVENTORY">Inventory</option>
+              </select>
+            </label>
+            <fieldset className="space-y-1.5">
+              <legend className="text-xs font-semibold text-slate-600 dark:text-slate-300">Record status</legend>
+              <div className="flex h-9 rounded-md border border-slate-200 p-0.5 dark:border-slate-700">
+                {([ ["all", "Active"], ["archived", "Archived"] ] as [ArchiveFilter, string][]).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => changeFilter(setArchiveFilter, value)}
+                    aria-pressed={archiveFilter === value}
+                    className={`flex-1 rounded px-2 text-xs font-semibold transition ${archiveFilter === value ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+              <CalendarDays className="h-3.5 w-3.5" />
+              Recorded date
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex min-w-36 flex-1 items-center gap-2 rounded-md border border-slate-200 px-2.5 dark:border-slate-700 dark:bg-slate-800">
+                <span className="text-[10px] font-semibold uppercase text-slate-400">From</span>
+                <input
+                  type="date"
+                  value={fromDate}
+                  onChange={(event) => changeFilter(setFromDate, event.target.value)}
+                  className="h-8 min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none dark:text-slate-200"
+                  aria-label="Transactions from date"
+                />
+              </label>
+              <label className="flex min-w-36 flex-1 items-center gap-2 rounded-md border border-slate-200 px-2.5 dark:border-slate-700 dark:bg-slate-800">
+                <span className="text-[10px] font-semibold uppercase text-slate-400">To</span>
+                <input
+                  type="date"
+                  value={toDate}
+                  onChange={(event) => changeFilter(setToDate, event.target.value)}
+                  className="h-8 min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none dark:text-slate-200"
+                  aria-label="Transactions to date"
+                />
+              </label>
+              <div className="flex items-center gap-1">
+                {([[0, "Today"], [7, "7 days"], [30, "30 days"], [null, "Any time"]] as [number | null, string][]).map(([days, label]) => (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => applyDatePreset(days)}
+                    className="h-8 rounded-md border border-slate-200 px-2 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -579,21 +638,42 @@ export default function InventoryTransactionsPage() {
       )}
 
       <section className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Transaction ledger</h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {startRecord.toLocaleString()}-{endRecord.toLocaleString()} of {totalCount.toLocaleString()} records
+            </p>
+          </div>
+          {selectedIds.length > 0 && (
+            <div className="flex items-center gap-3" aria-live="polite">
+              <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">
+                {selectedIds.length} selected
+              </span>
+              <button
+                type="button"
+                onClick={() => void updateArchive(archiveFilter === "archived" ? "restore" : "archive", selectedIds)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-amber-600 px-3 text-xs font-semibold text-white transition hover:bg-amber-700"
+              >
+                {archiveFilter === "archived" ? <ArchiveRestore className="h-3.5 w-3.5" /> : <Archive className="h-3.5 w-3.5" />}
+                {archiveFilter === "archived" ? "Restore selected" : "Archive selected"}
+              </button>
+            </div>
+          )}
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full min-w-245 text-left text-xs">
             <thead className="border-b border-slate-200 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-800/60">
               <tr>
                 {[
                   "",
-                  "Timestamp",
-                  "Product & Variant",
+                  "Date & time",
+                  "Product / variant",
                   "Movement",
-                  "Stock Change",
-                  "Stock Before -> After",
-                  "Actor",
-                  "Channel",
-                  "Order / Ref",
-                  "Audit Remarks",
+                  "Stock change",
+                  "Stock balance",
+                  "Recorded by / channel",
+                  "Order / customer / audit note",
                 ].map((heading, index) => (
                   <th
                     key={heading || "select"}
@@ -623,7 +703,7 @@ export default function InventoryTransactionsPage() {
               {isLoading ? (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={8}
                     className="px-4 py-14 text-center text-slate-500"
                   >
                     Loading transactions ledger...
@@ -631,7 +711,7 @@ export default function InventoryTransactionsPage() {
                 </tr>
               ) : records.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-14 text-center">
+                  <td colSpan={8} className="px-4 py-14 text-center">
                     <ClipboardList className="mx-auto mb-2 h-7 w-7 text-slate-400" />
                     <p className="font-semibold text-slate-800 dark:text-slate-200">
                       No inventory transactions found
@@ -667,8 +747,9 @@ export default function InventoryTransactionsPage() {
                         }
                       />
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-500">
-                      {new Date(record.createdAt).toLocaleString()}
+                    <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">
+                      <span className="block font-medium">{new Date(record.createdAt).toLocaleDateString()}</span>
+                      <span className="mt-0.5 block text-[10px] text-slate-400">{new Date(record.createdAt).toLocaleTimeString()}</span>
                     </td>
                     <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">
                       {record.productDisplayName ||
@@ -693,24 +774,26 @@ export default function InventoryTransactionsPage() {
                           : movementLabel(record.type, record.remarks, record.eventType)}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums">
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold tabular-nums">
                       {stockChangeLabel(record)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-slate-600 dark:text-slate-300">
                       {stockTransitionLabel(record)}
                     </td>
                     <td className="px-4 py-3">
-                      {record.performedByName?.trim() || "System"}
-                      <div className="text-[10px] uppercase tracking-wider text-slate-400">
-                        {record.performedByType || "SYSTEM"}
-                      </div>
+                      <span className="block font-medium text-slate-800 dark:text-slate-200">{record.performedByName?.trim() || "System"}</span>
+                      <span className="mt-0.5 block text-[10px] text-slate-500">
+                        {record.performedByType || "SYSTEM"} | {sourceLabel(record.source)}
+                      </span>
                     </td>
-                    <td className="px-4 py-3">{sourceLabel(record.source)}</td>
-                    <td className="px-4 py-3">
-                      {record.orderNumber || record.customerName || "-"}
-                    </td>
-                    <td className="max-w-xs px-4 py-3 text-slate-500">
-                      {record.remarks || "-"}
+                    <td className="max-w-sm px-4 py-3">
+                      <span className="block font-medium text-slate-800 dark:text-slate-200">
+                        {record.orderNumber ? `#${record.orderNumber}` : record.customerName || "No linked order"}
+                      </span>
+                      {record.orderNumber && record.customerName && <span className="block text-[10px] text-slate-500">{record.customerName}</span>}
+                      <span className="mt-1 line-clamp-2 block wrap-break-word text-[11px] text-slate-500" title={record.remarks || undefined}>
+                        {record.remarks || "No remarks"}
+                      </span>
                     </td>
                   </tr>
                 ))
@@ -818,27 +901,6 @@ export default function InventoryTransactionsPage() {
         </div>
       </section>
 
-      {selectedIds.length > 0 && (
-        <button
-          type="button"
-          onClick={() =>
-            void updateArchive(
-              archiveFilter === "archived" ? "restore" : "archive",
-              selectedIds,
-            )
-          }
-          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg"
-        >
-          {archiveFilter === "archived" ? (
-            <ArchiveRestore className="h-4 w-4" />
-          ) : (
-            <Archive className="h-4 w-4" />
-          )}
-          {archiveFilter === "archived" ? "Restore" : "Archive"} selected (
-          {selectedIds.length})
-        </button>
-      )}
-
       {selectedRecord && (
         <AdminModalPortal>
           <div
@@ -918,6 +980,24 @@ export default function InventoryTransactionsPage() {
                 </div>
                 <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
                   <div className="flex items-center gap-2 text-xs font-semibold">
+                    <ClipboardList className="h-4 w-4 text-slate-400" />
+                    Record metadata
+                  </div>
+                  <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
+                    <dt className="text-slate-500">Transaction ID</dt>
+                    <dd className="break-all text-right font-mono text-[11px]">{selectedRecord.id}</dd>
+                    <dt className="text-slate-500">Archive state</dt>
+                    <dd className="text-right font-medium">{selectedRecord.isArchived ? "Archived" : "Active"}</dd>
+                    {selectedRecord.archivedAt && (
+                      <>
+                        <dt className="text-slate-500">Archived at</dt>
+                        <dd className="text-right">{new Date(selectedRecord.archivedAt).toLocaleString()}</dd>
+                      </>
+                    )}
+                  </dl>
+                </div>
+                <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                  <div className="flex items-center gap-2 text-xs font-semibold">
                     <Package className="h-4 w-4 text-slate-400" />
                     Item details
                   </div>
@@ -950,6 +1030,22 @@ export default function InventoryTransactionsPage() {
                       : ""}
                   </p>
                 </div>
+                  {(selectedRecord.paymentMethod || selectedRecord.paymentStatus || selectedRecord.paymentReference) && (
+                    <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                      <div className="flex items-center gap-2 text-xs font-semibold">
+                        <FileText className="h-4 w-4 text-slate-400" />
+                        Payment audit
+                      </div>
+                      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
+                        <dt className="text-slate-500">Method</dt>
+                        <dd className="text-right">{selectedRecord.paymentMethod || "Not recorded"}</dd>
+                        <dt className="text-slate-500">Status</dt>
+                        <dd className="text-right">{selectedRecord.paymentStatus || "Not recorded"}</dd>
+                        <dt className="text-slate-500">Reference</dt>
+                        <dd className="break-all text-right font-mono text-[11px]">{selectedRecord.paymentReference || "Not recorded"}</dd>
+                      </dl>
+                    </div>
+                  )}
                 <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
                   <div className="flex items-center gap-2 text-xs font-semibold">
                     <FileText className="h-4 w-4 text-slate-400" />
