@@ -90,6 +90,43 @@ type CategoryItem = {
   name: string;
 };
 
+function ProductGridSkeleton({ count, label }: { count: number; label: string }) {
+  return (
+    <div role="status" aria-label={label} className="space-y-2">
+      <span className="sr-only">{label}</span>
+      <div
+        aria-hidden="true"
+        className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 md:grid-cols-3 xl:grid-cols-4 lg:gap-5"
+      >
+        {Array.from({ length: count }, (_, index) => (
+          <div
+            key={index}
+            className="flex h-full flex-col overflow-hidden rounded-xl border border-white/10 bg-[#12141c]"
+          >
+            <div className="product-skeleton aspect-square w-full shrink-0" />
+            <div className="flex flex-1 flex-col space-y-3 p-3.5 sm:p-4">
+              <div className="product-skeleton h-3 w-20 rounded" />
+              <div className="product-skeleton h-4 w-3/4 rounded" />
+              <div className="product-skeleton h-3 w-full rounded" />
+              <div className="product-skeleton h-3 w-2/3 rounded" />
+              <div className="mt-auto space-y-3 pt-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="product-skeleton h-5 w-20 rounded" />
+                  <div className="product-skeleton h-5 w-16 rounded-full" />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="product-skeleton h-10 rounded-lg" />
+                  <div className="product-skeleton h-10 rounded-lg" />
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function EcommerceHomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -312,6 +349,9 @@ function EcommerceHomeContent() {
           background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 100%);
           background-size: 200% 100%;
           animation: shimmer 1.6s infinite linear;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .product-skeleton { animation: none; }
         }
         .no-scrollbar::-webkit-scrollbar {
           display: none;
@@ -541,22 +581,7 @@ function EcommerceHomeContent() {
 
           {/* Products */}
           {loading ? (
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 sm:gap-4 lg:gap-5">
-              {Array.from({ length: 8 }).map((_, index) => (
-                <div key={index} className="overflow-hidden rounded-2xl border border-white/10 bg-[#12141c]">
-                  <div className="product-skeleton aspect-square w-full" />
-                  <div className="space-y-3 p-4">
-                    <div className="product-skeleton h-3 w-16 rounded" />
-                    <div className="product-skeleton h-4 w-3/4 rounded" />
-                    <div className="product-skeleton h-3 w-full rounded" />
-                    <div className="flex items-center justify-between pt-2">
-                      <div className="product-skeleton h-5 w-20 rounded" />
-                      <div className="product-skeleton h-8 w-20 rounded-lg" />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <ProductGridSkeleton count={12} label="Loading products" />
           ) : products.length === 0 ? (
             <div className="rounded-2xl border border-white/10 bg-[#12141c] px-6 py-16 text-center">
               <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200">
@@ -625,6 +650,9 @@ function EcommerceHomeContent() {
                 );
               })}
             </div>
+          )}
+          {!loading && isLoadingMore && (
+            <ProductGridSkeleton count={4} label="Loading more products" />
           )}
           {!loading && products.length > 0 && hasMoreProducts && (
             <div className="mt-7 flex flex-col items-center gap-2">
