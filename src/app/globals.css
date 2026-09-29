@@ -171,6 +171,20 @@ textarea:focus-visible {
     isolation: isolate;
   }
 
+  .admin-product-modal-backdrop {
+    --admin-sidebar-width: 4rem;
+  }
+
+  @media (min-width: 64rem) {
+    body:has([data-admin-sidebar-collapsed="false"]) .admin-product-modal-backdrop {
+      --admin-sidebar-width: 17.75rem;
+    }
+
+    body:has([data-admin-sidebar-collapsed="true"]) .admin-product-modal-backdrop {
+      --admin-sidebar-width: 4.5rem;
+    }
+  }
+
   [data-ecommerce-modal="true"] {
     position: fixed;
     inset: 0;

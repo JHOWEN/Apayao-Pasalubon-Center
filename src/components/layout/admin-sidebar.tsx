@@ -180,6 +180,7 @@ export function AdminSidebar({
 
   return (
     <aside
+      data-admin-sidebar-collapsed={effectiveCollapsed}
       className={`min-w-0 shrink-0 border-r border-slate-200/80 bg-white text-slate-800 transition-all duration-300 ease-in-out dark:border-slate-800/90 dark:bg-slate-950 dark:text-slate-100 ${
         isMobile
           ? "flex h-full w-72 flex-col"

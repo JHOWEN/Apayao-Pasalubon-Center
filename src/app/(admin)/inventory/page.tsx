@@ -1728,9 +1728,9 @@ export default function InventoryPage() {
       {/* Product Create / Edit Modal */}
       {showProductModal && (
         <AdminModalPortal>
-        <div className={`${ADMIN_MODAL_BACKDROP_CLASS} items-start px-4 py-6`} role="presentation">
+        <div className={`${ADMIN_MODAL_BACKDROP_CLASS} admin-product-modal-backdrop items-start px-4 py-6 pl-[calc(var(--admin-sidebar-width)+1rem)]`} role="presentation">
           <div
-            className={`${ADMIN_MODAL_PANEL_CLASS} relative z-10 mt-16 flex max-h-[86vh] w-full max-w-5xl flex-col border-emerald-200 shadow-none dark:border-emerald-800`}
+            className={`${ADMIN_MODAL_PANEL_CLASS} relative z-10 mt-16 flex max-h-[86vh] w-full max-w-7xl! flex-col border-emerald-200 shadow-none dark:border-emerald-800`}
             role="dialog"
             aria-modal="true"
             aria-labelledby="product-modal-title"
@@ -1903,7 +1903,7 @@ export default function InventoryPage() {
 
                     <div>
                       <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
-                        Opening Stock
+                        Stock
                       </label>
                       <input
                         type="number"
