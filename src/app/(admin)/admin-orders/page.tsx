@@ -727,7 +727,7 @@ export default function AdminOrdersPage() {
       {/* 2. Unified Filter Toolbar (Status Tabs & Search & Date) */}
       <section className="space-y-3 rounded-lg border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
         {/* Status Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        <div className="flex flex-wrap items-center gap-2">
           {statusSummary.map(({ key, label, count }) => {
             const isActive = filterStatus === key;
             const isAttention = key === "AWAITING_PAYMENT_APPROVAL" && count > 0;
@@ -763,8 +763,8 @@ export default function AdminOrdersPage() {
         </div>
 
         {/* Search & Pickup Date Selector */}
-        <div className="flex flex-row items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800/80">
-          <div className="relative flex-1 max-w-xs">
+        <div className="flex flex-col gap-3 border-t border-slate-100 pt-3 dark:border-slate-800/80 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative w-full sm:max-w-xs sm:flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
@@ -784,13 +784,13 @@ export default function AdminOrdersPage() {
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
             <div className="flex items-center gap-1 text-xs text-slate-500">
               <CalendarDays className="h-3.5 w-3.5" />
               <span className="inline">Pickup:</span>
             </div>
 
-            <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-800/80">
+            <div className="flex max-w-full flex-wrap rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-800/80">
               {[
                 ["ALL", "All"],
                 ["TODAY", "Today"],
