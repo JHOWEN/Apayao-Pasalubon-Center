@@ -188,10 +188,10 @@ export function AdminSidebar({
             }`
       }`}
     >
-      <div className="flex h-full min-h-0 flex-col px-3.5 py-3">
+      <div className="flex h-full min-h-0 flex-col px-3 py-3">
         {/* Brand Header - Main View Hero */}
         <div
-          className={`relative mb-2.5 flex items-center pb-3 border-b border-slate-200/90 dark:border-slate-800/80 ${
+          className={`relative mb-3 flex items-center border-b border-slate-200 pb-3 dark:border-slate-800 ${
             effectiveCollapsed ? "flex-col justify-center gap-2.5" : "gap-3"
           }`}
         >
@@ -272,7 +272,7 @@ export function AdminSidebar({
               href={dashboardLink.href}
               onClick={handleLinkClick}
               title={effectiveCollapsed ? dashboardLink.label : undefined}
-              className={`group relative flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 ${
+              className={`group relative flex min-h-10 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 ${
                 pathname === dashboardLink.href
                   ? "bg-emerald-500/10 font-semibold text-emerald-800 dark:text-emerald-300 border border-emerald-500/20 dark:bg-emerald-500/15 shadow-2xs"
                   : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/80 dark:hover:text-slate-100"
@@ -313,7 +313,7 @@ export function AdminSidebar({
                       href={link.href}
                       onClick={handleLinkClick}
                       title={effectiveCollapsed ? link.label : undefined}
-                      className={`group relative flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-all duration-150 ${
+                      className={`group relative flex min-h-10 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 ${
                         isActive
                           ? "bg-emerald-500/10 font-semibold text-emerald-800 dark:text-emerald-300 border border-emerald-500/20 dark:bg-emerald-500/15 shadow-2xs"
                           : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/80 dark:hover:text-slate-100"

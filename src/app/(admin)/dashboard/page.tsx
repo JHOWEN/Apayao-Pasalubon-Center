@@ -396,9 +396,9 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-w-275 overflow-x-auto space-y-6 text-slate-800 dark:text-slate-100">
+    <div className="w-full min-w-0 space-y-6 text-slate-800 dark:text-slate-100">
       {/* 1. Page Header & Date Range Controls */}
-      <section className="flex flex-col gap-4 border-b border-slate-200/80 pb-5 dark:border-slate-800 md:flex-row md:items-center md:justify-between">
+      <section className="flex flex-col gap-4 border-b border-slate-200/80 pb-5 dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
@@ -414,9 +414,9 @@ export default function DashboardPage() {
           </p>
         </div>
 
-        <div className="flex min-h-11 flex-wrap items-center justify-end gap-2.5">
+        <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end lg:w-auto">
           {/* Presets Segmented Bar */}
-          <div className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-slate-50 p-1 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="inline-flex max-w-full shrink-0 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1 shadow-xs dark:border-slate-700 dark:bg-slate-900">
             {presets.map((preset) => {
               const isActive = range === preset.value;
               return (
@@ -441,10 +441,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Custom Date Inputs */}
-          <div className="flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-xs dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300">
-            <Calendar className="h-3.5 w-3.5 text-slate-400" />
-            <label className="flex items-center gap-1">
-              <span className="text-[10px] uppercase text-slate-400">From</span>
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 shadow-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 sm:w-auto sm:flex-nowrap sm:gap-1.5 sm:py-1">
+            <Calendar className="hidden h-3.5 w-3.5 shrink-0 text-slate-500 sm:block" />
+            <label className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-1">
+              <span className="text-[10px] uppercase text-slate-500">From</span>
               <input
                 ref={startDateInputRef}
                 type="date"
@@ -453,12 +453,12 @@ export default function DashboardPage() {
                 onChange={(e) => {
                   handleCustomDateChange(e.target.value, endDate);
                 }}
-                className="bg-transparent text-xs font-semibold outline-hidden"
+                className="w-full min-w-0 bg-transparent text-xs font-semibold outline-hidden sm:w-auto"
               />
             </label>
-            <span className="text-slate-300 dark:text-slate-600">-</span>
-            <label className="flex items-center gap-1">
-              <span className="text-[10px] uppercase text-slate-400">To</span>
+            <span className="hidden text-slate-400 dark:text-slate-500 sm:block">-</span>
+            <label className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-1">
+              <span className="text-[10px] uppercase text-slate-500">To</span>
               <input
                 ref={endDateInputRef}
                 type="date"
@@ -468,7 +468,7 @@ export default function DashboardPage() {
                 onChange={(e) => {
                   handleCustomDateChange(startDate, e.target.value);
                 }}
-                className="bg-transparent text-xs font-semibold outline-hidden"
+                className="w-full min-w-0 bg-transparent text-xs font-semibold outline-hidden sm:w-auto"
               />
             </label>
           </div>
@@ -477,7 +477,7 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={printDashboardReport}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-xs transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
             title="Print printable dashboard report"
           >
             <Printer className="h-3.5 w-3.5 text-slate-500" />
@@ -485,7 +485,7 @@ export default function DashboardPage() {
           </button>
 
           {/* Live Status Indicator */}
-          <div className="flex min-w-40 shrink-0 items-center justify-end gap-1.5 px-1 text-right text-[11px] text-slate-500 dark:text-slate-400">
+          <div className="flex min-h-10 min-w-32 shrink-0 items-center justify-end gap-1.5 px-1 text-right text-xs text-slate-600 dark:text-slate-300">
             <span
               className={`h-2 w-2 shrink-0 rounded-full ${isLoading ? "animate-pulse bg-amber-500" : "bg-emerald-500"}`}
             />
@@ -502,9 +502,9 @@ export default function DashboardPage() {
 
       {/* 2. Primary KPI Metric Cards (Standard 4-Card Grid) */}
       {isLoading ? (
-        <section className="grid grid-cols-4 gap-4">
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={`dashboard-kpi-skeleton-${index}`} className="animate-pulse rounded-lg border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            <div key={`dashboard-kpi-skeleton-${index}`} className="animate-pulse rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
                 <div className="h-8 w-8 rounded-md bg-slate-200 dark:bg-slate-700" />
@@ -517,9 +517,9 @@ export default function DashboardPage() {
           ))}
         </section>
       ) : (
-        <section className="grid grid-cols-4 gap-4">
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
           {/* Card 1: Revenue */}
-          <div className="rounded-lg border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 {range === "DAILY" ? "Today's Revenue" : "Total Revenue"}
@@ -539,7 +539,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Card 2: Orders */}
-          <div className="rounded-lg border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Orders
@@ -561,7 +561,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Card 3: Low Stock Alerts */}
-          <div className="rounded-lg border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Low Stock Alerts
@@ -587,12 +587,12 @@ export default function DashboardPage() {
           </div>
 
           {/* Card 4: Total Products */}
-          <div className="rounded-lg border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 Total Products
               </span>
-              <div className="rounded-md bg-purple-50 p-2 text-purple-600 dark:bg-purple-950/40 dark:text-purple-400">
+              <div className="rounded-md bg-sky-50 p-2 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
                 <Package className="h-4 w-4" />
               </div>
             </div>
@@ -609,7 +609,7 @@ export default function DashboardPage() {
       )}
 
       {/* Supporting Inventory Valuation & Customer Overview Bar */}
-      <section className="grid grid-cols-4 gap-3 rounded-lg border border-slate-200/80 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-900/60">
+      <section className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-4 dark:border-slate-800 dark:bg-slate-900">
         <div>
           <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
             Total Inventory Cost
@@ -645,11 +645,11 @@ export default function DashboardPage() {
       </section>
 
       {/* 3. Analytics & Operations Section (Main Balanced Multi-Column Layout) */}
-      <div className="grid gap-6 grid-cols-12">
+      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-6">
         {/* Left Column (8 cols): Primary Revenue Trend Chart & Top Products Table */}
-        <div className="space-y-6 col-span-8">
+        <div className="min-w-0 space-y-4 xl:col-span-8 xl:space-y-6">
           {/* Main Visual Element: Sales & Revenue Trend */}
-          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4 flex items-center justify-between gap-2">
               <div>
                 <h2 className="text-base font-semibold text-slate-900 dark:text-white">
@@ -667,7 +667,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="h-72 w-full">
+            <div className="h-60 w-full sm:h-72">
               {isMounted && stats.revenueTrend.length > 0 && stats.revenue > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart
@@ -680,7 +680,7 @@ export default function DashboardPage() {
                         <stop offset="95%" stopColor="#059669" stopOpacity={0.0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" strokeOpacity={0.7} />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#94a3b8" strokeOpacity={0.28} />
                     <XAxis
                       dataKey="label"
                       axisLine={false}
@@ -717,7 +717,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Top Selling Products Table */}
-          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold text-slate-900 dark:text-white">
@@ -737,7 +737,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full min-w-[38rem] text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500">
                     <th className="py-2.5 pl-1 pr-3 w-8">#</th>
@@ -806,7 +806,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Sales by Category Contribution */}
-          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold text-slate-900 dark:text-white">
@@ -867,9 +867,9 @@ export default function DashboardPage() {
         </div>
 
         {/* Right Column (4 cols): Operations & Actions */}
-        <div className="space-y-6 col-span-4">
+        <div className="min-w-0 space-y-4 xl:col-span-4 xl:space-y-6">
           {/* Today's Operational Pulse */}
-          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4">
               <h2 className="text-base font-semibold text-slate-900 dark:text-white">
                 Today&apos;s Overview
@@ -937,7 +937,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Low Stock Attention List */}
-          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold text-slate-900 dark:text-white">
@@ -1002,7 +1002,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick Store Actions */}
-          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-3">
               <h2 className="text-base font-semibold text-slate-900 dark:text-white">
                 Quick Actions

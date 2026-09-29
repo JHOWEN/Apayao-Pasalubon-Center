@@ -243,17 +243,17 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         {/* Main Application Area */}
         <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-visible">
           {/* Top Panel Header */}
-          <header className="relative z-30 flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-6 shadow-xs transition-colors duration-200 dark:border-slate-800 dark:bg-slate-900">
+          <header className="relative z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 shadow-xs transition-colors duration-200 sm:px-5 lg:px-7 dark:border-slate-800 dark:bg-slate-900">
             {/* Header Left: Route breadcrumb and page title */}
             <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2.5 rounded-xl px-2 py-1 text-slate-900 transition-all duration-200 dark:text-white">
+              <div className="flex min-w-0 items-center gap-2.5 rounded-lg px-1 py-1 text-slate-900 transition-all duration-200 dark:text-white">
                 <div className="hidden sm:flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                   <span className="rounded-md bg-slate-100 dark:bg-slate-800/90 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/60">
                     {routeInfo.category}
                   </span>
                   <ChevronRight className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600" />
                 </div>
-                <h1 className="text-base font-bold tracking-tight text-slate-900 dark:text-white">
+                <h1 className="truncate text-sm font-semibold text-slate-900 dark:text-white sm:text-base">
                   {routeInfo.title}
                 </h1>
               </div>
@@ -409,7 +409,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
           </header>
 
           {/* Main scrollable page content */}
-          <main className="relative flex-1 min-h-0 overflow-y-auto overscroll-contain bg-slate-100/70 p-6 text-slate-800 dark:bg-slate-950/40 dark:text-slate-100">
+          <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-50 p-4 text-slate-800 sm:p-5 lg:p-7 dark:bg-slate-950 dark:text-slate-100">
             <div key={pathname} className="admin-page-enter">
               {children}
             </div>
