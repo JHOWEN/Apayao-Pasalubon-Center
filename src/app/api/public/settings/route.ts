@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { unstable_cache } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 const getCachedPublicSettings = unstable_cache(
   async () => {
@@ -20,7 +21,10 @@ const getCachedPublicSettings = unstable_cache(
   { tags: ["public-settings"], revalidate: 60 },
 );
 
-export async function GET() {
+export async function GET(request: Request) {
+  const rateLimitResponse = await enforceRateLimit(request, "public:settings", { group: "public" });
+  if (rateLimitResponse) return rateLimitResponse;
+
   return NextResponse.json({
     success: true,
     settings: await getCachedPublicSettings(),

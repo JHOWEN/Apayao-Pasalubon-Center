@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 import { createStorageService, PROFILE_IMAGE_BUCKET } from "@/lib/storage";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { getRequestId, logError } from "@/lib/logger";
 
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
@@ -31,6 +32,12 @@ export async function POST(request: Request) {
     if (!user) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
     }
+
+    const rateLimitResponse = await enforceRateLimit(request, "user:profile:upload", {
+      group: "user",
+      accountId: user.id,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;

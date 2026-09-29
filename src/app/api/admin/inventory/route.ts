@@ -5,6 +5,7 @@ import { canAccessAdminPortal, verifyToken } from "@/lib/auth";
 import { normalizeArchiveAction, normalizeArchiveFilter, normalizeArchiveIds } from "@/lib/inventory-transaction-archive";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { prisma } from "@/lib/prisma";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 async function ensureAdminOnly() {
   const token = (await cookies()).get("token")?.value;
@@ -28,6 +29,8 @@ function getVariantLabel(attributes: string | null | undefined, sku: string) {
 }
 
 export async function GET(request: Request) {
+  const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:inventory:get", "admin");
+  if (rateLimitResponse) return rateLimitResponse;
   const userId = await ensureAdminOnly();
   if (!userId) {
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -156,6 +159,8 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:inventory:archive", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const userId = await ensureAdminOnly();
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -201,6 +206,8 @@ export async function PATCH(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:inventory:movement", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const userId = await ensureAdminOnly();
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });

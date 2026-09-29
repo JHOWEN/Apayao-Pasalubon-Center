@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { createStorageService, PAYMENT_QR_BUCKET } from "@/lib/storage";
 import { getRequestId, logError } from "@/lib/logger";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const storageService = createStorageService();
 
 export async function POST(request: Request) {
+  const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:payment-qr:upload", "admin");
+  if (rateLimitResponse) return rateLimitResponse;
   const adminId = await ensureAuthenticatedAdmin();
   if (!adminId) {
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });

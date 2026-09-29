@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getRequestId, logError } from "@/lib/logger";
 import { canAccessAdminPortal, verifyToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -28,6 +29,8 @@ export async function GET(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:customers:get", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
 
     const customers = await prisma.user.findMany({
       where: { role: "CUSTOMER" },
@@ -118,6 +121,8 @@ export async function PUT(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:customers:update", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
 
     const body = await request.json();
     const { id, name, email, phone, address, emailVerified, isBlocked } = body as {

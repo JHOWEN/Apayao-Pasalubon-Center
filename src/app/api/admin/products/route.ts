@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin, verifyToken } from "@/lib/auth";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { cookies } from "next/headers";
 import { deleteProductImageUrls } from "@/lib/storage";
 import { parseImageUrls } from "@/features/catalog/utils/product-images";
@@ -76,6 +77,8 @@ function normalizeOptionValues(input: unknown) {
 }
 
 export async function GET(request: Request) {
+  const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:products:get", "admin");
+  if (rateLimitResponse) return rateLimitResponse;
   const userId = await ensureAuthenticatedAdmin();
   if (!userId) {
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -174,6 +177,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:products:create", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -318,6 +323,8 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:products:update", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -426,6 +433,8 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:products:delete", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const token = (await cookies()).get("token")?.value;
     const payload = token ? (verifyToken(token) as { sub?: string } | null) : null;
     const admin = payload?.sub

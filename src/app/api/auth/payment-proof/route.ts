@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 import { createStorageService, PAYMENT_PROOF_BUCKET } from "@/lib/storage";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import { getRequestId, logError } from "@/lib/logger";
 import { ONLINE_PAYMENT_RESERVATION_TTL_MS } from "@/lib/order";
 
@@ -23,6 +24,12 @@ export async function POST(request: Request) {
     if (!user) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
     }
+
+    const rateLimitResponse = await enforceRateLimit(request, "user:payment-proof:upload", {
+      group: "user",
+      accountId: user.id,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const formData = await request.formData();
     const orderId = typeof formData.get("orderId") === "string" ? String(formData.get("orderId")).trim() : "";

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { createStorageService, PROFILE_IMAGE_BUCKET } from "@/lib/storage";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
@@ -11,6 +12,8 @@ export async function POST(request: Request) {
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
+    const rateLimitResponse = await enforceRateLimit(request, "admin:profile:upload", { group: "admin", accountId: userId });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;

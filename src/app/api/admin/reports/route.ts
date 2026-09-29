@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 function parseDateOnly(value: string | null, endOfDay = false) {
   if (!value) {
@@ -26,6 +27,8 @@ export async function GET(request: Request) {
   if (!userId) {
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
   }
+  const rateLimitResponse = await enforceRateLimit(request, "admin:reports:get", { group: "admin", accountId: userId });
+  if (rateLimitResponse) return rateLimitResponse;
 
   const { searchParams } = new URL(request.url);
   const startDate = searchParams.get("startDate");

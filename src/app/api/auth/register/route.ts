@@ -40,9 +40,8 @@ export async function POST(request: Request) {
     const { name, email, password, gdprConsent } = result.data;
 
     const rateLimitResponse = await enforceRateLimit(request, "auth:register", {
+      group: "auth",
       email,
-      maxAttempts: 10,
-      windowMs: 15 * 60 * 1000,
       message: "Too many registration attempts. Please try again in a few minutes.",
     });
 

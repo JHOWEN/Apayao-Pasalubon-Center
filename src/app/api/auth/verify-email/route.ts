@@ -6,19 +6,19 @@ import { getRequestId, logError } from "@/lib/logger";
 
 export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const email = searchParams.get("email")?.trim();
+    const token = searchParams.get("token")?.trim();
+
     const rateLimitResponse = await enforceRateLimit(request, "auth:verify-email", {
-      maxAttempts: 10,
-      windowMs: 15 * 60 * 1000,
+      group: "auth",
+      email,
       message: "Too many verification attempts. Please try again in a few minutes.",
     });
 
     if (rateLimitResponse) {
       return rateLimitResponse;
     }
-
-    const { searchParams } = new URL(request.url);
-    const email = searchParams.get("email")?.trim();
-    const token = searchParams.get("token")?.trim();
 
     if (!email || !token) {
       return NextResponse.json({ success: false, message: "Invalid verification link." }, { status: 400 });

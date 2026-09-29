@@ -5,8 +5,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
@@ -29,6 +30,12 @@ export async function GET() {
     if (!user) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
     }
+
+    const rateLimitResponse = await enforceRateLimit(request, "user:profile:get", {
+      group: "user",
+      accountId: user.id,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     return NextResponse.json({ success: true, user });
   } catch (error) {
@@ -60,6 +67,12 @@ export async function PUT(request: Request) {
     if (!existingUser) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
     }
+
+    const rateLimitResponse = await enforceRateLimit(request, "user:profile:update", {
+      group: "user",
+      accountId: payload.sub,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const updateData: Record<string, string | boolean | null> = {};
 
@@ -127,6 +140,12 @@ export async function DELETE(request: Request) {
     if (!existingUser) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
     }
+
+    const rateLimitResponse = await enforceRateLimit(request, "user:profile:delete", {
+      group: "user",
+      accountId: existingUser.id,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     if (existingUser.email.toLowerCase() !== email) {
       return NextResponse.json({ success: false, message: "Email confirmation does not match your account email." }, { status: 400 });

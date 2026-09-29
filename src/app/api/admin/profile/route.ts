@@ -3,8 +3,9 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { canAccessAdminPortal, verifyToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
@@ -37,6 +38,9 @@ export async function GET() {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
     }
 
+    const rateLimitResponse = await enforceRateLimit(request, "admin:profile:get", { group: "admin", accountId: user.id });
+    if (rateLimitResponse) return rateLimitResponse;
+
     return NextResponse.json({ success: true, user });
   } catch (error) {
     return NextResponse.json({ success: false, message: getUserFacingErrorMessage(error, "Unable to load profile.") }, { status: 500 });
@@ -66,6 +70,9 @@ export async function PUT(request: Request) {
     if (!userRecord || !canAccessAdminPortal(userRecord.role)) {
       return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
     }
+
+    const rateLimitResponse = await enforceRateLimit(request, "admin:profile:update", { group: "admin", accountId: payload.sub });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const body = await request.json();
     const updateData: Record<string, string | null> = {};

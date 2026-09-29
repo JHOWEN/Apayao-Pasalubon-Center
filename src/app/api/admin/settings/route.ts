@@ -3,6 +3,7 @@ import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyToken } from "@/lib/auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 async function ensureAuthenticatedAdmin() {
   const cookieStore = await cookies();
@@ -45,12 +46,14 @@ async function getOrCreateSettings() {
   });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
+    const rateLimitResponse = await enforceRateLimit(request, "admin:settings:get", { group: "admin", accountId: userId });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const settings = await getOrCreateSettings();
 
@@ -78,6 +81,8 @@ export async function PUT(request: Request) {
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
+    const rateLimitResponse = await enforceRateLimit(request, "admin:settings:update", { group: "admin", accountId: userId });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const body = await request.json();
     const settings = await getOrCreateSettings();

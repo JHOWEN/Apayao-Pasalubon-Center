@@ -2,12 +2,15 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { getRequestId, logError } from "@/lib/logger";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ variantId: string }> }
 ) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:variants:update", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) {
       return NextResponse.json(
@@ -71,6 +74,8 @@ export async function DELETE(
   { params }: { params: Promise<{ variantId: string }> },
 ) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:variants:delete", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
 

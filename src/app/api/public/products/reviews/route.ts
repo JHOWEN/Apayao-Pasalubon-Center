@@ -33,8 +33,7 @@ function serializeReview(review: {
 export async function GET(request: Request) {
   try {
     const rateLimitResponse = await enforceRateLimit(request, "public:products:reviews:get", {
-      maxAttempts: 120,
-      windowMs: 60 * 1000,
+      group: "public",
       message: "Too many requests. Please try again in a moment.",
     });
 
@@ -130,16 +129,6 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const rateLimitResponse = await enforceRateLimit(request, "public:products:reviews:post", {
-      maxAttempts: 20,
-      windowMs: 15 * 60 * 1000,
-      message: "Too many review submissions. Please try again in a few minutes.",
-    });
-
-    if (rateLimitResponse) {
-      return rateLimitResponse;
-    }
-
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
 
@@ -183,6 +172,13 @@ export async function POST(request: Request) {
     if (!user) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
     }
+
+    const rateLimitResponse = await enforceRateLimit(request, "user:reviews:create", {
+      group: "user",
+      accountId: user.id,
+      message: "Too many review submissions. Please try again in a moment.",
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const hasPurchased = await prisma.orderItem.findFirst({
       where: {

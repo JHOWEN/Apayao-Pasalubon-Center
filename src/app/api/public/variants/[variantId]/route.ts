@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { parseImageUrls } from "@/features/catalog/utils/product-images";
 import { getRequestId, logError } from "@/lib/logger";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 function normalizeVariantAttributes(attributes: unknown): Record<string, string> {
   if (!attributes) return {};
@@ -35,6 +36,9 @@ export async function GET(
   { params }: { params: Promise<{ variantId: string }> }
 ) {
   try {
+    const rateLimitResponse = await enforceRateLimit(request, "public:variants:detail", { group: "public" });
+    if (rateLimitResponse) return rateLimitResponse;
+
     const { variantId } = await params;
 
     const variant = await prisma.productVariant.findUnique({

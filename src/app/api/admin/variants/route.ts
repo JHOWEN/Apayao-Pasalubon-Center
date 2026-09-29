@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:variants:create", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
 

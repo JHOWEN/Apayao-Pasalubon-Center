@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
+import { enforceRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   try {
@@ -9,6 +10,8 @@ export async function POST(request: Request) {
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
+    const rateLimitResponse = await enforceRateLimit(request, "admin:profile:password", { group: "admin", accountId: userId });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const { currentPassword, newPassword } = await request.json();
 

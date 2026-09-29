@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { canAccessAdminPortal, verifyToken } from "@/lib/auth";
 import { applyOrderInventoryMovement } from "@/features/inventory/lib/inventory";
 import { getRequestId, logError } from "@/lib/logger";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -26,6 +27,8 @@ export async function POST(request: Request) {
   try {
     const authCheck = await requireAdminAccess();
     if ("error" in authCheck) return authCheck.error;
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:payments:decline", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
 
     const body = await request.json();
     const orderId = typeof body.orderId === "string" ? body.orderId.trim() : "";

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { signToken, verifyToken } from "@/lib/auth";
 import { setAuthCookie } from "@/lib/cookies";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 async function requireAdmin() {
   const token = (await cookies()).get("token")?.value;
@@ -27,10 +28,12 @@ function publicUser(user: { id: string; name: string; email: string; role: strin
   return { ...user, createdAt: user.createdAt.toISOString() };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const auth = await requireAdmin();
     if ("error" in auth) return auth.error;
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:users:get", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
 
     const users = await prisma.user.findMany({
       where: { role: { in: ["ADMIN", "STAFF"] } },
@@ -48,6 +51,8 @@ export async function POST(request: Request) {
   try {
     const auth = await requireAdmin();
     if ("error" in auth) return auth.error;
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:users:create", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
 
     const body = await request.json() as { name?: string; email?: string; role?: string };
     const name = body.name?.trim() ?? "";
@@ -95,6 +100,8 @@ export async function PATCH(request: Request) {
   try {
     const auth = await requireAdmin();
     if ("error" in auth) return auth.error;
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:users:update", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
 
     const body = await request.json() as { id?: string; role?: string; isBlocked?: boolean };
     if (!body.id) return NextResponse.json({ success: false, message: "Account id is required." }, { status: 400 });
@@ -144,6 +151,8 @@ export async function DELETE(request: Request) {
   try {
     const auth = await requireAdmin();
     if ("error" in auth) return auth.error;
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:users:delete", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
 
     const body = await request.json() as { id?: string };
     if (!body.id) {

@@ -9,6 +9,7 @@ import { resolvePaymentProofUrl } from "@/lib/storage";
 import { getRequestId, logError } from "@/lib/logger";
 import { apiError } from "@/lib/api-response";
 import { emitOrderCreatedEvent } from "@/lib/realtime";
+import { enforceRateLimit } from "@/lib/rate-limit";
 import {
   canCancelOrder,
   isOrderStatus,
@@ -110,6 +111,11 @@ export async function GET(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    const rateLimitResponse = await enforceRateLimit(request, "user:orders:get", {
+      group: "user",
+      accountId: authCheck.user.id,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     await expireWalletReservations(new Date(), 10);
     const { payload } = authCheck;
@@ -150,6 +156,11 @@ export async function POST(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    const rateLimitResponse = await enforceRateLimit(request, "user:orders:create", {
+      group: "user",
+      accountId: authCheck.user.id,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const { payload, user } = authCheck;
     await expireWalletReservations(new Date(), 10);
@@ -346,6 +357,11 @@ export async function PUT(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    const rateLimitResponse = await enforceRateLimit(request, "user:orders:update", {
+      group: "user",
+      accountId: authCheck.user.id,
+    });
+    if (rateLimitResponse) return rateLimitResponse;
 
     const { payload, user } = authCheck;
     const body = await request.json();

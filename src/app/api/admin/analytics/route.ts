@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 function getMovementWindow(range: string) {
   const now = new Date();
@@ -35,6 +36,9 @@ function parseDateInput(value: string | null) {
 }
 
 export async function GET(request: NextRequest) {
+  const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:analytics:get", "admin");
+  if (rateLimitResponse) return rateLimitResponse;
+
   const range = request.nextUrl.searchParams.get("range")?.toUpperCase() ?? "DAILY";
   const includeToday = request.nextUrl.searchParams.get("includeToday") === "true";
   const requestedStart = parseDateInput(request.nextUrl.searchParams.get("from"));

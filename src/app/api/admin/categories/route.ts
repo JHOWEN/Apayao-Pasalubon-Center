@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:categories:get", "admin");
+  if (rateLimitResponse) return rateLimitResponse;
   const userId = await ensureAuthenticatedAdmin();
   if (!userId) {
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -18,6 +21,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:categories:create", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -65,6 +70,8 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:categories:update", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -113,6 +120,8 @@ export async function PUT(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:categories:delete", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });

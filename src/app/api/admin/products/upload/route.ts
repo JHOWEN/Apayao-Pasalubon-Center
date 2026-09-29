@@ -3,10 +3,13 @@ import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { createStorageService, PRODUCT_IMAGE_BUCKET } from "@/lib/storage";
 import { processProductImage } from "@/lib/image-processing";
 import { getRequestId, logInfo } from "@/lib/logger";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 const storageService = createStorageService();
 
 export async function POST(request: Request) {
+  const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:products:upload", "admin");
+  if (rateLimitResponse) return rateLimitResponse;
   const userId = await ensureAuthenticatedAdmin();
   if (!userId) {
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });

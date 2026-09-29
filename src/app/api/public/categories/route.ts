@@ -24,8 +24,7 @@ function getCachedCategories() {
 export async function GET(request: Request) {
   try {
     const rateLimitResponse = await enforceRateLimit(request, "public:categories", {
-      maxAttempts: 300,
-      windowMs: 60 * 1000,
+      group: "public",
       message: "Too many requests. Please try again in a moment.",
     });
 

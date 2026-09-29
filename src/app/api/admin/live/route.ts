@@ -1,9 +1,13 @@
 import { NextRequest } from "next/server";
 import { addAdminRealtimeClient, removeAdminRealtimeClient } from "@/lib/realtime";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:live:connect", "admin");
+  if (rateLimitResponse) return rateLimitResponse;
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({

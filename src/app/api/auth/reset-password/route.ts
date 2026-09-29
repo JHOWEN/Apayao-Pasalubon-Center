@@ -18,9 +18,8 @@ export async function POST(request: Request) {
     }
 
     const rateLimitResponse = await enforceRateLimit(request, "auth:reset-password", {
+      group: "auth",
       email,
-      maxAttempts: 10,
-      windowMs: 15 * 60 * 1000,
       message: "Too many password reset attempts. Please try again in a few minutes.",
     });
 

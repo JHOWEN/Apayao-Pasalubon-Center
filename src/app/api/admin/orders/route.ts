@@ -9,6 +9,7 @@ import { resolvePaymentProofUrl } from "@/lib/storage";
 import { getRequestId, logError } from "@/lib/logger";
 import { apiError, getUserFacingErrorMessage } from "@/lib/api-response";
 import { emitOrderCreatedEvent, emitOrderUpdatedEvent } from "@/lib/realtime";
+import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 class OrderStateConflictError extends Error {}
 
@@ -36,6 +37,8 @@ export async function GET(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:orders:get", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
 
     const { searchParams } = new URL(request.url);
     const customerId = searchParams.get("customerId");
@@ -215,6 +218,8 @@ export async function POST(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:orders:create", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
 
     requestBody = (await request.json()) as OrderPayload;
     const body = requestBody;
@@ -397,6 +402,8 @@ export async function PUT(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:orders:update", "admin");
+    if (rateLimitResponse) return rateLimitResponse;
 
     requestBody = await request.json();
     const body = requestBody;

@@ -47,6 +47,24 @@ SUPABASE_RECEIPT_BUCKET=payment-proofs
 UPSTASH_REDIS_REST_URL=https://your-region.upstash.io
 UPSTASH_REDIS_REST_TOKEN=your-server-only-upstash-token
 
+# Optional policy overrides (defaults: auth 3/15m, public 300/1m,
+# authenticated user 120/1m, admin 180/1m).
+RATE_LIMIT_AUTH_MAX_REQUESTS=5
+RATE_LIMIT_AUTH_WINDOW_MS=900000
+RATE_LIMIT_AUTH_BACKOFF_BASE_MS=30000
+RATE_LIMIT_AUTH_BACKOFF_MAX_MS=900000
+RATE_LIMIT_PUBLIC_MAX_REQUESTS=300
+RATE_LIMIT_PUBLIC_WINDOW_MS=60000
+RATE_LIMIT_USER_MAX_REQUESTS=120
+RATE_LIMIT_USER_WINDOW_MS=60000
+RATE_LIMIT_ADMIN_MAX_REQUESTS=180
+RATE_LIMIT_ADMIN_WINDOW_MS=60000
+
+# Enable only when the hosting proxy sanitizes x-real-ip / x-forwarded-for.
+RATE_LIMIT_TRUST_PROXY_HEADERS=true
+# Set false in development when you need to exercise localhost limits.
+RATE_LIMIT_BYPASS_LOCALHOST=false
+
 # Optional operational alert webhook
 OPERATIONAL_ALERT_WEBHOOK_URL=https://your-alert-webhook.example/endpoint
 
