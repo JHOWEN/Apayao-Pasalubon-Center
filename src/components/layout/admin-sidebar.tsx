@@ -180,24 +180,24 @@ export function AdminSidebar({
 
   return (
     <aside
-      className={`shrink-0 border-r border-slate-200/80 bg-white text-slate-800 transition-all duration-300 ease-in-out dark:border-slate-800/90 dark:bg-slate-950 dark:text-slate-100 ${
+      className={`min-w-0 shrink-0 border-r border-slate-200/80 bg-white text-slate-800 transition-all duration-300 ease-in-out dark:border-slate-800/90 dark:bg-slate-950 dark:text-slate-100 ${
         isMobile
           ? "flex h-full w-72 flex-col"
-          : `hidden lg:flex lg:h-dvh lg:sticky lg:top-0 lg:flex-col ${
+          : `flex h-dvh w-16 flex-col max-lg:w-16 max-lg:max-w-16 max-lg:flex-none lg:sticky lg:top-0 ${
               effectiveCollapsed ? "lg:w-18" : "lg:w-71"
             }`
       }`}
     >
-      <div className="flex h-full min-h-0 flex-col px-3 py-3">
+      <div className="flex h-full min-h-0 flex-col px-3 py-3 max-lg:px-1.5">
         {/* Brand Header - Main View Hero */}
         <div
-          className={`relative mb-3 flex items-center border-b border-slate-200 pb-3 dark:border-slate-800 ${
-            effectiveCollapsed ? "flex-col justify-center gap-2.5" : "gap-3"
+          className={`relative mb-2 flex items-center border-b border-slate-200 pb-2 dark:border-slate-800 ${
+            effectiveCollapsed ? "flex-col justify-center gap-2.5" : "gap-3 max-lg:flex-col max-lg:justify-center max-lg:gap-2"
           }`}
         >
           {!effectiveCollapsed ? (
             <>
-              <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3 max-lg:justify-center">
                 <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-700/80 bg-linear-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-900 p-0.5">
                   <Image
                     src={logoSrc}
@@ -207,7 +207,7 @@ export function AdminSidebar({
                     className="object-cover"
                   />
                 </div>
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-1 max-lg:hidden">
                   <h1 className="truncate text-base font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
                     Smart Inventory
                   </h1>
@@ -230,7 +230,7 @@ export function AdminSidebar({
                 <button
                   type="button"
                   onClick={() => setIsCollapsed((val) => !val)}
-                  className="inline-flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-slate-50/80 text-slate-400 shadow-2xs transition-all duration-150 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 active:scale-95"
+                  className="inline-flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-slate-50/80 text-slate-400 shadow-2xs transition-all duration-150 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 active:scale-95 max-lg:hidden"
                   aria-label="Collapse sidebar"
                   title="Collapse sidebar"
                 >
@@ -267,12 +267,13 @@ export function AdminSidebar({
 
         {/* Dashboard Link (Admin Only) */}
         {userRole === "ADMIN" && (
-          <div className="mb-1.5">
+          <div className="mb-1 max-lg:px-1">
             <Link
               href={dashboardLink.href}
               onClick={handleLinkClick}
               title={effectiveCollapsed ? dashboardLink.label : undefined}
-              className={`group relative flex min-h-10 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 ${
+              aria-label={dashboardLink.label}
+              className={`group relative flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors duration-150 max-lg:min-h-10 max-lg:justify-center max-lg:px-1 max-lg:py-2 ${
                 pathname === dashboardLink.href
                   ? "bg-emerald-500/10 font-semibold text-emerald-800 dark:text-emerald-300 border border-emerald-500/20 dark:bg-emerald-500/15 shadow-2xs"
                   : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/80 dark:hover:text-slate-100"
@@ -288,17 +289,17 @@ export function AdminSidebar({
                     : "text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300"
                 }`}
               />
-              {!effectiveCollapsed && <span>{dashboardLink.label}</span>}
+              {!effectiveCollapsed && <span className="max-lg:hidden">{dashboardLink.label}</span>}
             </Link>
           </div>
         )}
 
         {/* Main Navigation Items */}
-        <nav className="flex-1 min-h-0 space-y-2.5 overflow-y-auto admin-modal-scrollbar pr-0.5">
+        <nav className="flex-1 min-h-0 space-y-2 overflow-y-auto admin-modal-scrollbar pr-0.5">
           {visibleSections.map((section) => (
             <div key={section.title} className="space-y-0.5">
               {!effectiveCollapsed && (
-                <p className="px-2.5 pb-0.5 pt-1 text-[10.5px] font-bold uppercase tracking-wider text-slate-400/90 dark:text-slate-500/90">
+                <p className="px-2.5 pb-0.5 pt-1 text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 max-lg:hidden">
                   {section.title}
                 </p>
               )}
@@ -312,8 +313,9 @@ export function AdminSidebar({
                       key={link.href}
                       href={link.href}
                       onClick={handleLinkClick}
-                      title={effectiveCollapsed ? link.label : undefined}
-                      className={`group relative flex min-h-10 items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors duration-150 ${
+                      title={link.label}
+                      aria-label={link.label}
+                      className={`group relative flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors duration-150 max-lg:min-h-10 max-lg:justify-center max-lg:px-1 max-lg:py-2 ${
                         isActive
                           ? "bg-emerald-500/10 font-semibold text-emerald-800 dark:text-emerald-300 border border-emerald-500/20 dark:bg-emerald-500/15 shadow-2xs"
                           : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/80 dark:hover:text-slate-100"
@@ -332,7 +334,7 @@ export function AdminSidebar({
                       />
 
                       {!effectiveCollapsed && (
-                        <span className="truncate whitespace-nowrap">{link.label}</span>
+                        <span className="truncate whitespace-nowrap max-lg:hidden">{link.label}</span>
                       )}
 
                       {/* Order Count Badge */}
@@ -341,7 +343,7 @@ export function AdminSidebar({
                           className={`inline-flex items-center justify-center font-bold text-white shadow-xs ${
                             effectiveCollapsed
                               ? "absolute -right-0.5 -top-0.5 h-4 min-w-4 rounded-full bg-rose-500 px-1 text-[9px] ring-2 ring-white dark:ring-slate-950"
-                              : "ml-auto h-4.5 min-w-4.5 rounded-full bg-rose-500 px-1.5 text-[10.5px]"
+                              : "ml-auto h-4.5 min-w-4.5 rounded-full bg-rose-500 px-1.5 text-[10.5px] max-lg:absolute max-lg:-right-0.5 max-lg:-top-0.5 max-lg:h-4 max-lg:min-w-4 max-lg:px-1 max-lg:text-[9px]"
                           }`}
                         >
                           {notificationCount > 9 ? "9+" : notificationCount}
@@ -357,8 +359,8 @@ export function AdminSidebar({
 
         {/* User Profile & Footer Section */}
         {!effectiveCollapsed ? (
-          <div className="mt-2 border-t border-slate-200/80 pt-2 dark:border-slate-800">
-            <div className="flex items-center gap-2.5 rounded-xl border border-slate-200/80 bg-slate-50/70 p-2 shadow-2xs dark:border-slate-800/80 dark:bg-slate-900/50">
+          <div className="mt-1 border-t border-slate-200/80 pt-1 dark:border-slate-800">
+            <div className="flex items-center gap-2.5 rounded-xl border border-slate-200/80 bg-slate-50/70 p-2 shadow-2xs dark:border-slate-800/80 dark:bg-slate-900/50 max-lg:justify-center max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none">
               <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-100 text-emerald-700 ring-2 ring-emerald-500/20 dark:bg-emerald-950 dark:text-emerald-300 shadow-2xs">
                 <Image
                   src={avatarSrc}
@@ -368,7 +370,7 @@ export function AdminSidebar({
                   className="object-cover"
                 />
               </div>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 max-lg:hidden">
                 <div
                   className="truncate text-xs font-semibold text-slate-900 dark:text-white"
                   title={adminEmail || "Admin account"}
@@ -390,10 +392,11 @@ export function AdminSidebar({
             <button
               type="button"
               onClick={handleSignOut}
-              className="group mt-1.5 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200/90 bg-white py-1.5 px-3 text-xs font-semibold text-slate-700 shadow-2xs transition-all duration-150 hover:border-rose-200 hover:bg-rose-50/80 hover:text-rose-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-rose-900/60 dark:hover:bg-rose-950/30 dark:hover:text-rose-300 active:scale-[0.98]"
+              aria-label="Sign out"
+              className="group mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200/90 bg-white py-1.5 px-3 text-xs font-semibold text-slate-700 shadow-2xs transition-all duration-150 hover:border-rose-200 hover:bg-rose-50/80 hover:text-rose-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-rose-900/60 dark:hover:bg-rose-950/30 dark:hover:text-rose-300 active:scale-[0.98] max-lg:mx-auto max-lg:h-9 max-lg:w-9 max-lg:p-0"
             >
               <LogOut className="h-3.5 w-3.5 text-slate-400 transition-colors group-hover:text-rose-600 dark:text-slate-500 dark:group-hover:text-rose-400" />
-              <span>Sign out</span>
+              <span className="max-lg:hidden">Sign out</span>
             </button>
           </div>
         ) : (
