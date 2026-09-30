@@ -1,10 +1,17 @@
 import { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { addAdminRealtimeClient, removeAdminRealtimeClient } from "@/lib/realtime";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const adminId = await ensureAuthenticatedAdmin();
+  if (!adminId) {
+    return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
+  }
+
   const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:live:connect", "admin");
   if (rateLimitResponse) return rateLimitResponse;
 
