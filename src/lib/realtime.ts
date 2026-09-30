@@ -28,13 +28,23 @@ declare global {
   var __apcRealtimeClients: RealtimeClient[] | undefined;
   var __apcRealtimePublisher: RealtimePublisher | undefined;
   var __apcRealtimeRedis: Redis | null | undefined;
+  var __apcRealtimeRedisDisabledUntil: number | undefined;
 }
 
 const realtimeEventsKey = "apc:realtime:admin-events";
 const realtimeEventRetention = 100;
 const realtimePollIntervalMs = 2000;
+const realtimeRedisRetryDelayMs = 60_000;
+
+function hasRealtimeRedisConfig() {
+  return Boolean(process.env.UPSTASH_REDIS_REST_URL?.trim() && process.env.UPSTASH_REDIS_REST_TOKEN?.trim());
+}
 
 function getRealtimeRedis() {
+  if (globalThis.__apcRealtimeRedisDisabledUntil && globalThis.__apcRealtimeRedisDisabledUntil > Date.now()) {
+    return null;
+  }
+
   if (typeof globalThis.__apcRealtimeRedis !== "undefined") {
     return globalThis.__apcRealtimeRedis;
   }
@@ -43,6 +53,18 @@ function getRealtimeRedis() {
   const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
   globalThis.__apcRealtimeRedis = url && token ? new Redis({ url, token }) : null;
   return globalThis.__apcRealtimeRedis;
+}
+
+function disableRealtimeRedis(error: unknown) {
+  const disabledUntil = Date.now() + realtimeRedisRetryDelayMs;
+  const wasDisabled = Boolean(
+    globalThis.__apcRealtimeRedisDisabledUntil && globalThis.__apcRealtimeRedisDisabledUntil > Date.now(),
+  );
+  globalThis.__apcRealtimeRedisDisabledUntil = disabledUntil;
+
+  if (!wasDisabled) {
+    console.warn("Shared realtime Redis is unavailable; using local delivery temporarily.", error);
+  }
 }
 
 const clients = (): RealtimeClient[] => {
@@ -92,7 +114,7 @@ async function persistEvent(event: RealtimeEnvelope) {
     await redis.rpush(realtimeEventsKey, JSON.stringify(event));
     await redis.ltrim(realtimeEventsKey, -realtimeEventRetention, -1);
   } catch (error) {
-    console.error("Failed to persist realtime admin event", error);
+    disableRealtimeRedis(error);
   }
 }
 
@@ -113,7 +135,7 @@ async function pollSharedEvents(client: RealtimeClient) {
       }
     }
   } catch (error) {
-    console.error("Failed to poll shared realtime admin events", error);
+    disableRealtimeRedis(error);
   }
 }
 
@@ -156,7 +178,7 @@ export function addAdminRealtimeClient(write: (message: string) => void, close: 
   };
 
   clients().push(client);
-  if (getRealtimeRedis()) {
+  if (hasRealtimeRedisConfig()) {
     void pollSharedEvents(client);
     client.pollTimer = setInterval(() => {
       void pollSharedEvents(client);
