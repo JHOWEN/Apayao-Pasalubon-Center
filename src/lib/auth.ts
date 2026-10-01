@@ -46,7 +46,3 @@ export async function ensureAuthenticatedAdmin() {
 
   return user.id;
 }
-
-export async function ensureDefaultUsers() {
-  return;
-}
