@@ -34,6 +34,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const router = useRouter();
   const [cartCount, setCartCount] = useState(0);
+  const [theme, setTheme] = useState<"light" | "dark">("light");
   const [user, setUser] = useState<EcommerceUser | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -45,6 +46,39 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
   const [orderNotifications, setOrderNotifications] = useState<OrderStatusNotification[]>([]);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [activeSection, setActiveSection] = useState<"home" | "shop" | "categories" | "contact" | "orders">("home");
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const storedTheme = window.localStorage.getItem("apc-theme");
+
+    const themeTimeout = window.setTimeout(() => {
+      const nextTheme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : mediaQuery.matches ? "dark" : "light";
+      setTheme(nextTheme);
+      window.dispatchEvent(new CustomEvent("apc-theme-updated", { detail: nextTheme }));
+    }, 0);
+
+    const updateSystemTheme = (event: MediaQueryListEvent) => {
+      const currentPreference = window.localStorage.getItem("apc-theme");
+      if (currentPreference !== "light" && currentPreference !== "dark") {
+        const nextTheme = event.matches ? "dark" : "light";
+        setTheme(nextTheme);
+        window.dispatchEvent(new CustomEvent("apc-theme-updated", { detail: nextTheme }));
+      }
+    };
+
+    const handleThemeUpdated = (event: Event) => {
+      const nextTheme = (event as CustomEvent<"light" | "dark">).detail;
+      if (nextTheme === "light" || nextTheme === "dark") setTheme(nextTheme);
+    };
+
+    mediaQuery.addEventListener("change", updateSystemTheme);
+    window.addEventListener("apc-theme-updated", handleThemeUpdated);
+    return () => {
+      window.clearTimeout(themeTimeout);
+      mediaQuery.removeEventListener("change", updateSystemTheme);
+      window.removeEventListener("apc-theme-updated", handleThemeUpdated);
+    };
+  }, []);
 
   useEffect(() => {
     async function loadCurrentUser() {
@@ -184,9 +218,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
           <Bell className="h-4 w-4" />
           {isMobileDrawer && <span className="flex-1 text-left text-xs font-semibold">Order status updates</span>}
           {notificationCount > 0 && (
-            <span className="absolute -right-1 -top-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold text-slate-950 shadow-md ring-2 ring-[#070b14] animate-in zoom-in-50">
-              {notificationCount > 9 ? "9+" : notificationCount}
-            </span>
+            <span aria-label="Unread order updates" className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500" />
           )}
         </button>
 
@@ -373,7 +405,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
   }, [pathname]);
 
   return (
-    <div className="storefront-shell min-h-screen bg-slate-50">
+    <div className="storefront-shell min-h-screen bg-slate-50" data-theme={theme}>
       <style>{`
         @keyframes cartToss {
           0% { transform: translateY(0) scale(1) rotate(0deg); }
@@ -523,9 +555,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                         <User className="h-4 w-4" />
                       </div>
                     )}
-                    <span className="absolute -bottom-0.5 -right-0.5 flex h-3 w-3 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-[#070b14]">
-                      <span className="h-1 w-1 rounded-full bg-white" />
-                    </span>
                   </button>
 
                   {profileMenuOpen && (

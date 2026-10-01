@@ -117,7 +117,7 @@ export function ProductCard({
   }
 
   return (
-    <article className="group flex h-full flex-col overflow-hidden rounded-xl border border-white/10 bg-[#12141c] transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:shadow-[0_12px_32px_rgba(0,0,0,0.35)]">
+    <article className="storefront-product-card group flex h-full flex-col overflow-hidden rounded-lg border border-white/10 bg-[#12141c] transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:shadow-[0_8px_20px_rgba(32,39,32,0.09)]">
       {/* Product Image Area */}
       <Link href={`/products/${id}`} className="relative block shrink-0 overflow-hidden bg-[#181b24]">
         <div className="relative aspect-square w-full overflow-hidden">
@@ -154,7 +154,14 @@ export function ProductCard({
         </div>
 
         {hasVariants && (
-          <span className="storefront-image-badge pointer-events-none absolute bottom-2.5 left-2.5 z-20 inline-flex items-center gap-1 rounded-md border border-[#ffb36f]/70 bg-slate-950/90 px-2 py-1 text-[10px] font-semibold text-[#ffb36f] backdrop-blur-md">
+          <span
+            className="storefront-option-badge pointer-events-none absolute bottom-2.5 left-2.5 z-20 inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-[11px] font-bold"
+            style={{
+              backgroundColor: "var(--storefront-ink)",
+              borderColor: "var(--storefront-ink)",
+              color: "var(--storefront-canvas)",
+            }}
+          >
             {variantCount} {variantCount === 1 ? "option" : "options"} available
           </span>
         )}
@@ -230,7 +237,7 @@ export function ProductCard({
               onClick={() => (hasVariants ? setIsOptionModalOpen(true) : addSelectedToCart(true))}
               disabled={!isAvailable}
               aria-label={hasVariants ? `Choose options to buy ${name}` : `Buy ${name} now`}
-              className="inline-flex h-10 min-w-0 items-center justify-center rounded-lg border border-white/10 bg-white/5 px-2 text-xs font-bold text-slate-200 transition hover:border-[#ff8a1e]/50 hover:bg-[#ff8a1e]/10 hover:text-[#ffb36f]"
+              className="inline-flex h-10 min-w-0 items-center justify-center rounded-lg border border-[#d9ded6] bg-white px-2 text-xs font-bold text-[#111111] transition hover:border-[#bfc7bd] hover:bg-[#f7f8f5] hover:text-[#111111]"
             >
               Buy now
             </button>
@@ -256,15 +263,15 @@ export function ProductCard({
       {/* Variant Selection Modal (if triggered) */}
       {isOptionModalOpen && hasVariants && typeof document !== "undefined" && createPortal(
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-0 sm:items-center sm:p-4"
+          className="storefront-variant-modal-overlay fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-0 sm:items-center sm:p-4"
           onClick={() => setIsOptionModalOpen(false)}
         >
           <div
-            className="w-full max-w-md overflow-hidden rounded-t-2xl border border-white/10 bg-[#12141c] shadow-2xl sm:rounded-2xl"
+            className="storefront-variant-modal-panel w-full max-w-md overflow-hidden rounded-t-2xl border border-white/10 bg-[#12141c] shadow-2xl sm:rounded-2xl"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex justify-center pt-2 sm:hidden" aria-hidden="true">
-              <span className="h-1 w-10 rounded-full bg-white/20" />
+              <span className="storefront-variant-modal-handle h-1 w-10 rounded-full bg-white/20" />
             </div>
             <div className="flex items-center justify-between border-b border-white/10 px-5 py-3 sm:py-4">
               <div>
@@ -284,8 +291,8 @@ export function ProductCard({
             </div>
 
             {selectedVariant && (
-              <div className="flex items-center gap-4 border-b border-white/10 bg-[#181b24] p-4">
-                <div className="relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-[#242834]">
+              <div className="storefront-variant-modal-summary flex items-center gap-4 border-b border-white/10 bg-[#181b24] p-4">
+                <div className="storefront-variant-modal-image relative h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-[#242834]">
                   <Image
                     src={selectedVariantImage || primaryImage || "/logo/apc-logo.png"}
                     alt={name}
@@ -313,7 +320,7 @@ export function ProductCard({
                 <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
                   {variantAttributeName || "Option"}
                 </p>
-                <div className="flex flex-wrap gap-2">
+                <div className="storefront-variant-modal-options flex flex-wrap gap-2">
                   {variantOptionValues.map((optionValue) => {
                     const matchingVariants = variants.filter((variant) => getVariantOptionValue(variant) === optionValue);
                     const optionVariant = matchingVariants.find((variant) => variant.stock > 0) ?? matchingVariants[0];
@@ -347,7 +354,7 @@ export function ProductCard({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 border-t border-white/10 p-4">
-              <div className="flex items-center rounded-xl border border-white/10 bg-[#181b24]">
+              <div className="storefront-variant-modal-quantity flex items-center rounded-xl border border-white/10 bg-[#181b24]">
                 <button
                   type="button"
                   onClick={() => commitQuantity(quantity - 1)}
@@ -406,7 +413,7 @@ export function ProductCard({
             </div>
           </div>
         </div>,
-        document.body,
+        document.querySelector(".storefront-shell") ?? document.body,
       )}
     </article>
   );

@@ -8,9 +8,11 @@ import {
   Camera,
   Mail,
   MapPin,
+  Moon,
   Phone,
   ShieldAlert,
   ShieldCheck,
+  Sun,
   User,
   UserRound,
   X,
@@ -122,6 +124,7 @@ function formatAddress(address: AddressForm) {
 export default function ProfilePage() {
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
+  const [appearance, setAppearance] = useState<"light" | "dark">("light");
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<ProfileForm>({ name: "", phone: "" });
   const [addressData, setAddressData] = useState<AddressForm>({ ...emptyAddress });
@@ -136,6 +139,34 @@ export default function ProfilePage() {
 
   const isDeleteConfirmed = user?.email?.trim() && deleteEmail.trim() === user.email.trim();
   const canDeleteAccount = isDeleteConfirmed && deletePassword.trim().length > 0;
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const storedTheme = window.localStorage.getItem("apc-theme");
+    const themeTimeout = window.setTimeout(() => {
+      setAppearance(storedTheme === "light" || storedTheme === "dark" ? storedTheme : mediaQuery.matches ? "dark" : "light");
+    }, 0);
+
+    const handleThemeUpdated = (event: Event) => {
+      const nextTheme = (event as CustomEvent<"light" | "dark">).detail;
+      if (nextTheme === "light" || nextTheme === "dark") setAppearance(nextTheme);
+    };
+
+    const handleSystemThemeChange = (event: MediaQueryListEvent) => {
+      const preference = window.localStorage.getItem("apc-theme");
+      if (preference !== "light" && preference !== "dark") {
+        setAppearance(event.matches ? "dark" : "light");
+      }
+    };
+
+    window.addEventListener("apc-theme-updated", handleThemeUpdated);
+    mediaQuery.addEventListener("change", handleSystemThemeChange);
+    return () => {
+      window.clearTimeout(themeTimeout);
+      window.removeEventListener("apc-theme-updated", handleThemeUpdated);
+      mediaQuery.removeEventListener("change", handleSystemThemeChange);
+    };
+  }, []);
 
   useEffect(() => {
     async function loadProfile() {
@@ -333,6 +364,12 @@ export default function ProfilePage() {
     }
   }
 
+  function updateAppearance(nextTheme: "light" | "dark") {
+    setAppearance(nextTheme);
+    window.localStorage.setItem("apc-theme", nextTheme);
+    window.dispatchEvent(new CustomEvent("apc-theme-updated", { detail: nextTheme }));
+  }
+
   return (
     <main className="min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
       <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6">
@@ -466,6 +503,43 @@ export default function ProfilePage() {
               : "To place store pickup orders without delay, make sure to add your phone number and complete address below."}
           </p>
         </div>
+
+        <section className="storefront-appearance rounded-3xl border border-white/10 bg-[#12141c] p-5 sm:p-6 shadow-lg">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-bold text-white">Appearance</h2>
+              <p className="mt-1 text-xs text-slate-400">Choose the storefront color theme.</p>
+            </div>
+            <div role="group" aria-label="Appearance theme" className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                aria-pressed={appearance === "light"}
+                onClick={() => updateAppearance("light")}
+                className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-4 text-xs font-semibold transition ${
+                  appearance === "light"
+                    ? "border-[#ff8a1e] bg-[#ff8a1e] text-slate-950"
+                    : "border-white/10 bg-[#181b24] text-slate-200 hover:border-[#ff8a1e]/50"
+                }`}
+              >
+                <Sun className="h-4 w-4" />
+                Light
+              </button>
+              <button
+                type="button"
+                aria-pressed={appearance === "dark"}
+                onClick={() => updateAppearance("dark")}
+                className={`inline-flex h-10 items-center justify-center gap-2 rounded-lg border px-4 text-xs font-semibold transition ${
+                  appearance === "dark"
+                    ? "border-[#ff8a1e] bg-[#ff8a1e] text-slate-950"
+                    : "border-white/10 bg-[#181b24] text-slate-200 hover:border-[#ff8a1e]/50"
+                }`}
+              >
+                <Moon className="h-4 w-4" />
+                Dark
+              </button>
+            </div>
+          </div>
+        </section>
 
         {/* Personal Details & Address Card */}
         <div className="rounded-3xl border border-white/10 bg-[#12141c] p-6 sm:p-8 space-y-6 shadow-xl">
@@ -685,7 +759,8 @@ export default function ProfilePage() {
                 setDeletePassword("");
                 setShowDeleteModal(true);
               }}
-              className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-xs font-bold text-rose-300 hover:bg-rose-500/20 transition"
+              style={{ color: "var(--storefront-danger)" }}
+              className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-xs font-bold hover:bg-rose-500/20"
             >
               Delete Account
             </button>

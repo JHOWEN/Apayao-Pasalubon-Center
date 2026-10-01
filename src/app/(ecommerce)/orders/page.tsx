@@ -447,7 +447,10 @@ export default function OrdersPage() {
                       <span className="font-mono text-base font-extrabold text-white">
                         {order.orderNumber}
                       </span>
-                      <span className={`rounded-full border px-3 py-1 text-[11px] font-bold ${colors.badge}`}>
+                      <span
+                        data-order-status={normalizedStatus}
+                        className={`storefront-order-status rounded-full border px-3 py-1 text-[11px] font-bold ${colors.badge}`}
+                      >
                         {orderStatusSteps.find((s) => s.key === normalizedStatus)?.label ?? normalizedStatus}
                       </span>
                     </div>
@@ -580,6 +583,14 @@ export default function OrdersPage() {
                             />
                           </label>
                         )}
+                        {uploadingProofOrderId === order.id && (
+                          <div className="mt-2" role="status" aria-live="polite">
+                            <div className="h-1.5 overflow-hidden rounded-full bg-amber-950/50">
+                              <div className="receipt-upload-progress h-full w-1/3 rounded-full bg-amber-300" />
+                            </div>
+                            <p className="mt-1.5 text-[11px] text-amber-100/80">Uploading securely. Keep this page open.</p>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -633,7 +644,10 @@ export default function OrdersPage() {
                           <h4 className="text-sm font-bold text-white">Order Progress</h4>
                           <p className="text-xs text-slate-400">Track the status of your reservation from confirmation to pickup.</p>
                         </div>
-                        <span className="rounded-md border border-[#ff8a1e]/30 bg-[#ff8a1e]/10 px-2.5 py-1 text-[11px] font-bold text-[#ffb36f]">
+                        <span
+                          data-order-status={order.status === "COMPLETED" ? "COMPLETED" : "IN_PROGRESS"}
+                          className="storefront-tracking-summary rounded-md border px-2.5 py-1 text-[11px] font-bold"
+                        >
                           {order.status === "COMPLETED" ? "Completed" : "In Progress"}
                         </span>
                       </div>
@@ -680,7 +694,7 @@ export default function OrdersPage() {
                                   ? "border-[#ff8a1e] bg-[#ff8a1e]/10"
                                   : isCompleted
                                   ? "border-emerald-400/30 bg-emerald-500/5 text-emerald-200"
-                                  : "border-white/5 bg-[#12141c] text-slate-500 opacity-60"
+                                  : "storefront-order-step-upcoming border-white/5 bg-[#12141c] text-slate-500"
                               }`}
                             >
                               <div

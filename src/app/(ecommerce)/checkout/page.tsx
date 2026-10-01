@@ -546,6 +546,15 @@ export default function CheckoutPage() {
                       <input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void handleProofUpload(event.target.files?.[0])} className="sr-only" />
                     </label>
 
+                    {isUploadingProof && (
+                      <div className="mt-3" role="status" aria-live="polite">
+                        <div className="h-1.5 overflow-hidden rounded-full bg-[#3A2414]">
+                          <div className="receipt-upload-progress h-full w-1/3 rounded-full bg-[#FF8A1E]" />
+                        </div>
+                        <p className="mt-1.5 text-[11px] text-[#D5D5D5]">Uploading securely. Keep this page open.</p>
+                      </div>
+                    )}
+
                     {proofFileName && (
                       <div className="mt-3 rounded-lg border border-white/10 bg-[#121212] px-3 py-2 text-xs text-[#E8E8E8]">
                         <span className="font-semibold text-white">Selected file:</span> {proofFileName}

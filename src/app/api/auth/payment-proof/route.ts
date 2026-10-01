@@ -114,6 +114,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, orderId: order.id, key: upload.key, url: previewUrl }, { status: 201 });
   } catch (error) {
     logError("auth.payment_proof.upload_failed", error, { requestId: getRequestId(request) });
-    return NextResponse.json({ success: false, message: "Unable to upload proof of payment." }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message.toLowerCase() : "";
+    const storageUnavailable = errorMessage.includes("supabase") || errorMessage.includes("fetch failed");
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: storageUnavailable
+          ? "Receipt storage is temporarily unavailable. Check your connection and try again in a few minutes. Your order reservation remains unchanged."
+          : "We couldn't save your receipt right now. Please try again, and contact the store with your order number if the problem continues.",
+      },
+      { status: storageUnavailable ? 503 : 500 },
+    );
   }
 }

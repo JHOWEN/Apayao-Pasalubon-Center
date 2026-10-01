@@ -365,78 +365,54 @@ function EcommerceHomeContent() {
       <div className="mx-auto w-full max-w-7xl space-y-8 px-4 py-5 sm:space-y-10 sm:px-6 sm:py-7 lg:space-y-12 lg:px-8">
         
         {/* Hero Section */}
-        <section className="storefront-hero relative overflow-hidden rounded-3xl border border-white/10 bg-[#12141c] shadow-2xl">
-          <div className="absolute inset-0 z-0">
-            <Image
-              src="/uploads/banner.png"
-              alt="Apayao Pasalubong Center banner"
-              fill
-              priority
-              sizes="(max-width: 1280px) 100vw, 1280px"
-              className="object-cover object-center opacity-90"
-              unoptimized
-            />
-            <div className="storefront-hero-overlay absolute inset-0 bg-linear-to-r from-[#17213A]/72 via-[#17213A]/30 to-transparent" />
-          </div>
-
-          <div className="relative z-10 flex max-w-none flex-col justify-center px-5 py-9 sm:px-10 sm:py-14 lg:pr-107.5 lg:px-14 lg:py-20 xl:pr-115">
-            <div className="storefront-hero-badge inline-flex items-center gap-2 rounded-full border border-[#ff8a1e]/30 bg-[#ff8a1e]/10 px-3 py-1 text-[11px] font-bold uppercase tracking-widest text-[#ffb36f] backdrop-blur-sm w-fit">
-              <span>Authentic Apayao Goods</span>
+        <section className="storefront-hero grid lg:grid-cols-[0.92fr_1.08fr]">
+          <div className="storefront-hero-copy order-2 flex flex-col justify-center px-5 py-7 sm:px-9 sm:py-10 lg:order-1 lg:px-12 lg:py-12">
+            <div className="storefront-hero-badge inline-flex w-fit items-center rounded-md px-3 py-1 text-[11px] font-bold uppercase tracking-widest">
+              Authentic Apayao Goods
             </div>
 
-            <h1 className="mt-4 max-w-2xl text-3xl font-extrabold leading-[1.12] tracking-tight text-white sm:text-4xl lg:text-5xl">
+            <h1 className="mt-4 max-w-xl text-3xl font-semibold leading-[1.12] tracking-tight text-white sm:text-4xl lg:text-[2.8rem]">
               Authentic handcrafted goods from Apayao.
             </h1>
 
-            <p className="mt-4 max-w-lg text-sm leading-relaxed text-slate-200 sm:text-base lg:text-lg">
+            <p className="mt-4 max-w-lg text-sm leading-relaxed text-slate-200 sm:text-base">
               Local snacks, native delicacies, handwoven textiles, and artisan souvenirs freshly prepared and reserved for convenient store pickup.
             </p>
 
-            {/* Redesigned CTAs */}
-            <div className="mt-8 flex flex-wrap items-center gap-3.5">
+            <div className="mt-7 flex flex-wrap items-center gap-3">
               <a
                 href="#catalog"
-                className="group relative inline-flex h-12 min-w-44 items-center justify-center gap-2.5 overflow-hidden rounded-2xl bg-linear-to-r from-[#ff8a1e] via-amber-500 to-orange-500 px-7 text-sm font-bold text-slate-950 shadow-[0_10px_25px_-5px_rgba(255,138,30,0.45)] transition-all duration-200 hover:scale-[1.03] hover:shadow-[0_14px_32px_-4px_rgba(255,138,30,0.6)] active:scale-[0.98]"
+                className="group inline-flex h-11 min-w-40 items-center justify-center gap-2 rounded-md bg-[#ff8a1e] px-5 text-sm font-bold text-slate-950 transition hover:bg-orange-500 active:scale-[0.98]"
               >
-                <span>Shop Products</span>
+                Shop Products
                 <ArrowRight className="h-4 w-4 transition-transform duration-200 group-hover:translate-x-1" />
               </a>
 
               <a
                 href="#how-to-order"
-                className="inline-flex h-12 min-w-40 items-center justify-center rounded-2xl border border-white/20 bg-white/10 px-6 text-sm font-semibold text-white backdrop-blur-md shadow-xs transition-all duration-200 hover:border-white/35 hover:bg-white/15 hover:text-amber-200 hover:scale-[1.02] active:scale-[0.98]"
+                className="inline-flex h-11 items-center justify-center rounded-md border border-white/20 px-5 text-sm font-semibold text-white transition hover:border-[#ff8a1e]/50 hover:text-[#ff8a1e] active:scale-[0.98]"
               >
                 How It Works
               </a>
             </div>
+          </div>
 
-            {/* Quick Trust Highlights */}
-            <div className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs font-medium text-slate-300">
-              <span className="flex items-center gap-1.5">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  ✓
-                </span>
-                <span>Reserve Online & Pick Up</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  ✓
-                </span>
-                <span>Cash, GCash & Maya</span>
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                  ✓
-                </span>
-                <span>San isidro sur, Luna, Apayao.</span>
-              </span>
-            </div>
-
+          <div className="storefront-hero-image relative order-1 min-h-60 overflow-hidden bg-[#e9ece6] sm:min-h-80 lg:order-2 lg:min-h-107.5">
+            <Image
+              src="/uploads/banner.png"
+              alt="Apayao Pasalubong Center"
+              fill
+              priority
+              sizes="(max-width: 1024px) 100vw, 56vw"
+              className="object-cover object-center"
+              unoptimized
+            />
+            <div className="storefront-hero-overlay absolute inset-0" />
           </div>
         </section>
 
         {/* Value Proposition Strip */}
-        <section className="rounded-2xl border border-white/10 bg-[#12141c]/60 p-4 sm:p-5 backdrop-blur-sm">
+        <section className="storefront-benefits rounded-2xl border border-white/10 bg-[#12141c]/60 p-4 sm:p-5 backdrop-blur-sm">
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 lg:gap-6">
             {[
               { icon: ShieldCheck, title: "Authentic Goods", desc: "100% genuine local products" },
@@ -671,7 +647,7 @@ function EcommerceHomeContent() {
         </section>
 
         {/* How To Order Section */}
-        <section id="how-to-order" className="scroll-mt-20 rounded-3xl border border-white/10 bg-[#12141c] p-6 sm:p-8 lg:p-10">
+        <section id="how-to-order" className="storefront-how-to scroll-mt-20 rounded-3xl border border-white/10 bg-[#12141c] p-6 sm:p-8 lg:p-10">
           <div className="max-w-xl">
             <span className="text-[11px] font-bold uppercase tracking-widest text-[#ff8a1e]">
               Easy Pickup Process
@@ -724,7 +700,7 @@ function EcommerceHomeContent() {
         </section>
 
         {/* Customer Support & Location Section */}
-        <section id="contact-us" className="scroll-mt-20 rounded-3xl border border-white/10 bg-[#12141c] p-6 sm:p-8 lg:p-10">
+        <section id="contact-us" className="storefront-contact scroll-mt-20 rounded-3xl border border-white/10 bg-[#12141c] p-6 sm:p-8 lg:p-10">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between border-b border-white/10 pb-5">
             <div>
               <span className="text-[11px] font-bold uppercase tracking-widest text-[#ff8a1e]">
