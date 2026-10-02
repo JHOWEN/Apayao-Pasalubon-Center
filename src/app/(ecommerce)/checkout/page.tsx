@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { clearCart, getCartItems, getStoredUser, saveRecentOrder, saveStoredUser } from "@/features/cart/lib/cart";
+import { getCheckoutData } from "@/features/cart/lib/checkout-data";
 import { fetchWithTimeout, getResponseErrorMessage, getUserFacingErrorMessage } from "@/lib/client-fetch";
 import { isPickupDateOnOrAfterToday, ONLINE_PAYMENT_RESERVATION_TTL_MS } from "@/lib/order";
 
@@ -70,69 +71,49 @@ export default function CheckoutPage() {
   }>({ type: "idle", message: "" });
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({});
   const [incompleteFields, setIncompleteFields] = useState<string[]>([]);
+  const [isLoadingCheckout, setIsLoadingCheckout] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
 
-    async function loadCheckoutUser() {
-      setItems(getCartItems());
-
-      try {
-        const settingsResponse = await fetchWithTimeout("/api/public/settings");
-        const settingsData = await settingsResponse.json();
-        if (settingsResponse.ok) setPaymentSettings(settingsData?.settings ?? {});
-      } catch {
-        // Wallet details are optional until configured by an admin.
-      }
-
-      try {
-        const response = await fetchWithTimeout("/api/auth/profile");
-        const data = await response.json();
-
-        if (response.ok && data?.user) {
-          const serverUser = data.user;
-          if (!isMounted) return;
-
-          saveStoredUser(serverUser);
-          setUser(serverUser);
-          setForm((current) => ({ ...current, name: serverUser.name ?? "", phone: serverUser.phone ?? "" }));
-
-          if (serverUser.isBlocked) {
-            setStatus("Your account has been blocked. Please contact the admin before placing an order.");
-          }
-
-          const missing: string[] = [];
-          if (!serverUser.phone || serverUser.phone.trim() === "") missing.push("Phone Number");
-          if (!serverUser.address || serverUser.address.trim() === "") missing.push("Address");
-
-          setIncompleteFields(missing);
-          return;
-        }
-      } catch {
-        // Fall back to the locally stored profile if the server is unavailable.
-      }
-
-      const savedUser = getStoredUser();
+    function applyUser(profile: CheckoutUser | null) {
       if (!isMounted) return;
+      setUser(profile);
 
-      setUser(savedUser);
-
-      if (!savedUser) {
+      if (!profile) {
         setStatus("Please register an account before placing an order.");
         router.replace("/register");
         return;
       }
 
-      setForm((current) => ({ ...current, name: savedUser.name ?? "", phone: savedUser.phone ?? "" }));
+      setForm((current) => ({ ...current, name: profile.name ?? "", phone: profile.phone ?? "" }));
+      if (profile.isBlocked) {
+        setStatus("Your account has been blocked. Please contact the admin before placing an order.");
+      }
 
       const missing: string[] = [];
-      if (!savedUser.phone || savedUser.phone.trim() === "") missing.push("Phone Number");
-      if (!savedUser.address || savedUser.address.trim() === "") missing.push("Address");
-
+      if (!profile.phone || profile.phone.trim() === "") missing.push("Phone Number");
+      if (!profile.address || profile.address.trim() === "") missing.push("Address");
       setIncompleteFields(missing);
     }
 
-    void loadCheckoutUser();
+    void getCheckoutData().then((data) => {
+      if (!isMounted) return;
+      setItems(getCartItems());
+      setPaymentSettings(data.settings ?? {});
+      if (data.user) {
+        saveStoredUser(data.user);
+        applyUser(data.user);
+        return;
+      }
+      const savedUser = getStoredUser();
+      applyUser(savedUser);
+    }).catch(() => {
+      if (isMounted) setItems(getCartItems());
+      applyUser(getStoredUser());
+    }).finally(() => {
+      if (isMounted) setIsLoadingCheckout(false);
+    });
 
     return () => {
       isMounted = false;
@@ -360,7 +341,33 @@ export default function CheckoutPage() {
           </Link>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.35fr_0.85fr]">
+        {isLoadingCheckout ? (
+          <div className="grid gap-6 xl:grid-cols-[1.35fr_0.85fr]" aria-busy="true" aria-live="polite">
+            <div className="rounded-2xl border border-white/10 bg-[#151515] p-5 sm:p-6">
+              <div className="mb-6 flex items-center gap-3 border-b border-white/6 pb-6" role="status">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-[#FF8A1E]/30 border-t-[#FF8A1E]" />
+                <p className="text-sm font-medium text-[#D5D5D5]">Preparing your checkout details...</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {[0, 1, 2, 3].map((field) => (
+                  <div key={field} className="space-y-2">
+                    <div className="h-4 w-28 animate-pulse rounded bg-white/10" />
+                    <div className="h-11 animate-pulse rounded-xl bg-white/5" />
+                  </div>
+                ))}
+              </div>
+              <div className="mt-8 h-12 animate-pulse rounded-xl bg-white/5" />
+            </div>
+            <aside className="h-64 animate-pulse rounded-2xl border border-white/10 bg-[#151515] p-5" aria-hidden="true">
+              <div className="h-4 w-32 rounded bg-white/10" />
+              <div className="mt-6 space-y-3">
+                <div className="h-12 rounded-xl bg-white/5" />
+                <div className="h-12 rounded-xl bg-white/5" />
+                <div className="h-10 rounded-xl bg-white/5" />
+              </div>
+            </aside>
+          </div>
+        ) : <div className="grid gap-6 xl:grid-cols-[1.35fr_0.85fr]">
           <div>
             {incompleteFields.length > 0 && (
               <div className="mb-6 rounded-3xl border border-[#FFC857]/30 bg-[#261D0A] p-5">
@@ -633,7 +640,7 @@ export default function CheckoutPage() {
               Back to cart
             </Link>
           </aside>
-        </div>
+        </div>}
       </div>
     </main>
   );

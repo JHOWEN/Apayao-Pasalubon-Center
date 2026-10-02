@@ -20,6 +20,7 @@ import {
   updateCartQuantity,
   type CartItem,
 } from "@/features/cart/lib/cart";
+import { prefetchCheckoutData } from "@/features/cart/lib/checkout-data";
 
 type CartUser = {
   name?: string;
@@ -311,6 +312,8 @@ export default function CartPage() {
               <div className="space-y-2.5">
                 <Link
                   href={user ? "/checkout" : "/register"}
+                  onPointerEnter={user ? prefetchCheckoutData : undefined}
+                  onFocus={user ? prefetchCheckoutData : undefined}
                   className="flex h-12 w-full items-center justify-center rounded-xl bg-[#ff8a1e] px-6 text-sm font-bold text-slate-950 transition hover:bg-[#f97316] hover:shadow-[0_8px_24px_rgba(255,138,30,0.35)]"
                 >
                   {user ? "Proceed to Checkout" : "Register to Order"}
