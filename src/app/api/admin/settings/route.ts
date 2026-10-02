@@ -20,10 +20,10 @@ async function ensureAuthenticatedAdmin() {
 
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
-    select: { role: true },
+    select: { role: true, isBlocked: true },
   });
 
-  if (!user || user.role !== "ADMIN") {
+  if (!user || user.isBlocked || user.role !== "ADMIN") {
     return null;
   }
 

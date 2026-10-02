@@ -4,22 +4,10 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { sendVerificationEmail } from "@/lib/mailer";
 import { buildPasswordResetUrl, createPasswordResetToken } from "@/lib/password-reset";
 import { buildEmailVerificationUrl, createEmailVerificationToken } from "@/lib/email-verification";
+import { getAppBaseUrl } from "@/lib/app-url";
 import { getRequestId, logError } from "@/lib/logger";
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function getRequestBaseUrl(request: Request) {
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const host = forwardedHost || request.headers.get("host")?.trim();
-
-  if (host) {
-    const protocol = forwardedProto || (host.includes("localhost") ? "http" : "https");
-    return `${protocol}://${host}`;
-  }
-
-  return process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-}
 
 export async function POST(request: Request) {
   try {
@@ -40,7 +28,7 @@ export async function POST(request: Request) {
       return rateLimitResponse;
     }
 
-    const baseUrl = getRequestBaseUrl(request);
+    const baseUrl = getAppBaseUrl();
     const user = await prisma.user.findUnique({ where: { email } });
 
     if (!user) {

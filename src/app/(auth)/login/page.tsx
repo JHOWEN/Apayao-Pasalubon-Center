@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, AlertCircle, Clock, Loader2, ArrowRight } from "lucide-react";
-import { saveStoredUser } from "@/features/cart/lib/cart";
+import { clearStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
 import { AuthSuccessState } from "@/components/auth/AuthSuccessState";
 import { AuthCardLayout } from "@/components/auth/AuthCardLayout";
 import { AuthInput } from "@/components/auth/AuthInput";
@@ -20,7 +20,48 @@ export default function LoginPage() {
   const [isSuccess, setIsSuccess] = useState(false);
   const [lockoutEmail, setLockoutEmail] = useState("");
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
+  const [sessionState, setSessionState] = useState<"clearing" | "ready" | "error">("clearing");
+  const [sessionClearAttempt, setSessionClearAttempt] = useState(0);
   const isLocked = lockoutSeconds > 0 && email.trim().toLowerCase() === lockoutEmail;
+
+  useEffect(() => {
+    const reason = new URLSearchParams(window.location.search).get("reason");
+    const message = reason === "session-expired"
+      ? "Your session has expired. Please log in again."
+      : reason === "access-denied"
+        ? "Your account does not have access to the admin dashboard."
+        : reason === "login-required"
+          ? "Please log in to access the admin dashboard."
+        : "";
+    if (!message) return;
+
+    const timeout = window.setTimeout(() => setError(message), 0);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    async function clearPreviousSession() {
+      try {
+        const response = await fetch("/api/auth/logout", { method: "POST", cache: "no-store" });
+        if (!response.ok) throw new Error("Unable to end the previous session.");
+
+        clearStoredUser();
+        window.localStorage.setItem("apc-auth-session-ended", String(Date.now()));
+        if (isActive) setSessionState("ready");
+      } catch {
+        if (!isActive) return;
+        setSessionState("error");
+        setError("We couldn't end your previous session. Check your connection and retry before signing in.");
+      }
+    }
+
+    void clearPreviousSession();
+    return () => {
+      isActive = false;
+    };
+  }, [sessionClearAttempt]);
 
   useEffect(() => {
     if (lockoutSeconds <= 0) {
@@ -44,6 +85,10 @@ export default function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (sessionState !== "ready") {
+      setError("End the previous session before signing in.");
+      return;
+    }
     if (isLocked) {
       return;
     }
@@ -111,7 +156,12 @@ export default function LoginPage() {
           className="space-y-4"
           onSubmit={handleSubmit}
           aria-label="Sign in form"
+          aria-busy={sessionState === "clearing"}
         >
+          {sessionState === "clearing" ? (
+            <p className="text-center text-sm text-slate-500" role="status">Ending your previous session...</p>
+          ) : null}
+
           <AuthInput
             id="login-email"
             name="email"
@@ -123,7 +173,7 @@ export default function LoginPage() {
             onChange={(e) => handleEmailChange(e.target.value)}
             placeholder="name@example.com"
             icon={Mail}
-            disabled={isLoading}
+            disabled={isLoading || sessionState !== "ready"}
           />
 
           <AuthInput
@@ -141,7 +191,7 @@ export default function LoginPage() {
             }}
             placeholder="Enter your password"
             icon={Lock}
-            disabled={isLoading}
+            disabled={isLoading || sessionState !== "ready"}
           />
 
           <div className="flex items-center justify-between gap-4 pt-1 text-xs sm:text-sm">
@@ -150,6 +200,7 @@ export default function LoginPage() {
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
+                disabled={sessionState !== "ready"}
                 className="h-4 w-4 rounded border-slate-300 accent-slate-900"
               />
               <span className="font-medium text-slate-600 group-hover:text-slate-900">
@@ -188,6 +239,19 @@ export default function LoginPage() {
                         lockoutSeconds / 60
                       )}:${String(lockoutSeconds % 60).padStart(2, "0")}.`
                     : error}
+                  {sessionState === "error" ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setError("");
+                        setSessionState("clearing");
+                        setSessionClearAttempt((attempt) => attempt + 1);
+                      }}
+                      className="mt-2 block font-semibold underline underline-offset-2"
+                    >
+                      Retry session cleanup
+                    </button>
+                  ) : null}
                 </div>
               </motion.div>
             ) : null}
@@ -197,7 +261,7 @@ export default function LoginPage() {
             type="submit"
             whileHover={{ scale: isLocked || isLoading ? 1 : 1.005 }}
             whileTap={{ scale: isLocked || isLoading ? 1 : 0.99 }}
-            disabled={isLoading || isLocked}
+            disabled={isLoading || isLocked || sessionState !== "ready"}
             className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-6 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
           >
             {isLoading ? (
@@ -205,6 +269,10 @@ export default function LoginPage() {
                 <Loader2 className="h-5 w-5 animate-spin text-white" />
                 <span>Signing in...</span>
               </>
+            ) : sessionState === "clearing" ? (
+              <span>Ending session...</span>
+            ) : sessionState === "error" ? (
+              <span>Retry session cleanup above</span>
             ) : isLocked ? (
               <span>Try again later</span>
             ) : (

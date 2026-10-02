@@ -13,6 +13,10 @@ DATABASE_URL="postgresql://user:password@localhost:5432/apc_inventory"
 # ===============================
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-super-secret-random-string-here
+NEXT_PUBLIC_APP_URL=https://your-canonical-app-domain.example
+JWT_SECRET=generate-a-unique-secret-with-at-least-32-random-bytes
+EMAIL_VERIFICATION_SECRET=generate-a-separate-unique-secret-with-at-least-32-random-bytes
+PASSWORD_RESET_SECRET=generate-another-unique-secret-with-at-least-32-random-bytes
 
 # ===============================
 # PAYMENTS
@@ -71,6 +75,12 @@ OPERATIONAL_ALERT_WEBHOOK_URL=https://your-alert-webhook.example/endpoint
 # Required in production for scheduled wallet reservation cleanup
 CRON_SECRET=your-random-cron-secret
 ```
+
+Set `NEXT_PUBLIC_APP_URL` to the canonical HTTPS origin in production. Do not
+derive email verification or password-reset links from request host headers.
+
+The optional seed scripts are development-only and require `SEED_ADMIN_EMAIL`,
+`SEED_ADMIN_PASSWORD`, `SEED_CUSTOMER_EMAIL`, and `SEED_CUSTOMER_PASSWORD`.
 
 ## Payment Configuration
 

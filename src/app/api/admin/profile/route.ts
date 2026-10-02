@@ -22,10 +22,10 @@ export async function GET(request: Request) {
 
     const userRecord = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { role: true },
+      select: { role: true, isBlocked: true },
     });
 
-    if (!userRecord || !canAccessAdminPortal(userRecord.role)) {
+    if (!userRecord || userRecord.isBlocked || !canAccessAdminPortal(userRecord.role)) {
       return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
     }
 
@@ -64,10 +64,10 @@ export async function PUT(request: Request) {
 
     const userRecord = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { role: true },
+      select: { role: true, isBlocked: true },
     });
 
-    if (!userRecord || !canAccessAdminPortal(userRecord.role)) {
+    if (!userRecord || userRecord.isBlocked || !canAccessAdminPortal(userRecord.role)) {
       return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
     }
 

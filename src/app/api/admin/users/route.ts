@@ -16,8 +16,8 @@ async function requireAdmin() {
     return { error: NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 }) };
   }
 
-  const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { role: true } });
-  if (user?.role !== "ADMIN") {
+  const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { role: true, isBlocked: true } });
+  if (user?.role !== "ADMIN" || user.isBlocked) {
     return { error: NextResponse.json({ success: false, message: "Admin access required." }, { status: 403 }) };
   }
 
