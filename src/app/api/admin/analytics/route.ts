@@ -272,7 +272,6 @@ export async function GET(request: NextRequest) {
     outOfStockCount: inventoryProducts.reduce((count, product) => product.hasVariants
       ? count + product.variants.filter((variant) => variant.isActive && Number(variant.stock ?? 0) === 0).length
       : count + (Number(product.stock ?? 0) === 0 ? 1 : 0), 0),
-    totalInventoryValue: Number(totalCost.toFixed(2)),
     averageStock: inventoryProducts.length > 0
       ? Number((inventoryProducts.reduce((sum, product) => product.hasVariants
         ? sum + product.variants.filter((variant) => variant.isActive).reduce((variantSum, variant) => variantSum + Number(variant.stock ?? 0), 0)

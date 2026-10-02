@@ -324,29 +324,29 @@ export default function CheckoutPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#0D0D0D] text-white">
+    <main className="min-h-screen bg-slate-100 text-slate-900 dark:bg-[#0D0D0D] dark:text-white">
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 xl:px-8">
-        <div className="mb-8 flex flex-col gap-4 rounded-3xl border border-white/10 bg-[linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,138,30,0.08))] p-5 md:p-6 xl:flex-row xl:items-center xl:justify-between">
+        <div className="mb-8 flex flex-col gap-4 rounded-3xl border border-slate-200 bg-[linear-gradient(135deg,rgba(255,255,255,0.7),rgba(255,138,30,0.12))] p-5 shadow-sm md:p-6 dark:border-white/10 dark:bg-[linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,138,30,0.08))] xl:flex-row xl:items-center xl:justify-between">
           <div>
             <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.42em] text-[#FF8A1E]">
               <span className="h-2 w-2 rounded-full bg-[#FF8A1E] shadow-[0_0_18px_rgba(255,138,30,0.95)]" />
               Final step
             </div>
-            <h1 className="text-3xl font-semibold tracking-[-0.03em] text-white sm:text-4xl">Complete your order</h1>
-            <p className="mt-2 max-w-2xl text-sm text-[#B8B8B8]">Add your pickup details and choose a payment method to place your reservation.</p>
+            <h1 className="text-3xl font-semibold tracking-[-0.03em] text-slate-900 dark:text-white sm:text-4xl">Complete your order</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-[#B8B8B8]">Add your pickup details and choose a payment method to place your reservation.</p>
           </div>
 
-          <Link href="/cart" className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-[#141414] px-4 py-2.5 text-sm font-semibold text-white transition duration-200 hover:-translate-y-0.5 hover:border-[#FF8A1E]/70 hover:text-[#FF8A1E]">
+          <Link href="/cart" className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition duration-200 hover:-translate-y-0.5 hover:border-[#FF8A1E]/70 hover:text-[#FF8A1E] dark:border-white/10 dark:bg-[#141414] dark:text-white">
             ← Back to cart
           </Link>
         </div>
 
         {isLoadingCheckout ? (
           <div className="grid gap-6 xl:grid-cols-[1.35fr_0.85fr]" aria-busy="true" aria-live="polite">
-            <div className="rounded-2xl border border-white/10 bg-[#151515] p-5 sm:p-6">
-              <div className="mb-6 flex items-center gap-3 border-b border-white/6 pb-6" role="status">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#151515] sm:p-6">
+              <div className="mb-6 flex items-center gap-3 border-b border-slate-200 pb-6 dark:border-white/6" role="status">
                 <span className="h-5 w-5 animate-spin rounded-full border-2 border-[#FF8A1E]/30 border-t-[#FF8A1E]" />
-                <p className="text-sm font-medium text-[#D5D5D5]">Preparing your checkout details...</p>
+                <p className="text-sm font-medium text-slate-600 dark:text-[#D5D5D5]">Preparing your checkout details...</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 {[0, 1, 2, 3].map((field) => (
@@ -358,7 +358,7 @@ export default function CheckoutPage() {
               </div>
               <div className="mt-8 h-12 animate-pulse rounded-xl bg-white/5" />
             </div>
-            <aside className="h-64 animate-pulse rounded-2xl border border-white/10 bg-[#151515] p-5" aria-hidden="true">
+            <aside className="h-64 animate-pulse rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-[#151515]" aria-hidden="true">
               <div className="h-4 w-32 rounded bg-white/10" />
               <div className="mt-6 space-y-3">
                 <div className="h-12 rounded-xl bg-white/5" />
@@ -370,17 +370,17 @@ export default function CheckoutPage() {
         ) : <div className="grid gap-6 xl:grid-cols-[1.35fr_0.85fr]">
           <div>
             {incompleteFields.length > 0 && (
-              <div className="mb-6 rounded-3xl border border-[#FFC857]/30 bg-[#261D0A] p-5">
+              <div className="mb-6 rounded-3xl border border-amber-300 bg-amber-50 p-5 text-amber-900 dark:border-[#FFC857]/30 dark:bg-[#261D0A] dark:text-[#F2D98A]">
                 <div className="flex items-start gap-3">
                   <div className="shrink-0 text-2xl">⚠️</div>
                   <div className="flex-1">
-                    <h3 className="mb-2 text-base font-semibold text-[#FFC857]">Complete your profile</h3>
-                    <p className="mb-3 text-sm text-[#F2D98A]">
+                    <h3 className="mb-2 text-base font-semibold text-amber-900 dark:text-[#FFC857]">Complete your profile</h3>
+                    <p className="mb-3 text-sm text-amber-800 dark:text-[#F2D98A]">
                       Please update the following information on your profile for a smooth pickup experience:
                     </p>
                     <div className="mb-4 flex flex-wrap gap-2">
                       {incompleteFields.map((field) => (
-                        <span key={field} className="inline-block rounded-full border border-[#FFC857]/30 bg-[#2B220A] px-3 py-1 text-xs font-semibold text-[#FFE39F]">
+                        <span key={field} className="inline-block rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900 dark:border-[#FFC857]/30 dark:bg-[#2B220A] dark:text-[#FFE39F]">
                           • {field}
                         </span>
                       ))}
@@ -396,44 +396,44 @@ export default function CheckoutPage() {
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="rounded-2xl border border-white/10 bg-[#151515] p-4 sm:p-6">
-              <div className="mb-6 border-b border-white/6 pb-6">
-                <h2 className="mb-2 text-lg font-semibold text-white">Pickup information</h2>
-                <p className="mb-4 text-sm text-[#B8B8B8]">Pickup your order at Apayao Pasalubong Center.</p>
+            <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-4 text-slate-800 shadow-sm dark:border-white/10 dark:bg-[#151515] dark:text-white sm:p-6">
+              <div className="mb-6 border-b border-slate-200 pb-6 dark:border-white/6">
+                <h2 className="mb-2 text-lg font-semibold text-slate-900 dark:text-white">Pickup information</h2>
+                <p className="mb-4 text-sm text-slate-600 dark:text-[#B8B8B8]">Pickup your order at Apayao Pasalubong Center.</p>
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-[#D5D5D5]">Full Name</label>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700 dark:text-[#D5D5D5]">Full Name</label>
                     <input
                       required
                       value={form.name}
                       disabled={Boolean(activeReservation)}
                       onChange={(e) => setForm({ ...form, name: e.target.value })}
-                      className="w-full rounded-xl border border-white/10 bg-[#202020] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#FF8A1E]/60 focus:ring-1 focus:ring-[#FF8A1E]/40"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-[#FF8A1E]/60 focus:ring-1 focus:ring-[#FF8A1E]/40 dark:border-white/10 dark:bg-[#202020] dark:text-white"
                       placeholder="Your full name"
                     />
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-[#D5D5D5]">Phone Number</label>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700 dark:text-[#D5D5D5]">Phone Number</label>
                     <input
                       required
                       value={form.phone}
                       disabled={Boolean(activeReservation)}
                       onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                      className="w-full rounded-xl border border-white/10 bg-[#202020] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#FF8A1E]/60 focus:ring-1 focus:ring-[#FF8A1E]/40"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-[#FF8A1E]/60 focus:ring-1 focus:ring-[#FF8A1E]/40 dark:border-white/10 dark:bg-[#202020] dark:text-white"
                       placeholder="Your phone number"
                     />
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-[#D5D5D5]">Pickup Date (optional)</label>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700 dark:text-[#D5D5D5]">Pickup Date (optional)</label>
                     <input
                       type="date"
                       value={form.pickupDate}
                       disabled={Boolean(activeReservation)}
                       onChange={(e) => setForm({ ...form, pickupDate: e.target.value })}
-                      className="w-full rounded-xl border border-white/10 bg-[#202020] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#FF8A1E]/60 focus:ring-1 focus:ring-[#FF8A1E]/40 [&::-webkit-calendar-picker-indicator]:cursor-pointer"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-[#FF8A1E]/60 focus:ring-1 focus:ring-[#FF8A1E]/40 dark:border-white/10 dark:bg-[#202020] dark:text-white [&::-webkit-calendar-picker-indicator]:cursor-pointer"
                     />
                     {form.pickupDate && !isPickupDateOnOrAfterToday(form.pickupDate) && (
                       <div className="mt-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 px-3 py-2 text-xs font-semibold text-amber-200">
@@ -443,12 +443,12 @@ export default function CheckoutPage() {
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-[#D5D5D5]">Pickup Time (optional)</label>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700 dark:text-[#D5D5D5]">Pickup Time (optional)</label>
                     <select
                       value={form.pickupTime}
                       disabled={Boolean(activeReservation)}
                       onChange={(e) => setForm({ ...form, pickupTime: e.target.value })}
-                      className="w-full rounded-xl border border-white/10 bg-[#202020] px-4 py-3 text-sm font-medium text-white outline-none transition focus:border-[#FF8A1E]/60 focus:ring-1 focus:ring-[#FF8A1E]/40"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-900 outline-none transition focus:border-[#FF8A1E]/60 focus:ring-1 focus:ring-[#FF8A1E]/40 dark:border-white/10 dark:bg-[#202020] dark:text-white"
                     >
                       <option value="">No specific time</option>
                       {Array.from({ length: 15 }, (_, index) => 9 + index).flatMap((hour) => {
@@ -464,12 +464,12 @@ export default function CheckoutPage() {
               </div>
 
               <div className="mb-6">
-                <h2 className="mb-3 text-lg font-semibold text-white">Payment method</h2>
+                <h2 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">Payment method</h2>
                 <div className="space-y-3">
                   {(["CASH", "GCASH", "PAYMAYA"] as const).map((method) => (
                     <label
                       key={method}
-                      className={`flex cursor-pointer items-center justify-between rounded-2xl border p-4 transition ${form.paymentMethod === method ? "border-[#FF8A1E]/70 bg-[#2C1B0B] text-white" : "border-white/10 bg-[#1A1A1A] text-[#E2E2E2] hover:border-white/20"}`}
+                      className={`flex cursor-pointer items-center justify-between rounded-2xl border p-4 transition ${form.paymentMethod === method ? "border-[#FF8A1E]/70 bg-[#FFF1E3] text-slate-900 shadow-sm dark:bg-[#2C1B0B] dark:text-white" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-[#FF8A1E]/40 dark:border-white/10 dark:bg-[#1A1A1A] dark:text-[#E2E2E2] dark:hover:border-white/20"}`}
                     >
                       <div className="flex items-center gap-3">
                         <input
@@ -483,7 +483,7 @@ export default function CheckoutPage() {
                         />
                         <span className="text-sm font-semibold">{method === "CASH" ? "Cash on pickup" : method === "GCASH" ? "GCash" : "PayMaya"}</span>
                       </div>
-                      <span className="text-xs font-medium uppercase tracking-[0.2em] text-[#B8B8B8]">
+                      <span className="text-xs font-medium uppercase tracking-[0.2em] text-slate-500 dark:text-[#B8B8B8]">
                         {method === "CASH" ? "Manual" : "Online"}
                       </span>
                     </label>
@@ -502,15 +502,15 @@ export default function CheckoutPage() {
               )}
 
               {form.paymentMethod !== "CASH" && !activeReservation && (
-                <div className="mb-6 rounded-2xl border border-[#FF8A1E]/30 bg-[#24170B] p-4 text-sm text-[#F2D98A]">
+                <div className="mb-6 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900 dark:border-[#FF8A1E]/30 dark:bg-[#24170B] dark:text-[#F2D98A]">
                   Confirm your order to reserve the stock first. Wallet payment details and receipt upload will appear after the reservation is secured.
                 </div>
               )}
 
               {form.paymentMethod !== "CASH" && activeReservation && (
-                <div className="mb-6 rounded-2xl border border-[#FF8A1E]/30 bg-[#24170B] p-4">
-                  <h3 className="text-sm font-semibold text-white">Reservation secured: {activeReservation.orderNumber}</h3>
-                  <p className="mt-1 text-xs leading-5 text-[#F2D98A]">
+                <div className="mb-6 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-[#FF8A1E]/30 dark:bg-[#24170B]">
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Reservation secured: {activeReservation.orderNumber}</h3>
+                  <p className="mt-1 text-xs leading-5 text-orange-800 dark:text-[#F2D98A]">
                     Stock is held until {new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(activeReservation.expiresAt))}. Pay and upload your receipt before then. If you already paid but cannot upload, contact the store with this order number before the deadline.
                   </p>
                   {proofSubmitted ? (
@@ -519,25 +519,25 @@ export default function CheckoutPage() {
                       <Link href="/orders" className="ml-2 underline underline-offset-2">View order</Link>
                     </div>
                   ) : null}
-                  <p className="mt-1 text-xs leading-5 text-[#D5D5D5]">Pay through {form.paymentMethod === "GCASH" ? "GCash" : "Maya"}, then upload your receipt screenshot for admin review.</p>
-                  <ol className="mt-3 space-y-1.5 border-y border-white/10 py-3 text-xs leading-5 text-[#F2D98A]">
+                  <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-[#D5D5D5]">Pay through {form.paymentMethod === "GCASH" ? "GCash" : "Maya"}, then upload your receipt screenshot for admin review.</p>
+                  <ol className="mt-3 space-y-1.5 border-y border-slate-200 py-3 text-xs leading-5 text-orange-800 dark:border-white/10 dark:text-[#F2D98A]">
                     <li><span className="mr-2 font-semibold text-[#FFB36F]">01</span>Open the {form.paymentMethod === "GCASH" ? "GCash" : "Maya"} app and scan the QR code or use the account number.</li>
                     <li><span className="mr-2 font-semibold text-[#FFB36F]">02</span>Send the exact order total shown in the order summary.</li>
                     <li><span className="mr-2 font-semibold text-[#FFB36F]">03</span>Save a screenshot of the successful transaction and upload it below.</li>
                   </ol>
 
-                  <div className="mt-3 rounded-xl border border-white/10 bg-[#17110B] p-3 text-sm text-[#F2D98A]">
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-orange-50 p-3 text-sm text-orange-900 dark:border-white/10 dark:bg-[#17110B] dark:text-[#F2D98A]">
                     <div className="font-semibold">{form.paymentMethod === "GCASH" ? "GCash" : "Maya"}</div>
                     <div className="mt-1">{selectedWallet.name || "Wallet account not configured"}</div>
                     <div className="mt-1 font-semibold tracking-wide">{selectedWallet.number || "Ask the store for the account number"}</div>
                     {selectedWallet.qrCodeUrl ? <Image src={selectedWallet.qrCodeUrl} alt={`${form.paymentMethod} payment QR code`} width={220} height={220} className="mt-3 rounded-lg bg-white p-2" unoptimized /> : null}
                   </div>
 
-                  <div className="mt-3 rounded-xl border border-dashed border-[#FF8A1E]/50 bg-[#17110B] p-3">
+                  <div className="mt-3 rounded-xl border border-dashed border-[#FF8A1E]/50 bg-orange-50 p-3 dark:bg-[#17110B]">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#FFB36F]">Receipt upload</div>
-                        <div className="mt-1 text-xs text-[#D5D5D5]">Accepted: JPG, PNG, or WebP • Max 5MB</div>
+                        <div className="mt-1 text-xs text-slate-600 dark:text-[#D5D5D5]">Accepted: JPG, PNG, or WebP • Max 5MB</div>
                       </div>
 
                       {proofOfPaymentUrl && (
@@ -599,26 +599,26 @@ export default function CheckoutPage() {
             </form>
           </div>
 
-          <aside className="h-fit rounded-2xl border border-white/10 bg-[#151515] p-5 xl:sticky xl:top-6">
+          <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-5 text-slate-800 shadow-sm dark:border-white/10 dark:bg-[#151515] dark:text-white xl:sticky xl:top-6">
             <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.38em] text-[#FF8A1E]">Order summary</div>
 
-            <div className="mb-6 max-h-72 space-y-3 overflow-y-auto border-b border-white/6 pb-6">
+            <div className="mb-6 max-h-72 space-y-3 overflow-y-auto border-b border-slate-200 pb-6 dark:border-white/6">
               {items.map((item) => (
                 <div key={`${item.productId}-${item.variantId ?? item.variantLabel ?? "default"}`} className="flex items-start justify-between gap-4 text-sm">
                   <div className="flex min-w-0 flex-1 items-start gap-3">
-                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-[#161616]">
+                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-white/10 dark:bg-[#161616]">
                       {item.imageUrl ? (
                         <Image src={item.imageUrl} alt={item.name} width={56} height={56} className="h-full w-full object-cover" unoptimized />
                       ) : null}
                     </div>
                     <div className="min-w-0">
-                      <div className="wrap-break-word font-semibold text-white">{item.name}</div>
+                      <div className="wrap-break-word font-semibold text-slate-900 dark:text-white">{item.name}</div>
                       {item.variantLabel ? <div className="mt-1 wrap-break-word text-xs font-semibold text-[#FFB36F]">Option: {item.variantLabel}</div> : null}
-                      {item.variantSku ? <div className="mt-1 wrap-break-word text-xs text-[#B8B8B8]">SKU: {item.variantSku}</div> : null}
-                      <div className="mt-1 text-xs text-[#B8B8B8]">× {item.quantity}</div>
+                      {item.variantSku ? <div className="mt-1 wrap-break-word text-xs text-slate-500 dark:text-[#B8B8B8]">SKU: {item.variantSku}</div> : null}
+                      <div className="mt-1 text-xs text-slate-500 dark:text-[#B8B8B8]">× {item.quantity}</div>
                     </div>
                   </div>
-                  <div className="text-right font-bold text-white">
+                  <div className="text-right font-bold text-slate-900 dark:text-white">
                     ₱{(item.price * item.quantity).toFixed(2)}
                   </div>
                 </div>
@@ -626,16 +626,16 @@ export default function CheckoutPage() {
             </div>
 
             <div className="mb-6 text-center">
-              <div className="mb-1 text-xs font-medium text-[#B8B8B8]">Total amount</div>
-              <div className="text-4xl font-semibold tracking-[-0.04em] text-white">₱{subtotal.toFixed(2)}</div>
-              <div className="mt-3 rounded-2xl border border-white/10 bg-[#1A1A1A] p-3 text-xs font-semibold text-[#D5D5D5]">
+              <div className="mb-1 text-xs font-medium text-slate-500 dark:text-[#B8B8B8]">Total amount</div>
+              <div className="text-4xl font-semibold tracking-[-0.04em] text-slate-900 dark:text-white">₱{subtotal.toFixed(2)}</div>
+              <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-700 dark:border-white/10 dark:bg-[#1A1A1A] dark:text-[#D5D5D5]">
                 Free pickup at APC store
               </div>
             </div>
 
             <Link
               href="/cart"
-              className="block w-full rounded-xl border border-white/10 bg-[#202020] px-4 py-3.5 text-center text-sm font-semibold text-white transition duration-200 hover:border-[#FF8A1E]/60 hover:text-[#FF8A1E]"
+              className="block w-full rounded-xl border border-slate-200 bg-white px-4 py-3.5 text-center text-sm font-semibold text-slate-800 transition duration-200 hover:border-[#FF8A1E]/60 hover:text-[#FF8A1E] dark:border-white/10 dark:bg-[#202020] dark:text-white"
             >
               Back to cart
             </Link>

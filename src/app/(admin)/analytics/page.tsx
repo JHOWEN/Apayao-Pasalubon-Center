@@ -14,7 +14,6 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   Activity,
-  Boxes,
   AlertTriangle,
   Sparkles,
   BarChart3,
@@ -65,7 +64,6 @@ type AnalyticsStats = {
   inventoryHealth: {
     lowStockCount: number;
     outOfStockCount: number;
-    totalInventoryValue: number;
     averageStock: number;
   };
   inventoryMovement?: {
@@ -125,7 +123,6 @@ export default function AnalyticsPage() {
     inventoryHealth: {
       lowStockCount: 0,
       outOfStockCount: 0,
-      totalInventoryValue: 0,
       averageStock: 0,
     },
     inventoryMovement: {
@@ -475,21 +472,19 @@ export default function AnalyticsPage() {
           </div>
         </div>
 
-        {/* Metric 4: Inventory Valuation */}
+        {/* Metric 4: Inventory Watch */}
         <div className="group rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Inventory Capital
+              Inventory Watch
             </span>
             <div className="rounded-lg bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
-              <Boxes className="h-4 w-4" />
+              <Package className="h-4 w-4" />
             </div>
           </div>
           <div className="mt-3">
             <p className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading
-                ? "--"
-                : formatCurrency(stats.inventoryHealth.totalInventoryValue)}
+              {loading ? "--" : `${stats.inventoryHealth.averageStock.toFixed(1)} avg`}
             </p>
             <div className="mt-1 flex items-center gap-1.5 text-xs">
               <span className="inline-flex items-center gap-1 font-semibold text-amber-600 dark:text-amber-400">
