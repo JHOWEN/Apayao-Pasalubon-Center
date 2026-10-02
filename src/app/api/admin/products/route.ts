@@ -123,7 +123,7 @@ export async function GET(request: Request) {
       prisma.product.count({ where }),
       prisma.product.count({ where: { ...baseWhere, variants: { none: {} } } }),
       prisma.product.count({ where: { ...baseWhere, variants: { some: {} } } }),
-      prisma.$queryRaw<Array<{ totalProducts: number; totalStockUnits: number; totalStockValue: number; lowStockCount: number }>>`
+      prisma.$queryRaw<Array<{ totalProducts: number; totalStockUnits: number; totalStockValue: number; totalCostValue: number; totalRetailValue: number; lowStockCount: number }>>`
         SELECT
           (SELECT COUNT(*)::int FROM "Product") AS "totalProducts",
           (
@@ -137,6 +137,16 @@ export async function GET(request: Request) {
             + COALESCE((SELECT SUM(v."cost" * v."stock") FROM "ProductVariant" v), 0)
           )::double precision AS "totalStockValue",
           (
+            COALESCE((SELECT SUM(p."cost" * p."stock") FROM "Product" p
+              WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
+            + COALESCE((SELECT SUM(v."cost" * v."stock") FROM "ProductVariant" v), 0)
+          )::double precision AS "totalCostValue",
+          (
+            COALESCE((SELECT SUM(p."price" * p."stock") FROM "Product" p
+              WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
+            + COALESCE((SELECT SUM(v."price" * v."stock") FROM "ProductVariant" v), 0)
+          )::double precision AS "totalRetailValue",
+          (
             (SELECT COUNT(*) FROM "Product" p
               WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")
                 AND p."stock" <= p."minStock")
@@ -144,7 +154,7 @@ export async function GET(request: Request) {
           )::int AS "lowStockCount"
       `,
     ]);
-    const summary = summaryRows[0] ?? { totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, lowStockCount: 0 };
+    const summary = summaryRows[0] ?? { totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, totalCostValue: 0, totalRetailValue: 0, lowStockCount: 0 };
 
     return NextResponse.json(
       {
@@ -155,6 +165,8 @@ export async function GET(request: Request) {
           totalProducts: Number(summary.totalProducts),
           totalStockUnits: Number(summary.totalStockUnits),
           totalStockValue: Number(summary.totalStockValue),
+          totalCostValue: Number(summary.totalCostValue),
+          totalRetailValue: Number(summary.totalRetailValue),
           lowStockCount: Number(summary.lowStockCount),
         },
       },

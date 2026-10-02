@@ -137,7 +137,7 @@ export default function InventoryPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, totalCount: 0, totalPages: 1 });
   const [typeCounts, setTypeCounts] = useState({ ALL: 0, SIMPLE: 0, VARIANT: 0 });
-  const [inventorySummary, setInventorySummary] = useState({ totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, lowStockCount: 0 });
+  const [inventorySummary, setInventorySummary] = useState({ totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, totalCostValue: 0, totalRetailValue: 0, lowStockCount: 0 });
   const [refreshKey, setRefreshKey] = useState(0);
   const inventoryRequestSequence = useRef(0);
   const [movementProductId, setMovementProductId] = useState("");
@@ -179,7 +179,7 @@ export default function InventoryPage() {
       setProducts(Array.isArray(productData?.products) ? productData.products : []);
       setPagination(nextPagination);
       setTypeCounts(productData?.typeCounts ?? { ALL: 0, SIMPLE: 0, VARIANT: 0 });
-      setInventorySummary(productData?.summary ?? { totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, lowStockCount: 0 });
+      setInventorySummary(productData?.summary ?? { totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, totalCostValue: 0, totalRetailValue: 0, lowStockCount: 0 });
       setCategories(Array.isArray(categoriesData) ? categoriesData : []);
     } catch {
       // Kept silent
@@ -687,7 +687,8 @@ export default function InventoryPage() {
     }
   }
 
-  const totalStockValue = inventorySummary.totalStockValue;
+  const totalCostValue = inventorySummary.totalCostValue;
+  const totalRetailValue = inventorySummary.totalRetailValue;
   const totalStockUnits = inventorySummary.totalStockUnits;
   const lowStockCount = inventorySummary.lowStockCount;
 
@@ -991,15 +992,28 @@ export default function InventoryPage() {
 
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Inventory Valuation</span>
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Cost</span>
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
                   <TrendingDown className="h-4 w-4" />
                 </div>
               </div>
               <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white truncate">
-                ₱{totalStockValue.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ₱{totalCostValue.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Based on unit cost value</p>
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Current cost basis</p>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Retail Value</span>
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+                  <TrendingDown className="h-4 w-4" />
+                </div>
+              </div>
+              <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white truncate">
+                ₱{totalRetailValue.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Based on selling price × stock</p>
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
