@@ -763,7 +763,7 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col space-y-6">
+    <div className="flex flex-1 flex-col space-y-4">
       {/* Toast Notification */}
       {showSuccessToast && (
         <AdminToast type="success" message={successMessage} onDismiss={() => setShowSuccessToast(false)} />
@@ -883,23 +883,23 @@ export default function InventoryPage() {
       )}
 
       {/* Page Header */}
-      <div className="flex flex-row items-center justify-between gap-4 border-b border-slate-200/80 pb-5 dark:border-slate-800">
+      <header className="flex flex-col justify-between gap-4 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end dark:border-slate-800">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
+            <h1 className="text-[1.75rem] font-bold leading-tight text-slate-950 dark:text-white">
               Inventory
             </h1>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold tabular-nums text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
               {inventorySummary.totalProducts} {inventorySummary.totalProducts === 1 ? "item" : "items"}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 max-w-2xl text-[13px] leading-5 text-slate-500 dark:text-slate-400">
             Monitor stock health, record movements, and adjust low-stock warning thresholds.
           </p>
         </div>
 
         {/* View Switcher Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5 self-center">
+        <nav aria-label="Inventory views" className="flex flex-wrap items-center gap-1 self-start sm:self-auto">
           <button
             type="button"
             onClick={() => {
@@ -957,86 +957,86 @@ export default function InventoryPage() {
             <SlidersHorizontal className="h-3.5 w-3.5" />
             <span>Thresholds</span>
           </button>
-        </div>
-      </div>
+        </nav>
+      </header>
 
       {!isInventorySubSectionView ? (
         <>
           {/* KPI Metrics Grid */}
-          <div id="inventory-summary" className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <section id="inventory-summary" aria-label="Inventory summary" className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 shadow-xs sm:grid-cols-3 xl:grid-cols-5 dark:border-slate-800 dark:bg-slate-800">
+            <div className="min-w-0 bg-white p-4 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Products</span>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                   <Package className="h-4 w-4" />
                 </div>
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+              <div className="mt-2 text-2xl font-bold tabular-nums text-slate-950 dark:text-white">
                 {inventorySummary.totalProducts}
               </div>
               <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Active catalog items</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            <div className="min-w-0 bg-white p-4 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Stock Units</span>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
                   <Warehouse className="h-4 w-4" />
                 </div>
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+              <div className="mt-2 text-2xl font-bold tabular-nums text-slate-950 dark:text-white">
                 {totalStockUnits.toLocaleString()}
               </div>
               <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">In-store physical units</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            <div className="min-w-0 bg-white p-4 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Cost</span>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
                   <TrendingDown className="h-4 w-4" />
                 </div>
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white truncate">
+              <div className="mt-2 truncate text-base font-bold tabular-nums text-slate-950 sm:text-xl dark:text-white">
                 ₱{totalCostValue.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Current cost basis</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            <div className="min-w-0 bg-white p-4 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Retail Value</span>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
                   <TrendingDown className="h-4 w-4" />
                 </div>
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white truncate">
+              <div className="mt-2 truncate text-base font-bold tabular-nums text-slate-950 sm:text-xl dark:text-white">
                 ₱{totalRetailValue.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Based on selling price × stock</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            <div className="col-span-2 min-w-0 bg-white p-4 sm:col-span-1 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Low Stock Alerts</span>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
                   <AlertTriangle className="h-4 w-4" />
                 </div>
               </div>
-              <div className="mt-2 text-2xl font-bold text-rose-600 dark:text-rose-400">
+              <div className="mt-2 text-2xl font-bold tabular-nums text-rose-600 dark:text-rose-400">
                 {lowStockCount}
               </div>
               <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">At or below reorder threshold</p>
             </div>
-          </div>
+          </section>
 
           {/* Stock Overview Table Card */}
-          <div id="stock-overview" className="rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <section id="stock-overview" className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
             {/* Table Header & Controls */}
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row items-center justify-between">
+            <div className="space-y-4 border-b border-slate-100 p-4 sm:p-5 dark:border-slate-800">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">Stock Overview</h2>
+                  <h2 className="text-lg font-semibold text-slate-950 dark:text-white">Stock Overview</h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Live balance across single products and variants.
                   </p>
@@ -1045,7 +1045,7 @@ export default function InventoryPage() {
                   <button
                     type="button"
                     onClick={() => void loadData()}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                    className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:translate-y-px dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                     title="Refresh data"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
@@ -1054,7 +1054,7 @@ export default function InventoryPage() {
                   <button
                     type="button"
                     onClick={openCreateProductModal}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3.5 text-xs font-semibold text-white transition hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+                    className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-emerald-700 px-3.5 text-xs font-semibold text-white transition hover:bg-emerald-800 active:translate-y-px dark:bg-emerald-600 dark:hover:bg-emerald-500"
                   >
                     <Plus className="h-4 w-4" strokeWidth={2.5} />
                     <span>Add Product</span>
@@ -1063,7 +1063,7 @@ export default function InventoryPage() {
               </div>
 
               {/* Filters Bar */}
-              <div className="grid items-center gap-3 grid-cols-[1.5fr_1fr_auto]">
+              <div className="grid grid-cols-1 items-center gap-3 lg:grid-cols-[minmax(16rem,1.3fr)_minmax(12rem,0.8fr)_auto]">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
@@ -1073,7 +1073,7 @@ export default function InventoryPage() {
                       setCurrentPage(1);
                     }}
                     placeholder="Search by product name, SKU, or category..."
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:bg-slate-800"
+                    className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 py-2 pl-9 pr-9 text-[13px] text-slate-900 outline-none transition focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-600/15 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:border-emerald-500 dark:focus:bg-slate-800"
                   />
                   {searchQuery && (
                     <button
@@ -1082,7 +1082,7 @@ export default function InventoryPage() {
                         setSearchQuery("");
                         setCurrentPage(1);
                       }}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-100"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -1096,7 +1096,7 @@ export default function InventoryPage() {
                       setCategoryFilter(e.target.value);
                       setCurrentPage(1);
                     }}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:bg-slate-800"
+                    className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-[13px] text-slate-900 outline-none transition focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-600/15 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:border-emerald-500 dark:focus:bg-slate-800"
                   >
                     <option value="">All Categories</option>
                     {categories.map((cat) => (
@@ -1123,10 +1123,11 @@ export default function InventoryPage() {
                         setProductTypeFilter(value);
                         setCurrentPage(1);
                       }}
-                      className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                      aria-pressed={productTypeFilter === value}
+                      className={`rounded-md px-2.5 py-2 text-xs font-semibold transition-colors ${
                         productTypeFilter === value
-                          ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+                          ? "bg-emerald-700 text-white dark:bg-emerald-600"
+                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
                       }`}
                     >
                       {label} ({count})
@@ -1138,8 +1139,8 @@ export default function InventoryPage() {
 
             {/* Table Content */}
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200/80 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
+              <table className="w-full min-w-245 text-left text-[13px]">
+                <thead className="border-b border-slate-200/80 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
                   <tr>
                     <th className="w-16 px-4 py-3 font-semibold whitespace-nowrap">Photo</th>
                     <th className="min-w-52 px-4 py-3 font-semibold">Product</th>
@@ -1194,7 +1195,7 @@ export default function InventoryPage() {
 
                       return (
                         <Fragment key={product.id}>
-                          <tr className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
+                          <tr className="transition-colors hover:bg-emerald-50/40 dark:hover:bg-emerald-950/15">
                             <td className="w-16 px-4 py-3 whitespace-nowrap">
                               {primaryImage ? (
                                 <Image
@@ -1202,10 +1203,10 @@ export default function InventoryPage() {
                                   alt={product.name}
                                   width={48}
                                   height={48}
-                                  className="h-10 w-10 rounded-lg border border-slate-200 object-cover dark:border-slate-700"
+                                  className="h-10 w-10 rounded-md border border-slate-200 object-cover dark:border-slate-700"
                                 />
                               ) : (
-                                <div className="h-10 w-10 rounded-lg border border-dashed border-slate-300 flex items-center justify-center bg-slate-50 text-slate-400 dark:border-slate-700 dark:bg-slate-800">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-slate-400 dark:border-slate-700 dark:bg-slate-800">
                                   <Package className="h-4 w-4" />
                                 </div>
                               )}
@@ -1219,7 +1220,7 @@ export default function InventoryPage() {
                                 <span className="truncate">{product.category?.name ?? "Uncategorized"}</span>
                                 <span>•</span>
                                 {product.variants?.length ? (
-                                  <span className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400">
+                                  <span className="inline-flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-400">
                                     <Layers3 className="h-3 w-3" />
                                     {product.variants.length} options
                                   </span>
@@ -1253,7 +1254,7 @@ export default function InventoryPage() {
 
                             <td className="w-28 px-3 py-3 text-center whitespace-nowrap">
                               {product.variants?.length ? (
-                                <span className="inline-flex items-center rounded-md border border-indigo-200/80 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300">
+                                <span className="inline-flex items-center rounded-md border border-emerald-200/80 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
                                   See options
                                 </span>
                               ) : (
@@ -1578,7 +1579,7 @@ export default function InventoryPage() {
                 )}
               </div>
             </div>
-          </div>
+          </section>
         </>
       ) : (
         <div className="w-full rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">

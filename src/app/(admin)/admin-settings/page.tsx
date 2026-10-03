@@ -621,7 +621,7 @@ export default function AdminSettingsPage() {
                 }`}
               >
                 <Store className="h-3.5 w-3.5" />
-                <span>Store & POS</span>
+                <span>Store Setup</span>
               </button>
             )}
 
@@ -822,10 +822,10 @@ export default function AdminSettingsPage() {
         <section className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              Store & POS Setup
+              Store Setup
             </h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Configure store identity, financial currency defaults, tax computation, and POS checkout options.
+              Configure store identity.
             </p>
           </div>
 
