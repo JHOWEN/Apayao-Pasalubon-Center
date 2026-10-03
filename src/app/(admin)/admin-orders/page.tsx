@@ -684,29 +684,29 @@ export default function AdminOrdersPage() {
   );
 
   return (
-    <div suppressHydrationWarning className="space-y-5 text-slate-800 dark:text-slate-100">
+    <div suppressHydrationWarning className="space-y-4 text-slate-800 dark:text-slate-100">
       {/* 1. Header Toolbar */}
-      <header className="flex flex-row items-center justify-between gap-4 border-b border-slate-200/80 pb-5 dark:border-slate-800">
+      <header className="flex flex-col justify-between gap-4 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end dark:border-slate-800">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <h1 className="text-[1.75rem] font-bold leading-tight text-slate-950 dark:text-white">
               Orders
             </h1>
-            <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold tabular-nums text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
               {totalOrderCount} total
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 max-w-2xl text-[13px] leading-5 text-slate-500 dark:text-slate-400">
             Review customer orders, verify payment proofs, and manage pickup fulfillment.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <button
             type="button"
             onClick={printFilteredOrderLabels}
             disabled={!hasPrintableOrders}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="inline-flex min-h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             <Printer className="h-3.5 w-3.5 text-slate-500" />
             <span>Print Labels</span>
@@ -716,7 +716,7 @@ export default function AdminOrdersPage() {
             type="button"
             onClick={printFilteredPickupSheet}
             disabled={!hasPrintableOrders}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="inline-flex min-h-9 items-center gap-2 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-600 dark:bg-emerald-600 dark:hover:border-emerald-500 dark:hover:bg-emerald-500"
           >
             <FileText className="h-3.5 w-3.5 text-slate-500" />
             <span>Pickup Sheet</span>
@@ -725,9 +725,9 @@ export default function AdminOrdersPage() {
       </header>
 
       {/* 2. Unified Filter Toolbar (Status Tabs & Search & Date) */}
-      <section className="space-y-3 rounded-lg border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+      <section className="space-y-3 rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-xs sm:px-4 dark:border-slate-800 dark:bg-slate-900">
         {/* Status Pills */}
-        <div className="flex flex-wrap items-center gap-2">
+        <nav aria-label="Filter orders by status" className={`${styles.statusScroller} -mx-1 flex items-center gap-1 overflow-x-auto px-1`}>
           {statusSummary.map(({ key, label, count }) => {
             const isActive = filterStatus === key;
             const isAttention = key === "AWAITING_PAYMENT_APPROVAL" && count > 0;
@@ -737,22 +737,23 @@ export default function AdminOrdersPage() {
                 key={key}
                 type="button"
                 onClick={() => handleFilterStatusChange(key)}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                aria-pressed={isActive}
+                className={`relative inline-flex min-h-10 shrink-0 items-center gap-2 border-b-2 px-3 text-xs font-semibold transition-colors active:bg-slate-100 dark:active:bg-slate-800 ${
                   isActive
-                    ? "bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-950"
+                    ? "border-emerald-600 text-emerald-800 dark:border-emerald-400 dark:text-emerald-300"
                     : isAttention
-                    ? "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"
-                    : "border border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:bg-slate-800"
+                    ? "border-transparent text-amber-800 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30"
+                    : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white"
                 }`}
               >
                 <span>{label}</span>
                 <span
-                  className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
+                  className={`min-w-5 rounded px-1 py-0.5 text-center text-[10px] font-bold tabular-nums ${
                     isActive
-                      ? "bg-white/20 text-white dark:bg-slate-950/20 dark:text-slate-950"
+                      ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
                       : isAttention
-                      ? "bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-white"
-                      : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
+                      ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                      : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                   }`}
                 >
                   {count}
@@ -760,10 +761,10 @@ export default function AdminOrdersPage() {
               </button>
             );
           })}
-        </div>
+        </nav>
 
         {/* Search & Pickup Date Selector */}
-        <div className="flex flex-col gap-3 border-t border-slate-100 pt-3 dark:border-slate-800/80 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-slate-100 pt-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-xs sm:flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
@@ -771,7 +772,7 @@ export default function AdminOrdersPage() {
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Search order #, customer, phone..."
-              className="h-9 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-8 text-xs text-slate-900 outline-hidden placeholder:text-slate-400 focus:border-slate-400 focus:bg-white dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500"
+              className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-8 text-[13px] text-slate-900 outline-hidden transition-colors placeholder:text-slate-400 focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-600/15 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-emerald-500 dark:focus:bg-slate-900"
             />
             {search && (
               <button
@@ -787,7 +788,7 @@ export default function AdminOrdersPage() {
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
             <div className="flex items-center gap-1 text-xs text-slate-500">
               <CalendarDays className="h-3.5 w-3.5" />
-              <span className="inline">Pickup:</span>
+              <span className="inline font-semibold text-slate-600 dark:text-slate-300">Pickup date</span>
             </div>
 
             <div className="flex max-w-full flex-wrap rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-800/80">
@@ -804,7 +805,7 @@ export default function AdminOrdersPage() {
                   onClick={() => handleFilterDateChange(key)}
                   className={`rounded-sm px-2.5 py-1 text-xs font-semibold transition ${
                     filterDate === key
-                      ? "bg-white text-slate-950 shadow-xs dark:bg-slate-700 dark:text-white"
+                      ? "bg-emerald-700 text-white shadow-xs dark:bg-emerald-600 dark:text-white"
                       : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
                   }`}
                 >
@@ -841,15 +842,15 @@ export default function AdminOrdersPage() {
       </section>
 
       {/* 3. Orders Data Table */}
-      <section className="rounded-lg border border-slate-200/90 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full min-w-270 text-left text-[13px]">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
+              <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/70 dark:text-slate-400">
                 <th className="py-3 px-4">Order</th>
                 <th className="py-3 px-4">Customer</th>
                 <th className="py-3 px-4">Channel</th>
-                <th className="py-3 px-4">Pickup</th>
+                <th className="py-3 px-4">Pickup Date</th>
                 <th className="py-3 px-4">Items</th>
                 <th className="py-3 px-4">Payment</th>
                 <th className="py-3 px-4">Status</th>
@@ -870,19 +871,22 @@ export default function AdminOrdersPage() {
                 ))
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
-                    <Package className="mx-auto mb-2 h-7 w-7 text-slate-300 dark:text-slate-600" />
-                    <span>No orders match your selected filter criteria.</span>
+                  <td colSpan={9} className="py-16 text-center text-slate-500 dark:text-slate-400">
+                    <span className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                      <Package className="h-5 w-5" />
+                    </span>
+                    <span className="block font-semibold text-slate-700 dark:text-slate-200">No orders found</span>
+                    <span className="mt-1 block text-xs">Try adjusting the selected filters.</span>
                   </td>
                 </tr>
               ) : (
                 paginatedOrders.items.map((order) => {
                   return (
                     <Fragment key={order.id}>
-                      <tr className="transition hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                      <tr className="transition-colors hover:bg-emerald-50/45 dark:hover:bg-emerald-950/15">
                         {/* Order Number & Created Date */}
                         <td className="py-3 px-4">
-                          <span className="block font-mono font-bold text-slate-900 dark:text-white">
+                          <span className="block font-mono font-bold text-emerald-800 dark:text-emerald-300">
                             {order.orderNumber}
                           </span>
                           <span className="block text-[11px] text-slate-400">
@@ -981,7 +985,7 @@ export default function AdminOrdersPage() {
                         </td>
 
                         {/* Total Amount */}
-                        <td className="py-3 px-4 text-right font-bold text-slate-900 dark:text-white">
+                        <td className="py-3 px-4 text-right font-bold tabular-nums text-slate-950 dark:text-white">
                           ₱{Number(order.totalAmount).toFixed(2)}
                         </td>
 
@@ -991,19 +995,21 @@ export default function AdminOrdersPage() {
                             <button
                               type="button"
                               onClick={() => setDetailOrderId(order.id)}
-                              className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:translate-y-px dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                               title="View order details"
                             >
-                              View
+                              <Eye className="h-3.5 w-3.5 text-slate-500" />
+                              <span>View</span>
                             </button>
 
                             <button
                               type="button"
                               onClick={() => openManageModal(order.id)}
-                              className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white shadow-xs transition hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                              className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700 active:translate-y-px dark:bg-emerald-600 dark:hover:bg-emerald-500"
                               title="Manage order status"
                             >
-                              Manage
+                              <Settings className="h-3.5 w-3.5" />
+                              <span>Manage</span>
                             </button>
                           </div>
                         </td>
@@ -1017,7 +1023,7 @@ export default function AdminOrdersPage() {
         </div>
 
         {/* 4. Complete Modern Pagination Footer Bar */}
-        <div className="flex gap-4 flex-row items-center justify-between border-t border-slate-200/80 bg-slate-50/50 px-4 py-3 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+        <div className="flex flex-col items-start justify-between gap-3 border-t border-slate-200/80 bg-slate-50/70 px-3 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:px-4 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
           {/* Left: Record Range and Rows per page */}
           <div className="flex flex-wrap items-center gap-3">
             <span>
@@ -1046,8 +1052,8 @@ export default function AdminOrdersPage() {
           </div>
 
           {/* Right: Modern Numbered Pagination Controls & Jump to Page */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1">
+          <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+            <div className="flex flex-wrap items-center gap-1">
               {/* First Page Button */}
               <button
                 type="button"
@@ -1068,7 +1074,7 @@ export default function AdminOrdersPage() {
                 title="Previous page"
               >
                 <ChevronLeft className="h-4 w-4" />
-                <span className="font-medium">Prev</span>
+                <span className="hidden font-medium sm:inline">Prev</span>
               </button>
 
               {/* Windowed Numbered Page Pills */}
@@ -1104,7 +1110,7 @@ export default function AdminOrdersPage() {
                 className="inline-flex h-8 items-center gap-1 px-2.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition shadow-2xs"
                 title="Next page"
               >
-                <span className="font-medium">Next</span>
+                <span className="hidden font-medium sm:inline">Next</span>
                 <ChevronRight className="h-4 w-4" />
               </button>
 
@@ -1122,7 +1128,7 @@ export default function AdminOrdersPage() {
 
             {/* Quick Jump to Page Form */}
             {totalPages > 4 && (
-              <form onSubmit={handleJumpSubmit} className="flex items-center gap-1 pl-2 border-l border-slate-200 dark:border-slate-700">
+              <form onSubmit={handleJumpSubmit} className="flex items-center gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
                 <span>Go to:</span>
                 <input
                   type="number"
