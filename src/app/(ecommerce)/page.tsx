@@ -405,7 +405,6 @@ function EcommerceHomeContent() {
               priority
               sizes="(max-width: 1024px) 100vw, 56vw"
               className="object-cover object-center"
-              unoptimized
             />
             <div className="storefront-hero-overlay absolute inset-0" />
           </div>

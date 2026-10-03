@@ -13,6 +13,10 @@ import { getStoredUser, saveCartItems } from "@/features/cart/lib/cart";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
 import { fetchWithTimeout, getResponseErrorMessage, getUserFacingErrorMessage } from "@/lib/client-fetch";
 import { getEffectivePaymentStatus } from "@/lib/order";
+import {
+  compressUploadImage,
+  PAYMENT_PROOF_IMAGE_COMPRESSION,
+} from "@/utils/compress-upload-image";
 
 const fallbackProductImage = "/logo/apc-logo.png";
 
@@ -219,7 +223,7 @@ export default function OrdersPage() {
     setUploadingProofOrderId(orderId);
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", await compressUploadImage(file, PAYMENT_PROOF_IMAGE_COMPRESSION));
     formData.append("orderId", orderId);
 
     try {
@@ -472,7 +476,6 @@ export default function OrdersPage() {
                           fill
                           sizes="80px"
                           className="object-cover"
-                          unoptimized
                         />
                       </div>
 

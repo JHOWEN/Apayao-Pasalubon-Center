@@ -692,7 +692,7 @@ export default function AdminSettingsPage() {
                 fill
                 sizes="80px"
                 className="object-cover"
-                unoptimized
+                unoptimized={Boolean(previewImage?.startsWith("blob:"))}
               />
             </div>
             <div>

@@ -170,7 +170,6 @@ export function ProductGroupCard({
             onError={(event) => {
               event.currentTarget.src = "/logo/apc-logo.png";
             }}
-            unoptimized
           />
 
           {/* Floating Top Badges */}
@@ -351,7 +350,6 @@ export function ProductGroupCard({
                       fill
                       sizes="56px"
                       className="object-cover"
-                      unoptimized
                     />
                   </div>
                   <div className="min-w-0 flex-1">

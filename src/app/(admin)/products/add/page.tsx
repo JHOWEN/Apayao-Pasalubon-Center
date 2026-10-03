@@ -11,6 +11,10 @@ import {
   ADMIN_MODAL_BACKDROP_CLASS,
   ADMIN_MODAL_PANEL_CLASS,
 } from "@/utils/admin-modal";
+import {
+  compressUploadImage,
+  PRODUCT_IMAGE_COMPRESSION,
+} from "@/utils/compress-upload-image";
 
 type Category = { id: string; name: string };
 
@@ -52,8 +56,9 @@ export default function AddProductPage() {
     setIsUploadingImage(true);
     setStatus("");
     try {
+      const compressedFile = await compressUploadImage(file, PRODUCT_IMAGE_COMPRESSION);
       const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
+      uploadFormData.append("file", compressedFile);
       const response = await fetch("/api/admin/products/upload", { method: "POST", body: uploadFormData, credentials: "same-origin" });
       const data = await response.json();
       if (!response.ok || !data?.url) throw new Error(data?.message ?? "Unable to upload image.");
@@ -170,7 +175,7 @@ export default function AddProductPage() {
         <section className="rounded-xl border border-slate-200 p-5 dark:border-slate-700">
           <div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"><ImagePlus className="h-5 w-5" /></div><div><h2 className="text-lg font-semibold text-slate-950 dark:text-white">Product image</h2><p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Add one clear cover image for the catalog.</p></div></div>
           <div className="mt-4 flex gap-4 flex-row items-center">
-            <div className="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800">{imageUrl ? <Image src={imageUrl} alt="Product preview" width={112} height={112} className="h-full w-full object-cover" unoptimized /> : <ImagePlus className="h-7 w-7 text-slate-400" />}</div>
+            <div className="flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-300 bg-slate-50 dark:border-slate-600 dark:bg-slate-800">{imageUrl ? <Image src={imageUrl} alt="Product preview" width={112} height={112} className="h-full w-full object-cover" /> : <ImagePlus className="h-7 w-7 text-slate-400" />}</div>
             <div className="flex flex-wrap items-center gap-3"><label className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-emerald-700 dark:bg-emerald-500 dark:text-slate-950"><UploadCloud className="h-4 w-4" />{isUploadingImage ? "Uploading..." : "Upload image"}<input type="file" accept="image/*" className="hidden" disabled={isUploadingImage} onChange={(event) => { void handleImageUpload(event.target.files?.[0]); event.currentTarget.value = ""; }} /></label>{imageUrl ? <button type="button" onClick={() => setImageUrl("")} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"><X className="h-4 w-4" />Remove</button> : null}</div>
           </div>
         </section>

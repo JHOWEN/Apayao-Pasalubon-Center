@@ -866,7 +866,6 @@ export default function ProductDetailPage() {
                 priority
                 sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-cover"
-                unoptimized
               />
             </div>
 
@@ -893,7 +892,6 @@ export default function ProductDetailPage() {
                       fill
                       sizes="80px"
                       className="object-cover"
-                      unoptimized
                     />
                   </button>
                 ))}
@@ -1403,7 +1401,6 @@ export default function ProductDetailPage() {
                         fill
                         sizes="(max-width: 640px) 50vw, 25vw"
                         className="object-cover transition group-hover:scale-105"
-                        unoptimized
                       />
                     </Link>
                     <div className="flex flex-1 flex-col p-3.5">

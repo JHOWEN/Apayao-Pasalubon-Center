@@ -8,6 +8,10 @@ import { clearCart, getCartItems, getStoredUser, saveRecentOrder, saveStoredUser
 import { getCheckoutData } from "@/features/cart/lib/checkout-data";
 import { fetchWithTimeout, getResponseErrorMessage, getUserFacingErrorMessage } from "@/lib/client-fetch";
 import { isPickupDateOnOrAfterToday, ONLINE_PAYMENT_RESERVATION_TTL_MS } from "@/lib/order";
+import {
+  compressUploadImage,
+  PAYMENT_PROOF_IMAGE_COMPRESSION,
+} from "@/utils/compress-upload-image";
 
 type CheckoutUser = {
   id?: string;
@@ -276,7 +280,7 @@ export default function CheckoutPage() {
     setProofFileName(file.name);
 
     const uploadForm = new FormData();
-    uploadForm.append("file", file);
+    uploadForm.append("file", await compressUploadImage(file, PAYMENT_PROOF_IMAGE_COMPRESSION));
     uploadForm.append("orderId", activeReservation.id);
 
     try {
@@ -608,7 +612,7 @@ export default function CheckoutPage() {
                   <div className="flex min-w-0 flex-1 items-start gap-3">
                     <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 dark:border-white/10 dark:bg-[#161616]">
                       {item.imageUrl ? (
-                        <Image src={item.imageUrl} alt={item.name} width={56} height={56} className="h-full w-full object-cover" unoptimized />
+                        <Image src={item.imageUrl} alt={item.name} width={56} height={56} className="h-full w-full object-cover" />
                       ) : null}
                     </div>
                     <div className="min-w-0">

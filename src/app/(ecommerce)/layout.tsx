@@ -548,7 +548,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                         width={32}
                         height={32}
                         className="h-8 w-8 rounded-full object-cover"
-                        unoptimized
                       />
                     ) : (
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-white">
@@ -644,7 +643,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                       width={36}
                       height={36}
                       className="h-full w-full object-cover"
-                      unoptimized
                     />
                   ) : (
                     <User className="h-4 w-4" />

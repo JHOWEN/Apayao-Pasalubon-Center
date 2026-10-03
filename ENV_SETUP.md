@@ -28,11 +28,16 @@ PASSWORD_RESET_SECRET=generate-another-unique-secret-with-at-least-32-random-byt
 # ===============================
 # EMAIL VERIFICATION (if using)
 # ===============================
+# Use Resend (preferred by the current mailer) OR SMTP. Do not use placeholders.
+RESEND_API_KEY=re_your_real_resend_key
+RESEND_FROM="Apayao Pasalubong Center <noreply@yourdomain.com>"
+
+# SMTP fallback. SMTP_FROM is the variable read by the mailer; EMAIL_FROM is not.
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
 SMTP_PASS=your-app-password
-EMAIL_FROM=noreply@yourdomain.com
+SMTP_FROM="Apayao Pasalubong Center <noreply@yourdomain.com>"
 
 # ===============================
 # STORAGE (if using file uploads)
@@ -78,6 +83,9 @@ CRON_SECRET=your-random-cron-secret
 
 Set `NEXT_PUBLIC_APP_URL` to the canonical HTTPS origin in production. Do not
 derive email verification or password-reset links from request host headers.
+
+For the step-by-step production setup and verification checklist, see
+[`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md).
 
 The optional seed scripts are development-only and require `SEED_ADMIN_EMAIL`,
 `SEED_ADMIN_PASSWORD`, `SEED_CUSTOMER_EMAIL`, and `SEED_CUSTOMER_PASSWORD`.

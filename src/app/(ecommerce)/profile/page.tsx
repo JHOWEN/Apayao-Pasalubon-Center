@@ -19,6 +19,10 @@ import {
 } from "lucide-react";
 import { clearCart, clearStoredUser, getStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
 import { getResponseErrorMessage, getUserFacingErrorMessage } from "@/lib/client-fetch";
+import {
+  compressUploadImage,
+  PROFILE_IMAGE_COMPRESSION,
+} from "@/utils/compress-upload-image";
 
 const fallbackAvatarSrc = "";
 
@@ -220,7 +224,7 @@ export default function ProfilePage() {
 
     try {
       const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
+      uploadFormData.append("file", await compressUploadImage(file, PROFILE_IMAGE_COMPRESSION));
 
       const uploadResponse = await fetch("/api/auth/profile/upload", {
         method: "POST",
@@ -390,7 +394,6 @@ export default function ProfilePage() {
                       fill
                       sizes="96px"
                       className="object-cover"
-                      unoptimized
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-slate-400">

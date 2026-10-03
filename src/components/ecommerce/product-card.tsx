@@ -128,7 +128,6 @@ export function ProductCard({
             priority={priority}
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-            unoptimized
           />
         </div>
 
@@ -299,7 +298,6 @@ export function ProductCard({
                     fill
                     sizes="96px"
                     className="object-cover"
-                    unoptimized
                   />
                 </div>
                 <div className="min-w-0 flex-1">

@@ -1022,9 +1022,9 @@ export default function AdminOrdersPage() {
           </table>
         </div>
 
-        {/* 4. Complete Modern Pagination Footer Bar */}
+        {/*Pagination Footer Bar */}
         <div className="flex flex-col items-start justify-between gap-3 border-t border-slate-200/80 bg-slate-50/70 px-3 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:px-4 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
-          {/* Left: Record Range and Rows per page */}
+          {/*Record Range and Rows per page */}
           <div className="flex flex-wrap items-center gap-3">
             <span>
               Showing <strong className="font-semibold text-slate-800 dark:text-slate-200">{visibleRangeStart.toLocaleString()}</strong> to{" "}
@@ -1051,7 +1051,7 @@ export default function AdminOrdersPage() {
             </div>
           </div>
 
-          {/* Right: Modern Numbered Pagination Controls & Jump to Page */}
+          {/*Numbered Pagination Controls & Jump to Page */}
           <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
             <div className="flex flex-wrap items-center gap-1">
               {/* First Page Button */}
@@ -1152,7 +1152,7 @@ export default function AdminOrdersPage() {
         </div>
       </section>
 
-      {/* 5. Order Details Slide-Over Drawer */}
+      {/*Order Details Slide-Over Drawer */}
       {isMounted && detailOrder
         ? createPortal(
         <div className={`${styles.drawerBackdrop} flex`}>
@@ -1638,7 +1638,7 @@ export default function AdminOrdersPage() {
       )
         : null}
 
-      {/* 8. Toast Feedback Alert */}
+      {/*  Feedback Alert */}
       {statusUpdateFeedback && (
         <AdminToast
           type={statusUpdateFeedback.type}

@@ -3,6 +3,10 @@
 import Image from "next/image";
 import { useState } from "react";
 import type { Attribute } from "./AttributeManager";
+import {
+  compressUploadImages,
+  PRODUCT_IMAGE_COMPRESSION,
+} from "@/utils/compress-upload-image";
 
 export interface Variant {
   id: string; // Temporary ID for UI
@@ -100,8 +104,9 @@ export default function VariantGenerator({
     const selectedFiles = Array.from(files ?? []).filter((file) => file.type.startsWith("image/"));
     if (!selectedFiles.length) return;
 
+    const compressedFiles = await compressUploadImages(selectedFiles, PRODUCT_IMAGE_COMPRESSION);
     const uploadFormData = new FormData();
-    selectedFiles.forEach((file) => uploadFormData.append("files", file));
+    compressedFiles.forEach((file) => uploadFormData.append("files", file));
 
     try {
       const response = await fetch("/api/admin/products/upload", {
@@ -186,7 +191,6 @@ export default function VariantGenerator({
                             alt="Variant preview"
                             width={40}
                             height={40}
-                            unoptimized
                             className="h-10 w-10 rounded border border-slate-200 object-cover dark:border-slate-700"
                           />
                         ))}

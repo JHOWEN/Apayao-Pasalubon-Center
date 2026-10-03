@@ -31,6 +31,11 @@ import {
   ADMIN_MODAL_BACKDROP_CLASS,
   ADMIN_MODAL_PANEL_CLASS,
 } from "@/utils/admin-modal";
+import {
+  compressUploadImage,
+  compressUploadImages,
+  PRODUCT_IMAGE_COMPRESSION,
+} from "@/utils/compress-upload-image";
 
 interface ProductRecord {
   id: string;
@@ -457,8 +462,9 @@ export default function InventoryPage() {
   async function uploadVariantGallery(variantId: string, files: FileList | null) {
     const selectedFiles = Array.from(files ?? []).filter((file) => file.type.startsWith("image/"));
     if (!selectedFiles.length) return;
+    const compressedFiles = await compressUploadImages(selectedFiles, PRODUCT_IMAGE_COMPRESSION);
     const uploadFormData = new FormData();
-    selectedFiles.forEach((file) => uploadFormData.append("files", file));
+    compressedFiles.forEach((file) => uploadFormData.append("files", file));
     const response = await fetch("/api/admin/products/upload", { method: "POST", body: uploadFormData, credentials: "same-origin" });
     const data = await response.json();
     if (!response.ok || !Array.isArray(data?.urls)) {
@@ -517,8 +523,9 @@ export default function InventoryPage() {
     setProductFormMessage("Uploading image...");
 
     try {
+      const compressedFile = await compressUploadImage(file, PRODUCT_IMAGE_COMPRESSION);
       const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
+      uploadFormData.append("file", compressedFile);
 
       const uploadResponse = await fetch("/api/admin/products/upload", {
         method: "POST",
@@ -2107,7 +2114,6 @@ export default function InventoryPage() {
                                       width={36}
                                       height={36}
                                       className="h-8 w-8 rounded object-cover"
-                                      unoptimized
                                     />
                                     <button
                                       type="button"

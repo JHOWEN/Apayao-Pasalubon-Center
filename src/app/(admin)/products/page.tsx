@@ -28,6 +28,11 @@ import {
   ADMIN_MODAL_BACKDROP_CLASS,
   ADMIN_MODAL_PANEL_CLASS,
 } from "@/utils/admin-modal";
+import {
+  compressUploadImage,
+  compressUploadImages,
+  PRODUCT_IMAGE_COMPRESSION,
+} from "@/utils/compress-upload-image";
 
 interface ProductRecord {
   id: string;
@@ -116,8 +121,9 @@ export default function ProductsPage() {
     setStatus("");
 
     try {
+      const compressedFile = await compressUploadImage(file, PRODUCT_IMAGE_COMPRESSION);
       const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
+      uploadFormData.append("file", compressedFile);
 
       const uploadResponse = await fetch("/api/admin/products/upload", {
         method: "POST",
@@ -153,8 +159,9 @@ export default function ProductsPage() {
     setStatus("");
 
     try {
+      const compressedFiles = await compressUploadImages(selectedFiles, PRODUCT_IMAGE_COMPRESSION);
       const uploadFormData = new FormData();
-      selectedFiles.forEach((file) => uploadFormData.append("files", file));
+      compressedFiles.forEach((file) => uploadFormData.append("files", file));
 
       const uploadResponse = await fetch("/api/admin/products/upload", {
         method: "POST",
