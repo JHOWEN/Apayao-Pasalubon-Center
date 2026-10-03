@@ -13,6 +13,7 @@ import {
   Printer,
   Receipt,
   TrendingUp,
+  Users,
   Warehouse,
   XCircle,
 } from "lucide-react";
@@ -120,7 +121,7 @@ export default function DashboardPage() {
   const [range, setRange] = useState<DashboardRange>("DAILY");
   const startDateInputRef = useRef<HTMLInputElement>(null);
   const endDateInputRef = useRef<HTMLInputElement>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const [stats, setStats] = useState({
@@ -396,27 +397,24 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="w-full min-w-0 space-y-6 text-slate-800 dark:text-slate-100">
+    <div className="mx-auto w-full max-w-[1600px] min-w-0 space-y-7 px-1 py-3 text-slate-800 dark:text-slate-100">
       {/* 1. Page Header & Date Range Controls */}
-      <section className="flex flex-col gap-4 border-b border-slate-200/80 pb-5 dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
+      <section className="flex flex-col gap-5 border-b-2 border-slate-200 pb-5 dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Dashboard
-            </h1>
-            <div className="hidden h-5 w-px bg-slate-200 dark:bg-slate-700 sm:block" />
-            <span className="text-base font-semibold text-slate-600 dark:text-slate-300 sm:text-lg md:text-xl">
-              Welcome back, {userName}
-            </span>
-          </div>
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
+            Dashboard
+          </h1>
+          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+            Welcome back, <span className="font-semibold text-slate-800 dark:text-slate-200">{userName}</span>
+          </p>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Overview of store sales, stock levels, and order fulfillment.
+            A quick look at store performance
           </p>
         </div>
 
         <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end lg:w-auto">
           {/* Presets Segmented Bar */}
-          <div className="inline-flex max-w-full shrink-0 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1 shadow-xs dark:border-slate-700 dark:bg-slate-900">
+          <div className="inline-flex max-w-full shrink-0 overflow-x-auto rounded-md border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
             {presets.map((preset) => {
               const isActive = range === preset.value;
               return (
@@ -428,9 +426,9 @@ export default function DashboardPage() {
                     setEndDate(preset.range.end);
                     setRange(preset.value);
                   }}
-                  className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  className={`rounded px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 ${
                     isActive
-                      ? "bg-white text-slate-950 shadow-xs dark:bg-slate-800 dark:text-white"
+                      ? "bg-emerald-700 text-white dark:bg-emerald-500 dark:text-slate-950"
                       : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
                   }`}
                 >
@@ -441,10 +439,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Custom Date Inputs */}
-          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 shadow-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 sm:w-auto sm:flex-nowrap sm:gap-1.5 sm:py-1">
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 sm:w-auto sm:flex-nowrap sm:gap-1.5 sm:py-1.5">
             <Calendar className="hidden h-3.5 w-3.5 shrink-0 text-slate-500 sm:block" />
             <label className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-1">
-              <span className="text-[10px] uppercase text-slate-500">From</span>
+              <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">From</span>
               <input
                 ref={startDateInputRef}
                 type="date"
@@ -453,12 +451,12 @@ export default function DashboardPage() {
                 onChange={(e) => {
                   handleCustomDateChange(e.target.value, endDate);
                 }}
-                className="w-full min-w-0 bg-transparent text-xs font-semibold outline-hidden sm:w-auto"
+                className="w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold outline-none ring-0 transition focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-900 sm:w-auto"
               />
             </label>
             <span className="hidden text-slate-400 dark:text-slate-500 sm:block">-</span>
             <label className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-1">
-              <span className="text-[10px] uppercase text-slate-500">To</span>
+              <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">To</span>
               <input
                 ref={endDateInputRef}
                 type="date"
@@ -468,7 +466,7 @@ export default function DashboardPage() {
                 onChange={(e) => {
                   handleCustomDateChange(startDate, e.target.value);
                 }}
-                className="w-full min-w-0 bg-transparent text-xs font-semibold outline-hidden sm:w-auto"
+                className="w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold outline-none transition focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-900 sm:w-auto"
               />
             </label>
           </div>
@@ -477,7 +475,7 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={printDashboardReport}
-            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-xs transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
             title="Print printable dashboard report"
           >
             <Printer className="h-3.5 w-3.5 text-slate-500" />
@@ -485,9 +483,9 @@ export default function DashboardPage() {
           </button>
 
           {/* Live Status Indicator */}
-          <div className="flex min-h-10 min-w-32 shrink-0 items-center justify-end gap-1.5 px-1 text-right text-xs text-slate-600 dark:text-slate-300">
+          <div className="flex min-h-10 min-w-32 shrink-0 items-center justify-end gap-2 px-1 text-right text-xs text-slate-600 dark:text-slate-300">
             <span
-              className={`h-2 w-2 shrink-0 rounded-full ${isLoading ? "animate-pulse bg-amber-500" : "bg-emerald-500"}`}
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${isLoading ? "animate-pulse bg-amber-500" : "bg-emerald-500"}`}
             />
             <span className="whitespace-nowrap">
               {isLoading
@@ -502,9 +500,9 @@ export default function DashboardPage() {
 
       {/* 2. Primary KPI Metric Cards (Standard 4-Card Grid) */}
       {isLoading ? (
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
+        <section className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-6">
           {Array.from({ length: 4 }).map((_, index) => (
-            <div key={`dashboard-kpi-skeleton-${index}`} className="animate-pulse rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+            <div key={`dashboard-kpi-skeleton-${index}`} className="animate-pulse flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-slate-300 bg-white p-4 dark:border-slate-800 dark:border-t-slate-700 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
                 <div className="h-8 w-8 rounded-md bg-slate-200 dark:bg-slate-700" />
@@ -517,19 +515,19 @@ export default function DashboardPage() {
           ))}
         </section>
       ) : (
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
+        <section className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-6">
           {/* Card 1: Revenue */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-emerald-600 bg-white p-4 dark:border-slate-800 dark:border-t-emerald-500 dark:bg-slate-900">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                 {range === "DAILY" ? "Today's Revenue" : "Total Revenue"}
               </span>
-              <div className="rounded-md bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                 <TrendingUp className="h-4 w-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <div className="mt-auto pt-3">
+              <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {formatCurrency(totalPeriodRevenue)}
               </p>
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -539,17 +537,17 @@ export default function DashboardPage() {
           </div>
 
           {/* Card 2: Orders */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-sky-500 bg-white p-4 dark:border-slate-800 dark:border-t-sky-400 dark:bg-slate-900">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                 Orders
               </span>
-              <div className="rounded-md bg-blue-50 p-2 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
                 <Receipt className="h-4 w-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <div className="mt-auto pt-3">
+              <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.orders}
               </p>
               <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
@@ -561,21 +559,21 @@ export default function DashboardPage() {
           </div>
 
           {/* Card 3: Low Stock Alerts */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className={`flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 ${stats.lowStock.length > 0 ? "border-t-rose-500 dark:border-t-rose-400" : "border-t-slate-300 dark:border-t-slate-700"}`}>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                 Low Stock Alerts
               </span>
-              <div className={`rounded-md p-2 ${
+              <div className={`flex h-8 w-8 items-center justify-center rounded-md ${
                 stats.lowStock.length > 0
-                  ? "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400"
+                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
                   : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
               }`}>
                 <AlertTriangle className="h-4 w-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <div className="mt-auto pt-3">
+              <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.lowStock.length}
               </p>
               <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
@@ -587,17 +585,17 @@ export default function DashboardPage() {
           </div>
 
           {/* Card 4: Total Products */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-amber-500 bg-white p-4 dark:border-slate-800 dark:border-t-amber-400 dark:bg-slate-900">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                 Total Products
               </span>
-              <div className="rounded-md bg-sky-50 p-2 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
                 <Package className="h-4 w-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <div className="mt-auto pt-3">
+              <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.products}
               </p>
               <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
@@ -609,50 +607,76 @@ export default function DashboardPage() {
       )}
 
       {/* Supporting Inventory Valuation & Customer Overview Bar */}
-      <section className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-4 dark:border-slate-800 dark:bg-slate-900">
-        <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Total Inventory Cost
-          </span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-            {formatCurrency(stats.totalCost)}
-          </p>
-        </div>
-        <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Total Retail Value
-          </span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-            {formatCurrency(stats.totalPrice)}
-          </p>
-        </div>
-        <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Active Customers
-          </span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-            {stats.customers}
-          </p>
-        </div>
-        <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Total Units Sold
-          </span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-            {totalUnitsSold.toLocaleString()}
-          </p>
-        </div>
-      </section>
+      {isLoading ? (
+        <section className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-6" aria-label="Loading additional key performance indicators">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <div key={`dashboard-support-kpi-skeleton-${index}`} className="animate-pulse flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-slate-300 bg-white p-4 dark:border-slate-800 dark:border-t-slate-700 dark:bg-slate-900">
+              <div className="flex items-center justify-between">
+                <div className="h-3 w-28 rounded bg-slate-200 dark:bg-slate-700" />
+                <div className="h-4 w-4 rounded bg-slate-200 dark:bg-slate-700" />
+              </div>
+              <div className="mt-auto h-8 w-32 rounded bg-slate-200 dark:bg-slate-700" />
+            </div>
+          ))}
+        </section>
+      ) : (
+        <section className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-6" aria-label="Additional key performance indicators">
+          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-cyan-600 bg-white p-4 dark:border-slate-800 dark:border-t-cyan-400 dark:bg-slate-900">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Inventory Cost</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300">
+                <Warehouse className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="mt-auto pt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              {formatCurrency(stats.totalCost)}
+            </p>
+          </div>
+          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-teal-600 bg-white p-4 dark:border-slate-800 dark:border-t-teal-400 dark:bg-slate-900">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Retail Value</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
+                <TrendingUp className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="mt-auto pt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              {formatCurrency(stats.totalPrice)}
+            </p>
+          </div>
+          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-blue-600 bg-white p-4 dark:border-slate-800 dark:border-t-blue-400 dark:bg-slate-900">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Active Customers</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+                <Users className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="mt-auto pt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              {stats.customers}
+            </p>
+          </div>
+          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-indigo-500 bg-white p-4 dark:border-slate-800 dark:border-t-indigo-400 dark:bg-slate-900">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Units Sold</span>
+              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+                <Receipt className="h-4 w-4" />
+              </div>
+            </div>
+            <p className="mt-auto pt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              {totalUnitsSold.toLocaleString()}
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* 3. Analytics & Operations Section (Main Balanced Multi-Column Layout) */}
       <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-6">
         {/* Left Column (8 cols): Primary Revenue Trend Chart & Top Products Table */}
         <div className="min-w-0 space-y-4 xl:col-span-8 xl:space-y-6">
           {/* Main Visual Element: Sales & Revenue Trend */}
-          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="min-w-0 rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4 flex items-center justify-between gap-2">
               <div>
-                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                   Revenue Overview
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -661,7 +685,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500 dark:text-slate-400">Period Total:</span>
-                <span className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                <span className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-900/40">
                   {formatCurrency(stats.revenue)}
                 </span>
               </div>
@@ -717,10 +741,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Top Selling Products Table */}
-          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="min-w-0 rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                   Top Selling Products
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -739,7 +763,7 @@ export default function DashboardPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-152 text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                  <tr className="border-b-2 border-slate-200 text-[11px] font-semibold text-slate-500 dark:border-slate-800 dark:text-slate-400">
                     <th className="py-2.5 pl-1 pr-3 w-8">#</th>
                     <th className="py-2.5 px-3">Product</th>
                     <th className="py-2.5 px-3">Category</th>
@@ -750,7 +774,7 @@ export default function DashboardPage() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                   {stats.topProducts.length > 0 ? (
                     stats.topProducts.map((product, index) => (
-                      <tr key={product.productId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                      <tr key={product.productId} className="transition-colors hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20">
                         <td className="py-3 pl-1 pr-3 text-slate-400 font-semibold">{index + 1}</td>
                         <td className="py-3 px-3">
                           <div className="flex items-center gap-2.5">
@@ -785,10 +809,10 @@ export default function DashboardPage() {
                             {product.categoryName ?? "Uncategorized"}
                           </span>
                         </td>
-                        <td className="py-3 px-3 text-right font-medium text-slate-700 dark:text-slate-300">
+                        <td className="py-3 px-3 text-right font-medium tabular-nums text-slate-700 dark:text-slate-300">
                           {product.quantity.toLocaleString()}
                         </td>
-                        <td className="py-3 pl-3 pr-1 text-right font-bold text-slate-900 dark:text-slate-100">
+                        <td className="py-3 pl-3 pr-1 text-right font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                           ₱{Number(product.revenue ?? 0).toLocaleString()}
                         </td>
                       </tr>
@@ -806,10 +830,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Sales by Category Contribution */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                   Sales by Category
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -850,7 +874,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
                         <div
-                          className="h-full rounded-full bg-slate-900 transition-all dark:bg-emerald-500"
+                          className="h-full rounded-full bg-emerald-700 transition-all dark:bg-emerald-400"
                           style={{ width: `${barWidth}%` }}
                         />
                       </div>
@@ -869,9 +893,9 @@ export default function DashboardPage() {
         {/* Right Column (4 cols): Operations & Actions */}
         <div className="min-w-0 space-y-4 xl:col-span-4 xl:space-y-6">
           {/* Today's Operational Pulse */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4">
-              <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                 Today&apos;s Overview
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -882,15 +906,15 @@ export default function DashboardPage() {
             <div className="space-y-2.5">
               <Link
                 href="/admin-orders?status=PENDING"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 p-3 transition hover:border-amber-300 hover:bg-amber-50/40 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-amber-700/50"
+                className="group flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-amber-300 hover:bg-amber-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-amber-700/60 dark:hover:bg-amber-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400">
                     <Clock className="h-3.5 w-3.5" />
                   </div>
                   <div>
-                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Pending Orders</span>
-                    <p className="text-[11px] text-slate-500">Requires processing</p>
+                    <span className="text-xs font-semibold text-slate-800 transition-colors group-hover:text-amber-900 dark:text-slate-200 dark:group-hover:text-amber-100">Pending Orders</span>
+                    <p className="text-[11px] text-slate-500 transition-colors group-hover:text-amber-800 dark:text-slate-400 dark:group-hover:text-amber-200">Requires processing</p>
                   </div>
                 </div>
                 <span className="text-lg font-bold text-amber-600 dark:text-amber-400">
@@ -900,15 +924,15 @@ export default function DashboardPage() {
 
               <Link
                 href="/admin-orders?status=COMPLETED"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 p-3 transition hover:border-emerald-300 hover:bg-emerald-50/40 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-emerald-700/50"
+                className="group flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                   </div>
                   <div>
-                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Completed Orders</span>
-                    <p className="text-[11px] text-slate-500">Fulfilled today</p>
+                    <span className="text-xs font-semibold text-slate-800 transition-colors group-hover:text-emerald-900 dark:text-slate-200 dark:group-hover:text-emerald-100">Completed Orders</span>
+                    <p className="text-[11px] text-slate-500 transition-colors group-hover:text-emerald-800 dark:text-slate-400 dark:group-hover:text-emerald-200">Fulfilled today</p>
                   </div>
                 </div>
                 <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
@@ -918,15 +942,15 @@ export default function DashboardPage() {
 
               <Link
                 href="/admin-orders?status=CANCELLED"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 p-3 transition hover:border-slate-300 hover:bg-slate-100/50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-slate-700"
+                className="group flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-slate-300 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-slate-600 dark:hover:bg-slate-700/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                     <XCircle className="h-3.5 w-3.5" />
                   </div>
                   <div>
-                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Cancelled Orders</span>
-                    <p className="text-[11px] text-slate-500">Voided today</p>
+                    <span className="text-xs font-semibold text-slate-800 transition-colors group-hover:text-slate-950 dark:text-slate-200 dark:group-hover:text-white">Cancelled Orders</span>
+                    <p className="text-[11px] text-slate-500 transition-colors group-hover:text-slate-700 dark:text-slate-400 dark:group-hover:text-slate-200">Voided today</p>
                   </div>
                 </div>
                 <span className="text-lg font-bold text-slate-600 dark:text-slate-400">
@@ -937,10 +961,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Low Stock Attention List */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-3 flex items-center justify-between">
               <div>
-                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                   Low Stock Items
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
@@ -967,7 +991,7 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between py-2.5 text-xs"
+                      className="flex items-center justify-between py-3 text-xs"
                     >
                       <div className="min-w-0 pr-2">
                         <span className="block truncate font-semibold text-slate-800 dark:text-slate-200">
@@ -1002,9 +1026,9 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick Store Actions */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-3">
-              <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                 Quick Actions
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">

@@ -43,7 +43,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
   const [sessionStatus, setSessionStatus] = useState<"checking" | "verified" | "unavailable">("checking");
   const [sessionRetryVersion, setSessionRetryVersion] = useState(0);
-  const [theme, setTheme] = useState<ThemeMode>("system");
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "system";
+
+    const storedTheme = window.localStorage.getItem("apc-theme") as ThemeMode | null;
+    return storedTheme === "light" || storedTheme === "dark" || storedTheme === "system"
+      ? storedTheme
+      : "system";
+  });
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<
     Array<{ id: string; orderNumber: string; customerName: string; pickupDate: string; status: string }>
@@ -108,13 +115,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         window.location.replace("/login?reason=session-expired");
       }
     };
-
-    const storedTheme = window.localStorage.getItem("apc-theme") as ThemeMode | null;
-    if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "system") {
-      window.setTimeout(() => {
-        setTheme(storedTheme);
-      }, 0);
-    }
 
     loadProfileAvatar();
 

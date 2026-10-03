@@ -3,22 +3,22 @@
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
-  Banknote,
+  ArrowCounterClockwise as RotateCcw,
   Check,
-  LayoutGrid,
   List,
+  MagnifyingGlass as Search,
   Minus,
+  Money as Banknote,
   Package,
   Plus,
   Printer,
-  RotateCcw,
-  Search,
   ShoppingBag,
   ShoppingCart,
-  Trash2,
+  SquaresFour as LayoutGrid,
+  Trash as Trash2,
+  Warning as AlertTriangle,
   X,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
 import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
 import { ADMIN_MODAL_BACKDROP_CLASS } from "@/utils/admin-modal";
@@ -654,19 +654,19 @@ export default function POSPage() {
   }
 
   return (
-    <div className="space-y-4 text-slate-800 dark:text-slate-100">
+    <div className="mx-auto max-w-[1600px] space-y-5 text-slate-800 dark:text-slate-100">
       {/* 1. Header Toolbar */}
-      <header className="flex flex-row items-center justify-between gap-3 rounded-lg border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+      <header className="flex flex-row items-center justify-between gap-3 border-b border-slate-200 pb-4 dark:border-slate-800">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-xs">
             <ShoppingCart className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
                 Point of Sale
               </h1>
-              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 Terminal Ready
               </span>
@@ -684,7 +684,7 @@ export default function POSPage() {
         </div>
 
         <div className="flex items-center justify-end gap-3 text-xs">
-          <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-300">
+          <div className="text-right font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
             <span>{currentDate || "Loading clock..."}</span>
           </div>
         </div>
@@ -865,10 +865,16 @@ export default function POSPage() {
       )}
 
       {/* 6. Main Register Layout (Catalog & Cart Workspace) */}
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.8fr)_420px]">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(360px,0.8fr)] xl:gap-6">
         {/* Left Column: Product Catalog */}
         <section className="min-w-0">
-          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
+              <h2 className="text-base font-semibold text-slate-950 dark:text-white">Product catalog</h2>
+              <span className="font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                {filteredProducts.length} items
+              </span>
+            </div>
             {/* Catalog Controls (Search, View Toggle, Item Counter) */}
             <div className="mb-4 flex flex-row items-center justify-between gap-3">
               <div className="relative flex-1">
@@ -919,16 +925,13 @@ export default function POSPage() {
                   </button>
                 </div>
 
-                <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                  {filteredProducts.length} items
-                </span>
               </div>
             </div>
 
             {/* Scrollable Product List / Grid */}
             <div
               className={`max-h-[min(68vh,760px)] overflow-y-auto pr-1 ${
-                productView === "list" ? "space-y-2" : "grid gap-3 md:grid-cols-2 xl:grid-cols-3"
+                productView === "list" ? "space-y-2" : "grid gap-3 md:grid-cols-2"
               }`}
             >
               {filteredProducts.length > 0 ? (
@@ -952,10 +955,10 @@ export default function POSPage() {
                     return (
                       <div
                         key={product.id}
-                        className={`flex items-center justify-between gap-3 rounded-md border p-2.5 transition ${
+                        className={`flex items-center justify-between gap-3 border-b px-1 py-3 transition-colors first:border-t ${
                           inStock
-                            ? "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
-                            : "border-slate-200 bg-slate-50 opacity-60 dark:border-slate-800 dark:bg-slate-950/40"
+                            ? "border-slate-200 hover:bg-emerald-50/40 dark:border-slate-800 dark:hover:bg-emerald-950/15"
+                            : "border-slate-200 opacity-55 dark:border-slate-800"
                         }`}
                       >
                         <div className="flex min-w-0 items-center gap-3">
@@ -1026,7 +1029,7 @@ export default function POSPage() {
                             type="button"
                             onClick={() => addToCart(product)}
                             disabled={!inStock || (variantOptions.length > 0 && !selectedVariant)}
-                            className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-slate-800"
+                            className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-700 text-white transition-colors hover:bg-emerald-800 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-slate-800"
                             title="Add to cart"
                           >
                             <Plus className="h-4 w-4" />
@@ -1040,10 +1043,10 @@ export default function POSPage() {
                   return (
                     <div
                       key={product.id}
-                      className={`flex flex-col justify-between rounded-lg border p-3 transition ${
+                      className={`flex flex-col justify-between rounded-md border p-3 transition-colors ${
                         inStock
-                          ? "border-slate-200/90 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
-                          : "border-slate-200 bg-slate-50 opacity-60 dark:border-slate-800 dark:bg-slate-950/40"
+                          ? "border-slate-200 bg-white hover:border-emerald-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-emerald-800"
+                          : "border-slate-200 bg-slate-50 opacity-55 dark:border-slate-800 dark:bg-slate-950/40"
                       }`}
                     >
                       <div>
@@ -1115,7 +1118,7 @@ export default function POSPage() {
                           type="button"
                           onClick={() => addToCart(product)}
                           disabled={!inStock || (variantOptions.length > 0 && !selectedVariant)}
-                          className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-slate-800"
+                          className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-700 text-white transition-colors hover:bg-emerald-800 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-slate-800"
                           title="Add to cart"
                         >
                           <Plus className="h-4 w-4" />
@@ -1135,12 +1138,12 @@ export default function POSPage() {
         </section>
 
         {/* Right Column: Register & Cart Workspace */}
-        <aside className="min-w-0 sticky top-4">
-          <div className="flex h-full flex-col rounded-lg border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        <aside className="min-w-0 xl:sticky xl:top-4">
+          <div className="flex h-full flex-col rounded-md border border-slate-200 border-t-2 border-t-emerald-600 bg-white p-4 sm:p-5 dark:border-slate-800 dark:border-t-emerald-500 dark:bg-slate-900">
             {/* Cart Header */}
             <div className="mb-3 flex items-center justify-between border-b border-slate-200/80 pb-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">Current Order</h2>
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">Current Order</h2>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                   {totalCartUnits} items
                 </span>
@@ -1297,11 +1300,11 @@ export default function POSPage() {
             {/* Payment & Checkout Section */}
             <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800">
               {/* Subtotal Banner */}
-              <div className="mb-3 flex items-center justify-between rounded-lg bg-slate-50 p-2.5 dark:bg-slate-800/60">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <div className="mb-3 flex items-center justify-between border-y border-slate-200 py-3 dark:border-slate-800">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   Total Due
                 </span>
-                <span className="text-lg font-bold text-slate-900 dark:text-white">
+                <span className="text-2xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                   ₱{subtotal.toFixed(2)}
                 </span>
               </div>
@@ -1312,7 +1315,7 @@ export default function POSPage() {
                   <button
                     type="button"
                     onClick={() => setPaymentMethod("CASH")}
-                    className="flex items-center justify-center gap-1.5 rounded-md bg-white py-1.5 text-xs font-semibold text-slate-900 shadow-xs dark:bg-slate-700 dark:text-white"
+                    className="flex items-center justify-center gap-1.5 rounded-md bg-white py-2 text-xs font-semibold text-slate-900 ring-1 ring-slate-200 dark:bg-slate-700 dark:text-white dark:ring-slate-600"
                   >
                     <Banknote className="h-3.5 w-3.5" />
                     <span>Cash</span>
@@ -1324,7 +1327,7 @@ export default function POSPage() {
               {paymentMethod === "CASH" && (
                 <div className="mb-3 space-y-2">
                   <div>
-                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
                       Tender Amount
                     </label>
                     <input
@@ -1334,7 +1337,7 @@ export default function POSPage() {
                       value={tenderAmount}
                       onChange={(e) => setTenderAmount(e.target.value)}
                       placeholder="0.00"
-                      className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 font-mono text-sm font-bold text-slate-900 outline-hidden focus:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 font-mono text-base font-semibold tabular-nums text-slate-950 outline-hidden transition-colors focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-emerald-500"
                     />
                   </div>
 
@@ -1343,7 +1346,7 @@ export default function POSPage() {
                     <button
                       type="button"
                       onClick={() => setTenderAmount(subtotal > 0 ? subtotal.toFixed(2) : "0")}
-                      className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50 active:scale-[0.98] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/40"
                     >
                       Exact
                     </button>
@@ -1352,7 +1355,7 @@ export default function POSPage() {
                         key={val}
                         type="button"
                         onClick={() => setTenderAmount(String(val))}
-                        className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50 active:scale-[0.98] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/40"
                       >
                         ₱{val}
                       </button>
@@ -1378,6 +1381,7 @@ export default function POSPage() {
               {/* Status Message */}
               {statusMessage && (
                 <div
+                  role="alert"
                   className={`mb-3 rounded-md p-2 text-xs font-medium ${
                     statusMessage.includes("successfully")
                       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
@@ -1397,7 +1401,7 @@ export default function POSPage() {
                   (paymentMethod === "CASH" && tender > 0 && tender < subtotal)
                 }
                 onClick={handleSubmit}
-                className="w-full rounded-md bg-emerald-600 py-3 text-sm font-bold text-white shadow-xs transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-600"
+                className="w-full rounded-md bg-emerald-700 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-slate-800 dark:disabled:text-slate-600"
               >
                 {isSubmitting
                   ? "Processing..."
