@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { getUserForToken } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
 async function ensureAuthenticatedAdmin() {
@@ -13,7 +13,7 @@ async function ensureAuthenticatedAdmin() {
     return null;
   }
 
-  const payload = verifyToken(token) as { sub?: string } | null;
+  const payload = await getUserForToken(token);
   if (!payload?.sub) {
     return null;
   }

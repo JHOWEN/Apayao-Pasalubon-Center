@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { clearAuthCookies } from "@/lib/cookies";
 
 export async function POST(request: Request) {
   try {
@@ -36,9 +37,20 @@ export async function POST(request: Request) {
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await prisma.user.update({ where: { id: userId }, data: { password: hashedPassword } });
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: userId },
+        data: { password: hashedPassword, sessionVersion: { increment: 1 } },
+      }),
+      prisma.authSession.deleteMany({ where: { userId } }),
+    ]);
 
-    return NextResponse.json({ success: true, message: "Password updated successfully." });
+    const response = NextResponse.json({
+      success: true,
+      message: "Password updated successfully. Please log in again.",
+    });
+    clearAuthCookies(response);
+    return response;
   } catch {
     return NextResponse.json({ success: false, message: "Unable to update password." }, { status: 500 });
   }

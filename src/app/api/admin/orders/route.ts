@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { canAccessAdminPortal, verifyToken } from "@/lib/auth";
+import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { applyOrderInventoryMovement, recordInventoryLifecycleEvent } from "@/features/inventory/lib/inventory";
 import { canCancelOrder, isOrderStatus, normalizePickupDateInput, OrderStatus, resolveInitialOrderStatus } from "@/lib/order";
 import { resolvePaymentProofUrl } from "@/lib/storage";
@@ -21,7 +21,7 @@ async function requireAdminAccess() {
     return { error: NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 }) };
   }
 
-  const payload = verifyToken(token) as { sub?: string; role?: string } | null;
+  const payload = await getUserForToken(token);
 
   if (!payload?.sub || !canAccessAdminPortal(payload.role)) {
     return { error: NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 }) };

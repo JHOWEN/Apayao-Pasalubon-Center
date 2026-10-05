@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { getUserForToken } from "@/lib/auth";
 import { createStorageService, PAYMENT_PROOF_BUCKET } from "@/lib/storage";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getRequestId, logError } from "@/lib/logger";
@@ -14,7 +14,7 @@ const storageService = createStorageService();
 export async function POST(request: Request) {
   try {
     const token = (await cookies()).get("token")?.value;
-    const payload = token ? verifyToken(token) as { sub?: string } | null : null;
+    const payload = token ? await getUserForToken(token) : null;
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });

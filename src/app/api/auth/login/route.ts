@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { signToken } from "@/lib/auth";
-import { setAuthCookie } from "@/lib/cookies";
+import { setAuthCookies } from "@/lib/cookies";
+import { createAuthSession } from "@/lib/auth-sessions";
 import { checkLoginRateLimit, getLoginRateLimitStatus, resetLoginRateLimit } from "@/lib/rate-limit";
 import { loginSchema } from "@/features/auth/validators/auth";
 import { getRequestId, logError } from "@/lib/logger";
@@ -95,11 +95,8 @@ export async function POST(request: Request) {
 
     await resetLoginRateLimit(request, email);
 
-    const token = signToken(
-      { sub: user.id, email: user.email, role: user.role },
-      rememberMe ? "30d" : "7d"
-    );
-    await setAuthCookie(token, rememberMe);
+    const session = await createAuthSession(user.id, user.sessionVersion, rememberMe);
+    await setAuthCookies(session.accessToken, session.refreshToken, session.refreshExpiresAt);
 
     return NextResponse.json(
       {

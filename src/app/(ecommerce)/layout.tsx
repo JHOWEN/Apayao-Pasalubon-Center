@@ -86,7 +86,13 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
       setUser(storedUser);
 
       try {
-        const response = await fetch("/api/auth/profile");
+        let response = await fetch("/api/auth/profile", { cache: "no-store" });
+        if (response.status === 401) {
+          const refreshResponse = await fetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+          if (refreshResponse.ok || refreshResponse.status === 409) {
+            response = await fetch("/api/auth/profile", { cache: "no-store" });
+          }
+        }
         const data = await response.json();
 
         if (!response.ok || !data?.user) {
@@ -149,6 +155,35 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
       if (stockWarningTimeout !== undefined) window.clearTimeout(stockWarningTimeout);
     };
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let isRefreshing = false;
+    const refreshSession = async () => {
+      if (isRefreshing) return;
+      isRefreshing = true;
+      try {
+        const response = await fetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+        if (response.status === 401) {
+          clearStoredUser();
+          setUser(null);
+        } else if (response.status === 409) {
+          const profileResponse = await fetch("/api/auth/profile", { cache: "no-store" });
+          if (profileResponse.status === 401) {
+            clearStoredUser();
+            setUser(null);
+          }
+        }
+      } catch {
+        // Keep the current session state; the next interval will retry.
+      } finally {
+        isRefreshing = false;
+      }
+    };
+    const refreshInterval = window.setInterval(() => void refreshSession(), 4 * 60 * 1000);
+    return () => window.clearInterval(refreshInterval);
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;

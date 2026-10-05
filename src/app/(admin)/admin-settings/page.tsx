@@ -435,7 +435,8 @@ export default function AdminSettingsPage() {
       }
 
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-      showToast("success", "Password updated successfully.");
+      showToast("success", "Password updated. Please log in again.");
+      window.setTimeout(() => window.location.replace("/login?reason=session-expired"), 1000);
     } catch {
       showToast("error", "Unable to change password.");
     } finally {
@@ -489,6 +490,12 @@ export default function AdminSettingsPage() {
 
       if (!response.ok) {
         showToast("error", data.message ?? "Unable to update account.");
+        return;
+      }
+
+      if (data.sessionEnded) {
+        showToast("success", "Your role or account status changed. Please log in again.");
+        window.setTimeout(() => window.location.replace("/login?reason=session-expired"), 1000);
         return;
       }
 

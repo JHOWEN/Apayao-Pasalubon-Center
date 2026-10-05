@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { InventoryType, Prisma } from "@prisma/client";
-import { canAccessAdminPortal, verifyToken } from "@/lib/auth";
+import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { normalizeArchiveAction, normalizeArchiveFilter, normalizeArchiveIds } from "@/lib/inventory-transaction-archive";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { prisma } from "@/lib/prisma";
@@ -9,7 +9,7 @@ import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 async function ensureAdminOnly() {
   const token = (await cookies()).get("token")?.value;
-  const payload = token ? (verifyToken(token) as { sub?: string; role?: string } | null) : null;
+  const payload = token ? await getUserForToken(token) : null;
   if (!payload?.sub || !canAccessAdminPortal(payload.role)) return null;
 
   const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { role: true } });
@@ -290,4 +290,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

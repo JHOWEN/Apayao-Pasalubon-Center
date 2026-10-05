@@ -2,7 +2,7 @@ import { PaymentStatus } from "@prisma/client";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { getUserForToken } from "@/lib/auth";
 import { applyOrderInventoryMovement } from "@/features/inventory/lib/inventory";
 import { expireWalletReservations } from "@/features/inventory/lib/reservation-expiry";
 import { resolvePaymentProofUrl } from "@/lib/storage";
@@ -31,7 +31,7 @@ async function requireAuthenticatedUser() {
     return { error: NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 }) };
   }
 
-  const payload = verifyToken(token) as { sub?: string; role?: string } | null;
+  const payload = await getUserForToken(token);
 
   if (!payload?.sub) {
     return { error: NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 }) };

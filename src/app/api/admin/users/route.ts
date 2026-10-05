@@ -3,14 +3,14 @@ import { randomBytes } from "crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { signToken, verifyToken } from "@/lib/auth";
-import { setAuthCookie } from "@/lib/cookies";
+import { getUserForToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { clearAuthCookies } from "@/lib/cookies";
 
 async function requireAdmin() {
   const token = (await cookies()).get("token")?.value;
-  const payload = token ? (verifyToken(token) as { sub?: string } | null) : null;
+  const payload = token ? await getUserForToken(token) : null;
 
   if (!payload?.sub) {
     return { error: NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 }) };
@@ -106,7 +106,10 @@ export async function PATCH(request: Request) {
     const body = await request.json() as { id?: string; role?: string; isBlocked?: boolean };
     if (!body.id) return NextResponse.json({ success: false, message: "Account id is required." }, { status: 400 });
 
-    const existing = await prisma.user.findUnique({ where: { id: body.id }, select: { id: true, role: true, email: true } });
+    const existing = await prisma.user.findUnique({
+      where: { id: body.id },
+      select: { id: true, role: true, email: true, isBlocked: true },
+    });
     if (!existing || (existing.role !== "ADMIN" && existing.role !== "STAFF")) {
       return NextResponse.json({ success: false, message: "Team account not found." }, { status: 404 });
     }
@@ -119,29 +122,35 @@ export async function PATCH(request: Request) {
       }
     }
 
-    const updated = await prisma.user.update({
-      where: { id: body.id },
-      data: {
-        ...(nextRole ? { role: nextRole } : {}),
-        ...(typeof body.isBlocked === "boolean" ? { isBlocked: body.isBlocked } : {}),
-      },
-      select: { id: true, name: true, email: true, role: true, isBlocked: true, emailVerified: true, createdAt: true },
+    const roleChanged = Boolean(nextRole && nextRole !== existing.role);
+    const blockedChanged = typeof body.isBlocked === "boolean" && body.isBlocked !== existing.isBlocked;
+    const invalidatesSessions = roleChanged || blockedChanged;
+    const updated = await prisma.$transaction(async (transaction) => {
+      const user = await transaction.user.update({
+        where: { id: body.id },
+        data: {
+          ...(nextRole ? { role: nextRole } : {}),
+          ...(typeof body.isBlocked === "boolean" ? { isBlocked: body.isBlocked } : {}),
+          ...(invalidatesSessions ? { sessionVersion: { increment: 1 } } : {}),
+        },
+        select: { id: true, name: true, email: true, role: true, isBlocked: true, emailVerified: true, createdAt: true },
+      });
+      if (invalidatesSessions) {
+        await transaction.authSession.deleteMany({ where: { userId: body.id } });
+      }
+      return user;
     });
-
-    const currentToken = (await cookies()).get("token")?.value;
-    const sessionPayload = currentToken ? (verifyToken(currentToken) as { sub?: string; role?: string; email?: string } | null) : null;
-    const isSelfPrivilegeChange = Boolean(sessionPayload?.sub && sessionPayload.sub === body.id && nextRole && nextRole !== existing.role);
-
-    if (isSelfPrivilegeChange) {
-      const renewedToken = signToken({ sub: updated.id, email: updated.email, role: updated.role }, "7d");
-      await setAuthCookie(renewedToken);
-    }
 
     await prisma.activityLog.create({
       data: { userId: auth.adminId, action: "UPDATE_TEAM_ACCOUNT", description: `Updated team account ${existing.email}.` },
     });
 
-    return NextResponse.json({ success: true, user: publicUser(updated) });
+    const sessionEnded = auth.adminId === body.id && invalidatesSessions;
+    const response = NextResponse.json({ success: true, user: publicUser(updated), sessionEnded });
+    if (sessionEnded) {
+      clearAuthCookies(response);
+    }
+    return response;
   } catch (error) {
     return NextResponse.json({ success: false, message: getUserFacingErrorMessage(error, "Unable to update team account.") }, { status: 500 });
   }

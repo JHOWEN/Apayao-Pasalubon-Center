@@ -52,7 +52,7 @@ SUPABASE_RECEIPT_BUCKET=payment-proofs
 # ===============================
 # SHARED RATE LIMITING
 # ===============================
-# Required in production for multi-instance rate limiting.
+# Required in production for JTI revocation and shared rate limiting.
 UPSTASH_REDIS_REST_URL=https://your-region.upstash.io
 UPSTASH_REDIS_REST_TOKEN=your-server-only-upstash-token
 

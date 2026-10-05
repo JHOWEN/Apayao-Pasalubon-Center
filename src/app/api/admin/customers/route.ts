@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getRequestId, logError } from "@/lib/logger";
-import { canAccessAdminPortal, verifyToken } from "@/lib/auth";
+import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
@@ -14,7 +14,7 @@ async function requireAdminAccess() {
     return { error: NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 }) };
   }
 
-  const payload = verifyToken(token) as { sub?: string; role?: string } | null;
+  const payload = await getUserForToken(token);
 
   if (!payload?.sub || !canAccessAdminPortal(payload.role)) {
     return { error: NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 }) };
@@ -148,21 +148,38 @@ export async function PUT(request: Request) {
       ...(typeof isBlocked === "boolean" ? { isBlocked } : {}),
     };
 
-    const updatedCustomer = await prisma.user.update({
-      where: { id },
-      data: updateData,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        address: true,
-        imageUrl: true,
-        emailVerified: true,
-        isBlocked: true,
-        createdAt: true,
-        updatedAt: true,
-      },
+    const updatedCustomer = await prisma.$transaction(async (transaction) => {
+      const currentCustomer = await transaction.user.findUnique({
+        where: { id },
+        select: { isBlocked: true },
+      });
+      const blockedStatusChanged =
+        currentCustomer !== null &&
+        typeof isBlocked === "boolean" &&
+        currentCustomer.isBlocked !== isBlocked;
+      const updated = await transaction.user.update({
+        where: { id },
+        data: {
+          ...updateData,
+          ...(blockedStatusChanged ? { sessionVersion: { increment: 1 } } : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          phone: true,
+          address: true,
+          imageUrl: true,
+          emailVerified: true,
+          isBlocked: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      if (blockedStatusChanged) {
+        await transaction.authSession.deleteMany({ where: { userId: id } });
+      }
+      return updated;
     });
 
     return NextResponse.json({ success: true, customer: updatedCustomer });

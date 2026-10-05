@@ -24,7 +24,7 @@ Required for the current production app:
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                                       | Reachable PostgreSQL connection string for the selected environment.                            |
 | `NEXT_PUBLIC_APP_URL`                                | Canonical HTTPS origin, for example `https://shop.example.com`; used to construct email links.  |
-| `JWT_SECRET`                                         | Signs the app's login cookie token. Use a unique random secret of at least 32 bytes.            |
+| `JWT_SECRET`                                         | Signs 10-minute access tokens. Use a unique random secret of at least 32 bytes.                 |
 | `EMAIL_VERIFICATION_SECRET`                          | Signs verification links; use a separate unique random secret.                                  |
 | `PASSWORD_RESET_SECRET`                              | Signs password-reset links; use a separate unique random secret.                                |
 | `SUPABASE_URL`                                       | Supabase project URL used by the Storage adapter.                                               |
@@ -34,7 +34,7 @@ Required for the current production app:
 | `SUPABASE_PAYMENT_QR_BUCKET`                         | Usually `payment-qr`.                                                                           |
 | `SUPABASE_RECEIPT_BUCKET`                            | Usually `payment-proofs`; this bucket must remain private.                                      |
 | `RESEND_API_KEY`, `RESEND_FROM`                      | Resend credentials and verified sender, if using Resend.                                        |
-| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Shared production rate limiting and cross-instance realtime events.                             |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Required for production JTI revocation, shared rate limiting, and cross-instance realtime.      |
 | `CRON_SECRET`                                        | Random secret required by the wallet-reservation cleanup endpoint.                              |
 
 Optional variables include `OPERATIONAL_ALERT_WEBHOOK_URL`, `MAX_PRODUCT_IMAGE_SIZE_MB`, and the `RATE_LIMIT_*` policy overrides documented in [ENV_SETUP.md](ENV_SETUP.md).
@@ -42,6 +42,8 @@ Optional variables include `OPERATIONAL_ALERT_WEBHOOK_URL`, `MAX_PRODUCT_IMAGE_S
 For SMTP instead of Resend, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM`. `EMAIL_FROM` is not read by the current mailer. `NEXTAUTH_URL` and `NEXTAUTH_SECRET` do not configure the primary login flow; the current app signs its own JWT cookie with `JWT_SECRET`.
 
 In local development, put development values in `.env.local`, which Next.js loads alongside `.env`. Confirm `.env` and `.env.local` are ignored by Git; never print or paste secret values into tickets or chat.
+
+Login stores only a hash of each rotating refresh token in PostgreSQL (7 days by default, 30 days with “Remember me”). Access tokens expire after 10 minutes. Access and refresh credentials are HttpOnly cookies; Redis stores revoked access-token IDs until each token's expiry. Production authentication fails closed if Upstash Redis is not configured.
 
 ## 3. Apply database migrations
 

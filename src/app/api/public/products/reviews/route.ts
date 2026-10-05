@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { getUserForToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 
 function serializeReview(review: {
@@ -63,7 +63,7 @@ export async function GET(request: Request) {
 
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
-    const payload = token ? (verifyToken(token) as { sub?: string } | null) : null;
+    const payload = token ? await getUserForToken(token) : null;
     const currentUserId = payload?.sub ?? null;
 
     const baseWhere: Prisma.ProductReviewWhereInput = { productId };
@@ -136,7 +136,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Please sign in to write a review." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Please sign in to write a review." }, { status: 401 });

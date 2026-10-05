@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { canAccessAdminPortal, verifyToken } from "@/lib/auth";
+import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -14,7 +14,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -56,7 +56,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });

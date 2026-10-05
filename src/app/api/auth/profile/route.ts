@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { getUserForToken } from "@/lib/auth";
+import { clearAuthCookies } from "@/lib/cookies";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
@@ -16,7 +17,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -52,7 +53,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -114,7 +115,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -168,6 +169,7 @@ export async function DELETE(request: Request) {
           name: "Deleted Customer",
           email: anonymizedEmail,
           password: anonymizedPassword,
+          sessionVersion: { increment: 1 },
           phone: null,
           address: null,
           imageUrl: null,
@@ -179,10 +181,11 @@ export async function DELETE(request: Request) {
           passwordResetTokenExpiresAt: null,
         },
       }),
+      prisma.authSession.deleteMany({ where: { userId: existingUser.id } }),
     ]);
 
     const response = NextResponse.json({ success: true, message: "Account deleted successfully." });
-    response.cookies.delete("token");
+    clearAuthCookies(response);
 
     return response;
   } catch (error: unknown) {

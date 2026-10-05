@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { ensureAuthenticatedAdmin, verifyToken } from "@/lib/auth";
+import { ensureAuthenticatedAdmin, getUserForToken } from "@/lib/auth";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { cookies } from "next/headers";
 import { deleteProductImageUrls } from "@/lib/storage";
@@ -448,7 +448,7 @@ export async function DELETE(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:products:delete", "admin");
     if (rateLimitResponse) return rateLimitResponse;
     const token = (await cookies()).get("token")?.value;
-    const payload = token ? (verifyToken(token) as { sub?: string } | null) : null;
+    const payload = token ? await getUserForToken(token) : null;
     const admin = payload?.sub
       ? await prisma.user.findUnique({ where: { id: payload.sub }, select: { role: true } })
       : null;

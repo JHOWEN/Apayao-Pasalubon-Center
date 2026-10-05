@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
+import { clearAuthCookies } from "@/lib/cookies";
 import { enforceRateLimit, resetLoginRateLimit } from "@/lib/rate-limit";
 import { verifyPasswordResetToken } from "@/lib/password-reset";
 import { getRequestId, logError } from "@/lib/logger";
@@ -54,18 +55,24 @@ export async function POST(request: Request) {
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    await prisma.user.update({
-      where: { id: user.id },
-      data: {
-        password: hashedPassword,
-        passwordResetToken: null,
-        passwordResetTokenExpiresAt: null,
-      },
-    });
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: user.id },
+        data: {
+          password: hashedPassword,
+          passwordResetToken: null,
+          passwordResetTokenExpiresAt: null,
+          sessionVersion: { increment: 1 },
+        },
+      }),
+      prisma.authSession.deleteMany({ where: { userId: user.id } }),
+    ]);
 
     await resetLoginRateLimit(new Request("http://localhost"), email);
 
-    return NextResponse.json({ success: true, message: "Password reset successfully." });
+    const response = NextResponse.json({ success: true, message: "Password reset successfully." });
+    clearAuthCookies(response);
+    return response;
   } catch (error) {
     logError("auth.reset_password_failed", error, { requestId: getRequestId(request) });
     return NextResponse.json({ success: false, message: "Unable to reset password." }, { status: 500 });

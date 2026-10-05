@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getUserFacingErrorMessage } from "../src/lib/api-response";
-import { canAccessAdminPortal, signToken, verifyToken } from "../src/lib/auth";
-import { getAuthCookieOptions } from "../src/lib/cookies";
+import { canAccessAdminPortal } from "../src/lib/auth";
+import { getAuthCookieOptions, getRefreshCookieOptions } from "../src/lib/cookies";
+import { signAccessToken, verifyAccessToken } from "../src/lib/auth-sessions";
 import { buildEmailVerificationUrl, createEmailVerificationToken, verifyEmailVerificationToken } from "../src/lib/email-verification";
 import { buildPasswordResetUrl, createPasswordResetToken, verifyPasswordResetToken } from "../src/lib/password-reset";
 
@@ -14,21 +15,43 @@ test("auth cookie options always include the required session security flags", (
   assert.equal(defaults.secure, expectedSecureValue);
   assert.equal(defaults.sameSite, "lax");
   assert.equal(defaults.path, "/");
-  assert.equal(defaults.maxAge, 60 * 60 * 24 * 7);
+  assert.equal(defaults.maxAge, 10 * 60);
 
-  const rememberMe = getAuthCookieOptions(true);
-  assert.equal(rememberMe.maxAge, 60 * 60 * 24 * 30);
-  assert.equal(rememberMe.secure, expectedSecureValue);
+  const refresh = getRefreshCookieOptions(new Date("2026-10-12T00:00:00Z"));
+  assert.equal(refresh.httpOnly, true);
+  assert.equal(refresh.secure, expectedSecureValue);
+  assert.equal(refresh.sameSite, "lax");
+  assert.equal(refresh.path, "/api/auth");
 });
 
-test("JWT verification requires a valid HS256 signature", () => {
+test("access JWTs carry a session id, token id, version, and ten-minute expiry", () => {
   const originalSecret = process.env.JWT_SECRET;
   process.env.JWT_SECRET = "test-only-secret-that-is-long-enough-for-the-suite";
 
   try {
-    const token = signToken({ sub: "test-user", role: "ADMIN" }, "1h");
-    assert.equal((verifyToken(token) as { sub?: string } | null)?.sub, "test-user");
-    assert.equal(verifyToken(`${token}.tampered`), null);
+    const before = Math.floor(Date.now() / 1000);
+    const token = signAccessToken("test-user", "test-session", 3);
+    const claims = verifyAccessToken(token);
+
+    assert.equal(claims?.sub, "test-user");
+    assert.equal(claims?.sid, "test-session");
+    assert.equal(claims?.ver, 3);
+    assert.ok(claims?.jti);
+    assert.ok(claims?.exp && claims.exp >= before + 600 && claims.exp <= before + 601);
+  } finally {
+    if (originalSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = originalSecret;
+  }
+});
+
+test("access JWT verification requires a valid HS256 signature", () => {
+  const originalSecret = process.env.JWT_SECRET;
+  process.env.JWT_SECRET = "test-only-secret-that-is-long-enough-for-the-suite";
+
+  try {
+    const token = signAccessToken("test-user", "test-session", 0);
+    assert.equal(verifyAccessToken(token)?.sub, "test-user");
+    assert.equal(verifyAccessToken(`${token}.tampered`), null);
   } finally {
     if (originalSecret === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = originalSecret;
@@ -42,8 +65,8 @@ test("JWT signing fails closed when production secret is missing", () => {
   Reflect.set(process.env, "NODE_ENV", "production");
 
   try {
-    assert.equal(verifyToken("header.payload.signature"), null);
-    assert.throws(() => signToken({ sub: "test-user" }), /JWT_SECRET must be configured/);
+    assert.equal(verifyAccessToken("header.payload.signature"), null);
+    assert.throws(() => signAccessToken("test-user", "test-session", 0), /JWT_SECRET must be configured/);
   } finally {
     if (originalSecret === undefined) delete process.env.JWT_SECRET;
     else process.env.JWT_SECRET = originalSecret;

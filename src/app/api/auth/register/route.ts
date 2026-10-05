@@ -4,8 +4,8 @@ import { buildEmailVerificationUrl, createEmailVerificationToken } from "@/lib/e
 import { sendVerificationEmail } from "@/lib/mailer";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { registerSchema } from "@/features/auth/validators/auth";
-import { signToken } from "@/lib/auth";
-import { setAuthCookie } from "@/lib/cookies";
+import { setAuthCookies } from "@/lib/cookies";
+import { createAuthSession } from "@/lib/auth-sessions";
 import bcrypt from "bcryptjs";
 import { getRequestId, logError } from "@/lib/logger";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
@@ -113,10 +113,10 @@ export async function POST(request: Request) {
       },
     });
 
-    const token = signToken({ sub: user.id, email: user.email, role: user.role });
-    await setAuthCookie(token);
+    const session = await createAuthSession(user.id, user.sessionVersion, false);
+    await setAuthCookies(session.accessToken, session.refreshToken, session.refreshExpiresAt);
 
-    await sendVerificationEmail(email, verificationUrl, "Verify your APC account");
+    await sendVerificationEmail(email, verificationUrl, "Verify your account");
 
     return NextResponse.json(
       {

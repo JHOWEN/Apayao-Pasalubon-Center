@@ -68,7 +68,13 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       isCheckingSession = true;
 
       try {
-        const response = await fetch("/api/admin/profile", { cache: "no-store" });
+        let response = await fetch("/api/admin/profile", { cache: "no-store" });
+        if (response.status === 401) {
+          const refreshResponse = await fetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+          if (refreshResponse.ok || refreshResponse.status === 409) {
+            response = await fetch("/api/admin/profile", { cache: "no-store" });
+          }
+        }
         if (response.status === 401) {
           window.location.replace("/login?reason=session-expired");
           return;
@@ -131,6 +137,33 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       window.removeEventListener("storage", handleSessionEnded);
     };
   }, [sessionRetryVersion]);
+
+  useEffect(() => {
+    if (sessionStatus !== "verified") return;
+
+    let isRefreshing = false;
+    const refreshSession = async () => {
+      if (isRefreshing) return;
+      isRefreshing = true;
+      try {
+        const response = await fetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+        if (response.status === 401) {
+          window.location.replace("/login?reason=session-expired");
+        } else if (response.status === 409) {
+          const profileResponse = await fetch("/api/admin/profile", { cache: "no-store" });
+          if (profileResponse.status === 401) {
+            window.location.replace("/login?reason=session-expired");
+          }
+        }
+      } catch {
+        // Keep the current session state; the next interval will retry.
+      } finally {
+        isRefreshing = false;
+      }
+    };
+    const refreshInterval = window.setInterval(() => void refreshSession(), 4 * 60 * 1000);
+    return () => window.clearInterval(refreshInterval);
+  }, [sessionStatus]);
 
   useEffect(() => {
     if (userRole !== "STAFF") return;
