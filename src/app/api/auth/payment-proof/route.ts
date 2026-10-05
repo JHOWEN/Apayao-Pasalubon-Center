@@ -6,6 +6,7 @@ import { createStorageService, PAYMENT_PROOF_BUCKET } from "@/lib/storage";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getRequestId, logError } from "@/lib/logger";
 import { ONLINE_PAYMENT_RESERVATION_TTL_MS } from "@/lib/order";
+import { recordOrderEvent } from "@/lib/order-history";
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true } });
+    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, name: true } });
     if (!user) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
     }
@@ -85,21 +86,37 @@ export async function POST(request: Request) {
       contentType: file.type,
     });
 
-    const updated = await prisma.order.updateMany({
-      where: {
-        id: order.id,
-        userId: user.id,
-        status: "PENDING_PAYMENT",
-        paymentStatus: "PENDING",
-        proofOfPaymentUrl: order.proofOfPaymentUrl,
-        ...(order.proofOfPaymentUrl ? {} : {
-          createdAt: { gt: new Date(Date.now() - ONLINE_PAYMENT_RESERVATION_TTL_MS) },
-        }),
-      },
-      data: { proofOfPaymentUrl: upload.key },
+    const updated = await prisma.$transaction(async (tx) => {
+      const claim = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          userId: user.id,
+          status: "PENDING_PAYMENT",
+          paymentStatus: "PENDING",
+          proofOfPaymentUrl: order.proofOfPaymentUrl,
+          ...(order.proofOfPaymentUrl ? {} : {
+            createdAt: { gt: new Date(Date.now() - ONLINE_PAYMENT_RESERVATION_TTL_MS) },
+          }),
+        },
+        data: { proofOfPaymentUrl: upload.key },
+      });
+
+      if (claim.count !== 1) return false;
+
+      await recordOrderEvent(tx, {
+        orderId: order.id,
+        eventType: "PAYMENT_PROOF_SUBMITTED",
+        previousStatus: order.status,
+        newStatus: order.status,
+        previousPaymentStatus: order.paymentStatus,
+        newPaymentStatus: order.paymentStatus,
+        actor: { userId: user.id, name: user.name, type: "CUSTOMER" },
+        note: order.proofOfPaymentUrl ? "Payment proof replaced." : "Payment proof uploaded.",
+      });
+      return true;
     });
 
-    if (updated.count !== 1) {
+    if (!updated) {
       await storageService.delete({ bucket: PAYMENT_PROOF_BUCKET, key: upload.key }).catch(() => undefined);
       return NextResponse.json({ success: false, message: "This reservation expired or changed. Refresh your orders and try again." }, { status: 409 });
     }

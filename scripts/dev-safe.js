@@ -19,6 +19,24 @@ function killStaleNextProcesses() {
   });
 }
 
+function generatePrismaClient() {
+  return new Promise((resolve, reject) => {
+    const prisma = spawn(process.execPath, [require.resolve('prisma/build/index.js'), 'generate'], {
+      stdio: 'inherit',
+      env: process.env,
+    });
+
+    prisma.on('exit', (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Prisma Client generation exited with ${code ?? 'no code'}`));
+      }
+    });
+    prisma.on('error', reject);
+  });
+}
+
 (async () => {
   process.env.APC_DEV_SAFE_PID = String(process.pid);
 
@@ -26,6 +44,13 @@ function killStaleNextProcesses() {
     await killStaleNextProcesses();
   } catch (error) {
     console.warn('Cleanup warning:', error.message);
+  }
+
+  try {
+    await generatePrismaClient();
+  } catch (error) {
+    console.error('Unable to generate Prisma Client:', error.message);
+    process.exit(1);
   }
 
   const next = spawn(process.execPath, [require.resolve('next/dist/bin/next'), 'dev'], {

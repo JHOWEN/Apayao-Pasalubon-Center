@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { getRequestId, logError } from "@/lib/logger";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { recordOrderEvent } from "@/lib/order-history";
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -19,7 +20,7 @@ async function requireAdminAccess() {
     return { error: NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 }) };
   }
 
-  const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { name: true } });
+  const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { name: true, role: true } });
   return { payload, user };
 }
 
@@ -59,16 +60,40 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "This order is already approved." }, { status: 400 });
     }
 
-    const updated = await prisma.order.updateMany({
-      where: {
-        id: order.id,
-        status: { notIn: ["COMPLETED", "CANCELLED"] },
-        paymentStatus: { in: ["PENDING", "PAID"] },
-      },
-      data: { status: order.status === "PENDING_PAYMENT" ? "CONFIRMED" : order.status, paymentStatus: "PAID" },
+    const nextStatus = order.status === "PENDING_PAYMENT" ? "CONFIRMED" : order.status;
+    const updated = await prisma.$transaction(async (tx) => {
+      const claim = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          status: order.status,
+          paymentStatus: order.paymentStatus,
+        },
+        data: {
+          status: nextStatus,
+          paymentStatus: "PAID",
+          paidAt: order.paidAt ?? new Date(),
+        },
+      });
+
+      if (claim.count !== 1) return false;
+
+      await recordOrderEvent(tx, {
+        orderId: order.id,
+        eventType: "PAYMENT_APPROVED",
+        previousStatus: order.status,
+        newStatus: nextStatus,
+        previousPaymentStatus: order.paymentStatus,
+        newPaymentStatus: "PAID",
+        actor: {
+          userId: authCheck.payload.sub,
+          name: authCheck.user?.name,
+          type: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
+        },
+      });
+      return true;
     });
 
-    if (updated.count === 0) {
+    if (!updated) {
       return NextResponse.json({ success: true, message: "Payment was already processed." }, { status: 200 });
     }
 

@@ -478,15 +478,15 @@ export default function DashboardPage() {
       {isLoading ? (
         <section
           aria-label="Loading dashboard metrics"
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:auto-rows-[minmax(10rem,1fr)] xl:grid-cols-4 xl:gap-5"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:auto-rows-[minmax(7.5rem,1fr)] lg:grid-cols-4 xl:gap-5"
         >
           {Array.from({ length: 5 }).map((_, index) => (
             <div
               key={`dashboard-kpi-skeleton-${index}`}
               className={`animate-pulse flex flex-col rounded-md border border-slate-200 border-t-4 border-t-slate-300 bg-white dark:border-slate-800 dark:border-t-slate-700 dark:bg-slate-900 ${
                 index === 0
-                  ? "min-h-[26rem] p-6 sm:col-span-2 xl:col-span-2 xl:row-span-2"
-                  : "min-h-40 p-4"
+                  ? "min-h-68 p-6 sm:col-span-2 lg:col-span-2 lg:row-span-2"
+                  : "min-h-40 p-3 lg:min-h-0"
               }`}
             >
               <div className="flex items-center justify-between">
@@ -503,18 +503,18 @@ export default function DashboardPage() {
       ) : (
         <section
           aria-label="Dashboard metrics"
-          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:auto-rows-[minmax(10rem,1fr)] xl:grid-cols-4 xl:gap-5"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:auto-rows-[minmax(7.5rem,1fr)] lg:grid-cols-4 xl:gap-5"
         >
-          <div className="flex min-h-[26rem] flex-col rounded-md border border-emerald-200 border-t-4 border-t-emerald-600 bg-emerald-50/50 p-6 dark:border-emerald-900 dark:border-t-emerald-500 dark:bg-slate-900 sm:col-span-2 xl:col-span-2 xl:row-span-2">
+          <div className="flex min-h-68 flex-col rounded-md border border-emerald-200 border-t-4 border-t-emerald-600 bg-emerald-50/50 p-6 dark:border-emerald-900 dark:border-t-emerald-500 dark:bg-slate-900 sm:col-span-2 lg:col-span-2 lg:row-span-2">
             <div className="flex items-center justify-between">
-              <span className="text-base font-semibold text-slate-600 dark:text-slate-300">
+              <span className="text-lg font-semibold text-slate-700 dark:text-slate-200">
                 {range === "DAILY" ? "Today's Revenue" : "Total Revenue"}
               </span>
               <div className="flex h-12 w-12 items-center justify-center rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
                 <TrendingUp className="h-6 w-6" />
               </div>
             </div>
-            <div className="mt-auto pt-3">
+            <div className="mt-8">
               <p className="text-5xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {formatCurrency(totalPeriodRevenue)}
               </p>
@@ -524,9 +524,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-sky-500 bg-white p-5 dark:border-slate-800 dark:border-t-sky-400 dark:bg-slate-900">
+          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-sky-500 bg-white p-3 dark:border-slate-800 dark:border-t-sky-400 dark:bg-slate-900 lg:min-h-0">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+              <span className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">
                 Orders
               </span>
               <div className="flex h-10 w-10 items-center justify-center rounded-md bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
@@ -534,10 +534,10 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="mt-auto pt-3">
-              <p className="text-4xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              <p className="text-3xl leading-8 font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.orders}
               </p>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
                 <span className="font-semibold text-amber-600 dark:text-amber-400">{todayStats.pendingOrders} pending</span>
                 <span>·</span>
                 <span>{todayStats.completedOrders} completed today</span>
@@ -545,12 +545,12 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className={`flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 ${stats.lowStock.length > 0 ? "border-t-rose-500 dark:border-t-rose-400" : "border-t-slate-300 dark:border-t-slate-700"}`}>
+          <div className={`flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 bg-white p-3 dark:border-slate-800 dark:bg-slate-900 lg:min-h-0 ${stats.lowStock.length > 0 ? "border-t-rose-500 dark:border-t-rose-400" : "border-t-slate-300 dark:border-t-slate-700"}`}>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+              <span className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">
                 Low Stock Alerts
               </span>
-              <div className={`flex h-8 w-8 items-center justify-center rounded-md ${
+              <div className={`flex h-10 w-10 items-center justify-center rounded-md ${
                 stats.lowStock.length > 0
                   ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
                   : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
@@ -559,10 +559,10 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="mt-auto pt-3">
-              <p className="text-4xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              <p className="text-3xl leading-8 font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.lowStock.length}
               </p>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
                 <span className="font-semibold text-rose-600 dark:text-rose-400">{outOfStockCount} out of stock</span>
                 <span>·</span>
                 <span>{criticalStockCount} critical</span>
@@ -570,9 +570,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-amber-500 bg-white p-5 dark:border-slate-800 dark:border-t-amber-400 dark:bg-slate-900">
+          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-amber-500 bg-white p-3 dark:border-slate-800 dark:border-t-amber-400 dark:bg-slate-900 lg:min-h-0">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">
+              <span className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">
                 Total Products
               </span>
               <div className="flex h-10 w-10 items-center justify-center rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
@@ -580,23 +580,23 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="mt-auto pt-3">
-              <p className="text-4xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              <p className="text-3xl leading-8 font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.products}
               </p>
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
                 Products in catalog
               </p>
             </div>
           </div>
 
-          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-indigo-500 bg-white p-5 dark:border-slate-800 dark:border-t-indigo-400 dark:bg-slate-900">
+          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-indigo-500 bg-white p-3 dark:border-slate-800 dark:border-t-indigo-400 dark:bg-slate-900 lg:min-h-0">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Total Units Sold</span>
+              <span className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">Total Units Sold</span>
               <div className="flex h-10 w-10 items-center justify-center rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
                 <Receipt className="h-5 w-5" />
               </div>
             </div>
-            <p className="mt-auto pt-3 text-4xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+            <p className="mt-auto pt-1.5 text-3xl leading-8 font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
               {totalUnitsSold.toLocaleString()}
             </p>
           </div>
@@ -627,7 +627,7 @@ export default function DashboardPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[38rem] text-left text-sm">
+              <table className="w-full min-w-152 text-left text-sm">
                 <thead>
                   <tr className="border-b-2 border-slate-200 text-[11px] font-semibold text-slate-500 dark:border-slate-800 dark:text-slate-400">
                     <th className="w-10 py-2.5 pl-1 pr-3">#</th>
@@ -784,7 +784,7 @@ export default function DashboardPage() {
             <div className="space-y-2">
               <Link
                 href="/admin-orders?status=PENDING"
-                className="group flex min-h-[4.25rem] items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-amber-300 hover:bg-amber-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-amber-700/60 dark:hover:bg-amber-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
+                className="group flex min-h-17 items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-amber-300 hover:bg-amber-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-amber-700/60 dark:hover:bg-amber-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400">
@@ -802,7 +802,7 @@ export default function DashboardPage() {
 
               <Link
                 href="/admin-orders?status=COMPLETED"
-                className="group flex min-h-[4.25rem] items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+                className="group flex min-h-17 items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
@@ -820,7 +820,7 @@ export default function DashboardPage() {
 
               <Link
                 href="/admin-orders?status=CANCELLED"
-                className="group flex min-h-[4.25rem] items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-slate-300 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-slate-600 dark:hover:bg-slate-700/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
+                className="group flex min-h-17 items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-slate-300 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-slate-600 dark:hover:bg-slate-700/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300">

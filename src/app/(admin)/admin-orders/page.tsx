@@ -42,6 +42,10 @@ interface OrderItem {
   quantity: number;
   price: number;
   subtotal: number;
+  productNameSnapshot?: string;
+  productSkuSnapshot?: string;
+  variantSkuSnapshot?: string | null;
+  variantAttributesSnapshot?: string | null;
   product?: {
     name?: string;
   };
@@ -52,6 +56,19 @@ interface OrderItem {
     measurementValue?: number | null;
     measurementUnit?: string | null;
   } | null;
+}
+
+interface OrderEvent {
+  id: string;
+  eventType: string;
+  previousStatus?: string | null;
+  newStatus?: string | null;
+  previousPaymentStatus?: string | null;
+  newPaymentStatus?: string | null;
+  actorName?: string | null;
+  actorType: string;
+  note?: string | null;
+  createdAt: string;
 }
 
 interface OrderData {
@@ -68,9 +85,11 @@ interface OrderData {
   totalAmount: number;
   paymentMethod?: string;
   paymentStatus?: string;
+  paidAt?: string | null;
   proofOfPaymentUrl?: string | null;
   isWalkIn?: boolean;
   items: OrderItem[];
+  events: OrderEvent[];
 }
 
 export default function AdminOrdersPage() {
@@ -80,6 +99,10 @@ export default function AdminOrdersPage() {
   const [filterDate, setFilterDate] = useState("ALL");
   const [customPickupDate, setCustomPickupDate] = useState("");
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
+  const [orderHistory, setOrderHistory] = useState<OrderEvent[]>([]);
+  const [isLoadingOrderHistory, setIsLoadingOrderHistory] = useState(false);
+  const [orderHistoryError, setOrderHistoryError] = useState("");
+  const [orderHistoryRefresh, setOrderHistoryRefresh] = useState(0);
   const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalOrderCount, setTotalOrderCount] = useState(0);
@@ -145,6 +168,29 @@ export default function AdminOrdersPage() {
             Boolean
           );
     return details.length ? `${details.join(" • ")} (${variant.sku ?? "SKU"})` : variant.sku ?? "Variant";
+  }
+
+  function getOrderItemVariantLabel(item: OrderItem) {
+    if (!item.variant && !item.variantSkuSnapshot && !item.variantAttributesSnapshot) return "";
+    return getVariantLabel({
+      ...item.variant,
+      sku: item.variantSkuSnapshot ?? item.variant?.sku,
+      attributes: item.variantAttributesSnapshot ?? item.variant?.attributes,
+    });
+  }
+
+  function getOrderEventLabel(eventType: string) {
+    const labels: Record<string, string> = {
+      ORDER_CREATED: "Order created",
+      ORDER_STATUS_CHANGED: "Order status changed",
+      ORDER_COMPLETED: "Order completed",
+      ORDER_CANCELLED: "Order cancelled",
+      PAYMENT_APPROVED: "Payment approved",
+      PAYMENT_DECLINED: "Payment declined",
+      PAYMENT_PROOF_SUBMITTED: "Payment proof submitted",
+      RESERVATION_EXPIRED: "Payment reservation expired",
+    };
+    return labels[eventType] ?? eventType.replaceAll("_", " ").toLowerCase();
   }
 
   function getStatusLabel(status: string) {
@@ -231,8 +277,8 @@ export default function AdminOrdersPage() {
         <table><thead><tr><th>Product</th><th>Variant</th><th>Qty</th></tr></thead><tbody>${order.items
           .map(
             (item) =>
-              `<tr><td>${escapeHtml(item.product?.name ?? "Product")}</td><td>${escapeHtml(
-                item.variant ? getVariantLabel(item.variant) : "-"
+              `<tr><td>${escapeHtml(item.productNameSnapshot || item.product?.name || "Product")}</td><td>${escapeHtml(
+                getOrderItemVariantLabel(item) || "-"
               )}</td><td>${item.quantity}</td></tr>`
           )
           .join("")}</tbody></table>
@@ -279,8 +325,8 @@ export default function AdminOrdersPage() {
         <div class="items">${order.items
           .map(
             (item) =>
-              `<div class="item"><span>${escapeHtml(item.product?.name ?? "Product")}${
-                item.variant ? `<small>${escapeHtml(getVariantLabel(item.variant))}</small>` : ""
+              `<div class="item"><span>${escapeHtml(item.productNameSnapshot || item.product?.name || "Product")}${
+                getOrderItemVariantLabel(item) ? `<small>${escapeHtml(getOrderItemVariantLabel(item))}</small>` : ""
               }</span><strong>Qty ${item.quantity}</strong></div>`
           )
           .join("")}</div>
@@ -336,6 +382,7 @@ export default function AdminOrdersPage() {
             paymentStatus: order.paymentStatus ?? undefined,
             proofOfPaymentUrl: order.proofOfPaymentUrl ?? null,
             items: Array.isArray(order.items) ? order.items : [],
+            events: [],
           }));
       setOrders(normalizedOrders as OrderData[]);
         setTotalOrderCount(Number(data?.pagination?.totalCount ?? normalizedOrders.length));
@@ -380,6 +427,9 @@ export default function AdminOrdersPage() {
     }
 
     setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, status: nextStatus } : order)));
+    setIsLoadingOrderHistory(true);
+    setOrderHistoryError("");
+    setOrderHistoryRefresh((refresh) => refresh + 1);
     setIsUpdatingStatus(false);
     return true;
   }
@@ -425,6 +475,9 @@ export default function AdminOrdersPage() {
         order.id === orderId ? { ...order, paymentStatus: "PAID", status: "CONFIRMED" } : order
       )
     );
+    setIsLoadingOrderHistory(true);
+    setOrderHistoryError("");
+    setOrderHistoryRefresh((refresh) => refresh + 1);
     setManageModal(null);
     setIsProcessingPaymentAction(false);
     setStatusUpdateFeedback({
@@ -459,6 +512,9 @@ export default function AdminOrdersPage() {
         order.id === orderId ? { ...order, paymentStatus: "FAILED", status: "CANCELLED" } : order
       )
     );
+    setIsLoadingOrderHistory(true);
+    setOrderHistoryError("");
+    setOrderHistoryRefresh((refresh) => refresh + 1);
     setManageModal(null);
     setIsProcessingPaymentAction(false);
     setStatusUpdateFeedback({
@@ -592,6 +648,37 @@ export default function AdminOrdersPage() {
   const detailOrder = orders.find((order) => order.id === detailOrderId) ?? null;
 
   useEffect(() => {
+    if (!detailOrderId) return;
+
+    const orderId = detailOrderId;
+    const controller = new AbortController();
+
+    async function loadOrderHistory() {
+      try {
+        const params = new URLSearchParams({ historyFor: orderId });
+        const response = await fetch(`/api/admin/orders?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.message ?? "Unable to load order history.");
+        setOrderHistory(Array.isArray(data?.events) ? data.events : []);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setOrderHistory([]);
+          setOrderHistoryError(error instanceof Error ? error.message : "Unable to load order history.");
+          console.error("Error fetching order history:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsLoadingOrderHistory(false);
+      }
+    }
+
+    void loadOrderHistory();
+    return () => controller.abort();
+  }, [detailOrderId, orderHistoryRefresh]);
+
+  useEffect(() => {
     const hasOpenModal = Boolean(statusUpdateFeedback || manageModal || detailOrder || paymentProofViewerUrl);
 
     if (typeof document === "undefined") {
@@ -627,6 +714,13 @@ export default function AdminOrdersPage() {
     setFilterDate("ALL");
     setCustomPickupDate("");
     setCurrentPage(1);
+  };
+
+  const openOrderDetails = (orderId: string) => {
+    setOrderHistory([]);
+    setOrderHistoryError("");
+    setIsLoadingOrderHistory(true);
+    setDetailOrderId(orderId);
   };
 
   const totalPages = Math.max(1, Math.ceil(totalOrderCount / pageSize));
@@ -997,7 +1091,7 @@ export default function AdminOrdersPage() {
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
-                              onClick={() => setDetailOrderId(order.id)}
+                              onClick={() => openOrderDetails(order.id)}
                               aria-label="View order details"
                               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:translate-y-px dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                               title="View order details"
@@ -1278,14 +1372,17 @@ export default function AdminOrdersPage() {
                     <div key={item.id} className="py-2.5 first:pt-0 last:pb-0 flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <span className="block font-bold text-slate-900 dark:text-white">
-                          {item.product?.name ?? "Product item"}
+                          {item.productNameSnapshot || item.product?.name || "Product item"}
                         </span>
-                        {item.variant && (
+                        {getOrderItemVariantLabel(item) && (
                           <span className="mt-0.5 inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                            {getVariantLabel(item.variant)}
+                            {getOrderItemVariantLabel(item)}
                           </span>
                         )}
                         <span className="block text-[11px] text-slate-400 mt-0.5">
+                          SKU: {item.productSkuSnapshot || "Not recorded"}
+                        </span>
+                        <span className="block text-[11px] text-slate-400">
                           {item.quantity}x · ₱{Number(item.price).toFixed(2)}
                         </span>
                       </div>
@@ -1324,6 +1421,14 @@ export default function AdminOrdersPage() {
                       {getPaymentLabel(detailOrder.paymentStatus, detailOrder.paymentMethod, detailOrder.status)}
                     </span>
                   </div>
+                  {detailOrder.paidAt ? (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Paid at:</span>
+                      <span className="font-medium text-slate-800 dark:text-slate-200">
+                        {new Date(detailOrder.paidAt).toLocaleString()}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between border-t border-slate-100 pt-2 text-sm font-bold text-slate-900 dark:border-slate-800 dark:text-white">
                     <span>Grand Total:</span>
                     <span className="text-emerald-600 dark:text-emerald-400">
@@ -1370,6 +1475,46 @@ export default function AdminOrdersPage() {
                   </div>
                 ) : null}
               </div>
+
+              <section className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Order history</h3>
+                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    Status and payment events recorded for this order.
+                  </p>
+                </div>
+                {isLoadingOrderHistory ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Loading order history...</p>
+                ) : orderHistoryError ? (
+                  <p className="text-xs text-rose-700 dark:text-rose-300">{orderHistoryError}</p>
+                ) : orderHistory.length ? (
+                  <ol className="space-y-3">
+                    {orderHistory.map((event) => (
+                      <li key={event.id} className="border-l-2 border-slate-200 pl-3 dark:border-slate-700">
+                        <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                          {getOrderEventLabel(event.eventType)}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-300">
+                          Status: {event.previousStatus ? getStatusLabel(event.previousStatus) : "New"} to {event.newStatus ? getStatusLabel(event.newStatus) : "Not changed"}
+                        </p>
+                        {event.previousPaymentStatus || event.newPaymentStatus ? (
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                            Payment: {event.previousPaymentStatus ?? "New"} to {event.newPaymentStatus ?? "Not changed"}
+                          </p>
+                        ) : null}
+                        {event.note ? <p className="mt-0.5 text-[11px] text-slate-500">{event.note}</p> : null}
+                        <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                          {event.actorName || event.actorType} · {new Date(event.createdAt).toLocaleString()}
+                        </p>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    No events are recorded for this order yet. History starts when the order changes after this feature is deployed.
+                  </p>
+                )}
+              </section>
             </div>
 
             {/* Drawer Footer Actions */}

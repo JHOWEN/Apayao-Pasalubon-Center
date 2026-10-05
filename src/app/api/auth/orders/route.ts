@@ -10,6 +10,7 @@ import { getRequestId, logError } from "@/lib/logger";
 import { apiError } from "@/lib/api-response";
 import { emitOrderCreatedEvent } from "@/lib/realtime";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { getOrderItemSnapshot, getOrderStatusEventType, recordOrderEvent } from "@/lib/order-history";
 import {
   canCancelOrder,
   isOrderStatus,
@@ -70,8 +71,12 @@ function serializeOrder(order: {
     quantity: number;
     price: unknown;
     subtotal: unknown;
+    productNameSnapshot: string;
+    productSkuSnapshot: string;
+    variantSkuSnapshot: string | null;
+    variantAttributesSnapshot: string | null;
     product: { imageUrl: string | null; name: string } | null;
-    variant?: { sku?: string; color?: string | null; measurementValue?: number | null; measurementUnit?: string | null } | null;
+    variant?: { sku?: string; attributes?: string | null; color?: string | null; measurementValue?: number | null; measurementUnit?: string | null } | null;
   }>;
   user?: { email?: string | null; address?: string | null } | null;
 }, reviewedSet: Set<string>) {
@@ -232,9 +237,10 @@ export async function POST(request: Request) {
     const productIds = [...new Set(items.map((item) => item.productId))];
     const existingProducts = await prisma.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, stock: true, isActive: true, status: true },
+      select: { id: true, name: true, sku: true, stock: true, isActive: true, status: true },
     });
     const existingProductIds = new Set(existingProducts.map((product) => product.id));
+    const existingProductMap = new Map(existingProducts.map((product) => [product.id, product]));
 
     for (const item of items) {
       if (!existingProductIds.has(item.productId)) {
@@ -250,7 +256,7 @@ export async function POST(request: Request) {
     const variantIds = [...new Set(items.filter((item) => item.variantId).map((item) => item.variantId!))];
     const existingVariants = await prisma.productVariant.findMany({
       where: { id: { in: variantIds } },
-      select: { id: true, productId: true, stock: true },
+      select: { id: true, productId: true, sku: true, attributes: true, stock: true },
     });
     const existingVariantMap = new Map(existingVariants.map((variant) => [variant.id, variant]));
 
@@ -285,11 +291,16 @@ export async function POST(request: Request) {
           paymentStatus,
           proofOfPaymentUrl,
           status: effectiveInitialStatus,
+          paidAt: paymentStatus === PaymentStatus.PAID ? new Date() : null,
           isWalkIn,
           items: {
             create: items.map((item) => ({
               productId: item.productId,
               variantId: item.variantId || null,
+              ...getOrderItemSnapshot(
+                existingProductMap.get(item.productId),
+                item.variantId ? existingVariantMap.get(item.variantId) : null,
+              ),
               quantity: item.quantity,
               price: item.price,
               subtotal: item.price * item.quantity,
@@ -297,6 +308,14 @@ export async function POST(request: Request) {
           },
         },
         include: { items: true },
+      });
+
+      await recordOrderEvent(tx, {
+        orderId: createdOrder.id,
+        eventType: "ORDER_CREATED",
+        newStatus: createdOrder.status,
+        newPaymentStatus: createdOrder.paymentStatus,
+        actor: { userId: user.id, name: user.name, type: "CUSTOMER" },
       });
 
       await applyOrderInventoryMovement(
@@ -460,9 +479,33 @@ export async function PUT(request: Request) {
         }
       }
 
-      if (shouldRestoreStock) return tx.order.findUniqueOrThrow({ where: { id } });
+      if (!shouldRestoreStock) {
+        const claim = await tx.order.updateMany({
+          where: { id, userId: payload.sub, status: existingOrder.status, paymentStatus: existingOrder.paymentStatus },
+          data: {
+            status: status as OrderStatus,
+            paymentStatus: nextPaymentStatus,
+            ...(nextPaymentStatus === "PAID" && !existingOrder.paidAt ? { paidAt: new Date() } : {}),
+          },
+        });
+        if (claim.count !== 1) throw new OrderStateConflictError("Order status changed before the update completed.");
+      }
 
-      return tx.order.update({ where: { id }, data: { status: status as OrderStatus, paymentStatus: nextPaymentStatus } });
+      const updatedOrder = await tx.order.findUniqueOrThrow({ where: { id } });
+
+      if (updatedOrder.status !== existingOrder.status || updatedOrder.paymentStatus !== existingOrder.paymentStatus) {
+        await recordOrderEvent(tx, {
+          orderId: updatedOrder.id,
+          eventType: getOrderStatusEventType(updatedOrder.status),
+          previousStatus: existingOrder.status,
+          newStatus: updatedOrder.status,
+          previousPaymentStatus: existingOrder.paymentStatus,
+          newPaymentStatus: updatedOrder.paymentStatus,
+          actor: { userId: user.id, name: user.name, type: "CUSTOMER" },
+        });
+      }
+
+      return updatedOrder;
     });
 
     return NextResponse.json({ success: true, order }, { status: 200 });

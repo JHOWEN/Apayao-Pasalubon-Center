@@ -89,6 +89,10 @@ export async function GET(request: Request) {
           select: {
             quantity: true,
             subtotal: true,
+            productNameSnapshot: true,
+            productSkuSnapshot: true,
+            variantSkuSnapshot: true,
+            variantAttributesSnapshot: true,
             product: {
               select: { name: true, sku: true },
             },
@@ -234,7 +238,11 @@ export async function GET(request: Request) {
       itemCount: order.items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0),
       items: order.items.map((item) => ({
         quantity: Number(item.quantity ?? 0),
-        productName: item.product
+        productName: item.productNameSnapshot
+          ? `${item.productNameSnapshot}${item.variantSkuSnapshot || item.variantAttributesSnapshot
+              ? ` (${getVariantLabel(item.variantAttributesSnapshot, item.variantSkuSnapshot ?? "Variant")})`
+              : ""}`
+          : item.product
           ? `${item.product.name}${item.variant ? ` (${getVariantLabel(item.variant.attributes, item.variant.sku)})` : ""}`
           : "Unknown product",
       })),

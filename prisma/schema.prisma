@@ -30,6 +30,7 @@ model User {
   orders                          Order[]
   reviews                         ProductReview[]
   authSessions                    AuthSession[]
+  orderEvents                     OrderEvent[]     @relation("OrderEventActor")
 
   @@index([role])
 }
@@ -148,6 +149,7 @@ model Order {
   updatedAt         DateTime      @updatedAt
   user              User?         @relation(fields: [userId], references: [id])
   items             OrderItem[]
+  events            OrderEvent[]
 
   @@index([status, createdAt])
   @@index([paymentStatus, createdAt])
@@ -162,6 +164,10 @@ model OrderItem {
   quantity  Int
   price     Decimal         @db.Decimal(10, 2)
   subtotal  Decimal         @db.Decimal(10, 2)
+  productNameSnapshot String
+  productSkuSnapshot  String
+  variantSkuSnapshot  String?
+  variantAttributesSnapshot String?
   variantId String?
   order     Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   product   Product         @relation(fields: [productId], references: [id])
@@ -170,6 +176,27 @@ model OrderItem {
   @@index([orderId])
   @@index([productId])
   @@index([variantId])
+}
+
+model OrderEvent {
+  id                   String        @id @default(cuid())
+  orderId              String
+  eventType            String
+  previousStatus       OrderStatus?
+  newStatus            OrderStatus?
+  previousPaymentStatus PaymentStatus?
+  newPaymentStatus     PaymentStatus?
+  actorUserId          String?
+  actorName            String?
+  actorType            String
+  note                 String?
+  createdAt            DateTime      @default(now())
+  order                Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  actor                User?         @relation("OrderEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+  @@index([eventType, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 model InventoryTransaction {

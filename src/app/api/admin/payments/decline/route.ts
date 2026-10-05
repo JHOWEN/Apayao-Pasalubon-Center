@@ -5,6 +5,7 @@ import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { applyOrderInventoryMovement } from "@/features/inventory/lib/inventory";
 import { getRequestId, logError } from "@/lib/logger";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { recordOrderEvent } from "@/lib/order-history";
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -76,6 +77,20 @@ export async function POST(request: Request) {
       if (updated.count === 0) {
         return false;
       }
+
+      await recordOrderEvent(tx, {
+        orderId: order.id,
+        eventType: "PAYMENT_DECLINED",
+        previousStatus: order.status,
+        newStatus: "CANCELLED",
+        previousPaymentStatus: order.paymentStatus,
+        newPaymentStatus: "FAILED",
+        actor: {
+          userId: authCheck.payload.sub,
+          name: actor?.name,
+          type: actor?.role === "STAFF" ? "STAFF" : "ADMIN",
+        },
+      });
 
       const stockOuts = await tx.inventoryTransaction.findMany({
         where: { orderNumber: order.orderNumber, source, type: "STOCK_OUT" },

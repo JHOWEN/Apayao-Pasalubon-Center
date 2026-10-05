@@ -10,6 +10,7 @@ import { getRequestId, logError } from "@/lib/logger";
 import { apiError, getUserFacingErrorMessage } from "@/lib/api-response";
 import { emitOrderCreatedEvent, emitOrderUpdatedEvent } from "@/lib/realtime";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { getOrderItemSnapshot, getOrderStatusEventType, recordOrderEvent } from "@/lib/order-history";
 
 class OrderStateConflictError extends Error {}
 
@@ -41,6 +42,35 @@ export async function GET(request: Request) {
     if (rateLimitResponse) return rateLimitResponse;
 
     const { searchParams } = new URL(request.url);
+    const historyFor = searchParams.get("historyFor")?.trim();
+    if (historyFor) {
+      const orderExists = await prisma.order.findUnique({
+        where: { id: historyFor },
+        select: { id: true },
+      });
+      if (!orderExists) {
+        return NextResponse.json({ success: false, message: "Order not found." }, { status: 404 });
+      }
+
+      const events = await prisma.orderEvent.findMany({
+        where: { orderId: historyFor },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          eventType: true,
+          previousStatus: true,
+          newStatus: true,
+          previousPaymentStatus: true,
+          newPaymentStatus: true,
+          actorName: true,
+          actorType: true,
+          note: true,
+          createdAt: true,
+        },
+      });
+      return NextResponse.json({ success: true, events });
+    }
+
     const customerId = searchParams.get("customerId");
     const page = Math.max(1, Number(searchParams.get("page") ?? 1) || 1);
     const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit") ?? 15) || 15));
@@ -152,6 +182,7 @@ export async function GET(request: Request) {
         totalAmount: Number(order.totalAmount),
         paymentMethod: order.paymentMethod,
         paymentStatus: order.paymentStatus,
+        paidAt: order.paidAt,
         proofOfPaymentUrl: await resolvePaymentProofUrl(order.proofOfPaymentUrl),
         isWalkIn: order.isWalkIn,
         items: order.items.map((item) => ({
@@ -273,9 +304,10 @@ export async function POST(request: Request) {
     const productIds = [...new Set(items.map((item) => item.productId))];
     const existingProducts = await prisma.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, stock: true, isActive: true, hasVariants: true },
+      select: { id: true, name: true, sku: true, stock: true, isActive: true, hasVariants: true },
     });
     const existingProductIds = new Set(existingProducts.map((product) => product.id));
+    const existingProductMap = new Map(existingProducts.map((product) => [product.id, product]));
 
     for (const item of items) {
       if (!existingProductIds.has(item.productId)) {
@@ -292,7 +324,7 @@ export async function POST(request: Request) {
     const variantIds = [...new Set(items.filter((item) => item.variantId).map((item) => item.variantId!))];
     const existingVariants = await prisma.productVariant.findMany({
       where: { id: { in: variantIds } },
-      select: { id: true, productId: true, stock: true },
+      select: { id: true, productId: true, sku: true, attributes: true, stock: true },
     });
     const existingVariantMap = new Map(existingVariants.map((variant) => [variant.id, variant]));
 
@@ -325,11 +357,16 @@ export async function POST(request: Request) {
           paymentMethod,
           paymentStatus: effectivePaymentStatus,
           status: effectiveStatus,
+          paidAt: effectivePaymentStatus === "PAID" ? new Date() : null,
           isWalkIn,
           items: {
             create: items.map((item) => ({
               productId: item.productId,
               variantId: item.variantId || null,
+              ...getOrderItemSnapshot(
+                existingProductMap.get(item.productId),
+                item.variantId ? existingVariantMap.get(item.variantId) : null,
+              ),
               quantity: Number(item.quantity ?? 1),
               price: Number(item.price ?? 0),
               subtotal: Number(item.price ?? 0) * Number(item.quantity ?? 1),
@@ -337,6 +374,19 @@ export async function POST(request: Request) {
           },
         },
         include: { items: true },
+      });
+
+      await recordOrderEvent(tx, {
+        orderId: createdOrder.id,
+        eventType: "ORDER_CREATED",
+        newStatus: createdOrder.status,
+        newPaymentStatus: createdOrder.paymentStatus,
+        actor: {
+          userId: authCheck.payload.sub,
+          name: authCheck.user?.name,
+          type: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
+        },
+        note: isWalkIn ? "Walk-in sale created and completed." : null,
       });
 
       if (isWalkIn) {
@@ -570,9 +620,37 @@ export async function PUT(request: Request) {
         );
       }
 
-      if (status === "CANCELLED") return tx.order.findUniqueOrThrow({ where: { id } });
+      if (status !== "CANCELLED") {
+        const claim = await tx.order.updateMany({
+          where: { id, status: existingOrder.status, paymentStatus: existingOrder.paymentStatus },
+          data: {
+            status: status as OrderStatus,
+            paymentStatus: nextPaymentStatus,
+            ...(nextPaymentStatus === "PAID" && !existingOrder.paidAt ? { paidAt: new Date() } : {}),
+          },
+        });
+        if (claim.count !== 1) throw new OrderStateConflictError("Order status changed before the update completed.");
+      }
 
-      return tx.order.update({ where: { id }, data: { status: status as OrderStatus, paymentStatus: nextPaymentStatus } });
+      const updatedOrder = await tx.order.findUniqueOrThrow({ where: { id } });
+
+      if (updatedOrder.status !== existingOrder.status || updatedOrder.paymentStatus !== existingOrder.paymentStatus) {
+        await recordOrderEvent(tx, {
+          orderId: updatedOrder.id,
+          eventType: getOrderStatusEventType(updatedOrder.status),
+          previousStatus: existingOrder.status,
+          newStatus: updatedOrder.status,
+          previousPaymentStatus: existingOrder.paymentStatus,
+          newPaymentStatus: updatedOrder.paymentStatus,
+          actor: {
+            userId: authCheck.payload.sub,
+            name: authCheck.user?.name,
+            type: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
+          },
+        });
+      }
+
+      return updatedOrder;
     });
 
     emitOrderUpdatedEvent({

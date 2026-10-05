@@ -28,12 +28,17 @@ type OrderItemSummary = {
   price?: number;
   subtotal?: number;
   isReviewed?: boolean;
+  productNameSnapshot?: string;
+  productSkuSnapshot?: string;
+  variantSkuSnapshot?: string | null;
+  variantAttributesSnapshot?: string | null;
   product?: {
     imageUrl?: string | null;
     name?: string;
   };
   variant?: {
     sku?: string;
+    attributes?: string | Record<string, string> | null;
     color?: string | null;
     measurementValue?: number | null;
     measurementUnit?: string | null;
@@ -118,16 +123,40 @@ const isPickupDateAheadOfOrderDate = (pickupDateValue?: string | null, createdAt
 
 function getVariantLabel(variant: {
   sku?: string;
+  attributes?: string | Record<string, string> | null;
   color?: string | null;
   measurementValue?: number | null;
   measurementUnit?: string | null;
 } | undefined | null) {
   if (!variant) return "";
-  const details = [
+  const attributeValues = typeof variant.attributes === "string"
+    ? (() => {
+        try {
+          const parsed = JSON.parse(variant.attributes);
+          return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? Object.values(parsed).filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+            : [];
+        } catch {
+          return [];
+        }
+      })()
+    : variant.attributes && typeof variant.attributes === "object"
+    ? Object.values(variant.attributes).filter((value): value is string => Boolean(value))
+    : [];
+  const details = attributeValues.length ? attributeValues : [
     variant.color,
     variant.measurementValue ? `${variant.measurementValue}${variant.measurementUnit ?? ""}` : null,
   ].filter(Boolean);
   return details.length ? `${details.join(" • ")} (${variant.sku ?? "SKU"})` : variant.sku ?? "Variant";
+}
+
+function getOrderItemVariantLabel(item: OrderItemSummary | undefined) {
+  if (!item) return "";
+  return getVariantLabel({
+    ...item.variant,
+    sku: item.variantSkuSnapshot ?? item.variant?.sku,
+    attributes: item.variantAttributesSnapshot ?? item.variant?.attributes,
+  });
 }
 
 export default function OrdersPage() {
@@ -250,18 +279,18 @@ export default function OrdersPage() {
       return;
     }
 
-    const variantLabel = getVariantLabel(latestItem.variant);
+    const variantLabel = getOrderItemVariantLabel(latestItem);
 
     saveCartItems([
       {
         productId: latestItem.productId,
-        name: latestItem.product?.name ?? "Product",
+        name: latestItem.productNameSnapshot || latestItem.product?.name || "Product",
         price: Number(latestItem.price ?? latestItem.subtotal ?? 0),
         imageUrl: getPrimaryImageUrl(latestItem.product?.imageUrl) ?? fallbackProductImage,
         stock: 9999,
         quantity: Math.max(1, Number(latestItem.quantity ?? 1)),
         variantId: latestItem.variantId ?? undefined,
-        variantSku: latestItem.variant?.sku,
+        variantSku: latestItem.variantSkuSnapshot ?? latestItem.variant?.sku,
         variantLabel: variantLabel || undefined,
       },
     ]);
@@ -472,7 +501,7 @@ export default function OrdersPage() {
                       <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-[#181b24] border border-white/5">
                         <Image
                           src={getPrimaryImageUrl(order.items[0]?.product?.imageUrl) || fallbackProductImage}
-                          alt={order.items[0]?.product?.name ?? "Product item"}
+                          alt={order.items[0]?.productNameSnapshot || order.items[0]?.product?.name || "Product item"}
                           fill
                           sizes="80px"
                           className="object-cover"
@@ -481,14 +510,19 @@ export default function OrdersPage() {
 
                       <div className="min-w-0 flex-1 space-y-1">
                         <div className="font-bold text-white text-sm sm:text-base truncate">
-                          {order.items[0]?.product?.name ?? "Reserved Product"}
+                          {order.items[0]?.productNameSnapshot || order.items[0]?.product?.name || "Reserved Product"}
                         </div>
 
-                        {order.items[0]?.variant && (
+                        {getOrderItemVariantLabel(order.items[0]) && (
                           <div className="text-xs text-slate-400">
-                            {getVariantLabel(order.items[0].variant)}
+                            {getOrderItemVariantLabel(order.items[0])}
                           </div>
                         )}
+                        {order.items[0]?.productSkuSnapshot ? (
+                          <div className="text-[11px] text-slate-500">
+                            SKU: {order.items[0].productSkuSnapshot}
+                          </div>
+                        ) : null}
 
                         <div className="text-xs text-slate-400">
                           Qty: {order.items.reduce((sum, it) => sum + Number(it.quantity ?? 1), 0)} items

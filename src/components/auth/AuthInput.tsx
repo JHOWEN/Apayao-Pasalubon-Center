@@ -70,7 +70,8 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
             aria-describedby={
               error ? `${id}-error` : hint ? `${id}-hint` : undefined
             }
-            className={`w-full h-[48px] min-h-[48px] rounded-xl border bg-white px-4 py-3 text-sm text-slate-900 font-medium shadow-[inset_0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 placeholder:text-slate-400 outline-none ring-0
+            className={`w-full h-12 min-h-12 rounded-xl border px-4 py-3 text-sm text-slate-900 font-medium transition-all duration-200 placeholder:text-slate-400 outline-none ring-0
+              border-slate-300 bg-white shadow-[inset_0_1px_0_rgba(15,23,42,0.02)]
               ${Icon ? "pl-11" : "pl-4"}
               ${isPasswordType || rightAdornment ? "pr-4" : "pr-4"}
               ${

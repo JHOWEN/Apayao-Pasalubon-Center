@@ -3,6 +3,7 @@ import { logError } from "@/lib/logger";
 import { emitOrderUpdatedEvent } from "@/lib/realtime";
 import { ONLINE_PAYMENT_RESERVATION_TTL_MS } from "@/lib/order";
 import { applyOrderInventoryMovement } from "./inventory";
+import { recordOrderEvent } from "@/lib/order-history";
 
 export async function expireWalletReservations(now = new Date(), limit = 50) {
   const expirationCutoff = new Date(now.getTime() - ONLINE_PAYMENT_RESERVATION_TTL_MS);
@@ -48,6 +49,17 @@ export async function expireWalletReservations(now = new Date(), limit = 50) {
         });
 
         if (claim.count !== 1) return false;
+
+        await recordOrderEvent(tx, {
+          orderId: candidate.id,
+          eventType: "RESERVATION_EXPIRED",
+          previousStatus: "PENDING_PAYMENT",
+          newStatus: "CANCELLED",
+          previousPaymentStatus: "PENDING",
+          newPaymentStatus: "CANCELLED",
+          actor: { type: "SYSTEM", name: "Reservation expiry" },
+          note: "Online payment reservation expired before proof was submitted.",
+        });
 
         const stockOuts = await tx.inventoryTransaction.findMany({
           where: {

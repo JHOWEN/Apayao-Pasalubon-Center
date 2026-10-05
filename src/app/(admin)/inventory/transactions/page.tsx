@@ -671,7 +671,7 @@ export default function InventoryTransactionsPage() {
                   "Product / variant",
                   "Movement",
                   "Stock change",
-                  "Stock balance",
+                  "Stock left",
                   "Recorded by / channel",
                   "Order / customer / audit note",
                 ].map((heading, index) => (
@@ -777,8 +777,8 @@ export default function InventoryTransactionsPage() {
                     <td className="whitespace-nowrap px-4 py-3 font-semibold tabular-nums">
                       {stockChangeLabel(record)}
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-slate-600 dark:text-slate-300">
-                      {stockTransitionLabel(record)}
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-slate-700 dark:text-slate-200">
+                      {record.stockAfter ?? "Not recorded"}
                     </td>
                     <td className="px-4 py-3">
                       <span className="block font-medium text-slate-800 dark:text-slate-200">{record.performedByName?.trim() || "System"}</span>

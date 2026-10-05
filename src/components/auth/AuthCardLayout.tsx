@@ -36,7 +36,9 @@ export function AuthCardLayout({
     "/logo/apc-logo.png";
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center bg-[#f5f5f4] px-4 py-8 sm:px-6 lg:px-8 selection:bg-slate-900 selection:text-white">
+    <main
+      className="relative flex min-h-screen items-center justify-center bg-[#f5f5f4] px-4 py-8 selection:bg-slate-900 selection:text-white sm:px-6 lg:px-8"
+    >
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
