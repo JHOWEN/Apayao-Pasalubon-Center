@@ -1156,7 +1156,7 @@ export default function InventoryPage() {
                     <th className="w-24 px-3 py-3 text-right font-semibold whitespace-nowrap">Cost</th>
                     <th className="w-24 px-3 py-3 text-right font-semibold whitespace-nowrap">Price</th>
                     <th className="w-28 px-3 py-3 text-center font-semibold whitespace-nowrap">Status</th>
-                    <th className="w-20 px-4 py-3 text-center font-semibold whitespace-nowrap">Action</th>
+                    <th className="w-40 px-4 py-3 text-center font-semibold whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1202,7 +1202,13 @@ export default function InventoryPage() {
 
                       return (
                         <Fragment key={product.id}>
-                          <tr className="transition-colors hover:bg-emerald-50/40 dark:hover:bg-emerald-950/15">
+                          <tr
+                            className={`transition-colors hover:bg-emerald-50/40 dark:hover:bg-emerald-950/15 ${
+                              product.variants?.length
+                                ? "[&>td]:border-t [&>td]:border-slate-200 [&>td:first-child]:border-l [&>td:last-child]:border-r dark:[&>td]:border-slate-700"
+                                : ""
+                            }`}
+                          >
                             <td className="w-16 px-4 py-3 whitespace-nowrap">
                               {primaryImage ? (
                                 <Image
@@ -1220,51 +1226,46 @@ export default function InventoryPage() {
                             </td>
 
                             <td className="min-w-52 px-4 py-3">
-                              <div className="font-semibold text-slate-900 dark:text-white truncate">
+                              <div className="truncate font-semibold text-slate-900 dark:text-white">
                                 {product.name}
                               </div>
-                              <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                              <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                                 <span className="truncate">{product.category?.name ?? "Uncategorized"}</span>
-                                <span>•</span>
-                                {product.variants?.length ? (
-                                  <span className="inline-flex items-center gap-1 font-medium text-emerald-700 dark:text-emerald-400">
-                                    <Layers3 className="h-3 w-3" />
-                                    {product.variants.length} options
-                                  </span>
-                                ) : (
-                                  <span className="font-mono text-[11px] text-slate-400 dark:text-slate-500">
-                                    SKU: {product.sku}
-                                  </span>
+                                {!product.variants?.length && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                      SKU: {product.sku}
+                                    </span>
+                                  </>
                                 )}
                               </div>
-                            </td>
-
-                            <td className="w-20 px-3 py-3 text-center whitespace-nowrap font-medium text-slate-900 dark:text-slate-100">
-                              {product.variants?.length ? (
-                                <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
-                              ) : (
-                                stock
+                              {Boolean(product.variants?.length) && (
+                                <span className="mt-1 inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200">
+                                  <Layers3 className="h-3.5 w-3.5" />
+                                  Has variants
+                                </span>
                               )}
                             </td>
 
+                            <td className="w-20 px-3 py-3 text-center whitespace-nowrap font-medium text-slate-900 dark:text-slate-100">
+                              {!product.variants?.length && stock}
+                            </td>
+
                             <td className="w-20 px-3 py-3 text-center whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">
-                              {product.variants?.length ? "—" : minStock}
+                              {!product.variants?.length && minStock}
                             </td>
 
                             <td className="w-24 px-3 py-3 text-right whitespace-nowrap text-xs text-slate-600 dark:text-slate-300">
-                              {product.variants?.length ? "Per option" : `₱${Number(product.cost ?? 0).toLocaleString("en-PH")}`}
+                              {!product.variants?.length && `₱${Number(product.cost ?? 0).toLocaleString("en-PH")}`}
                             </td>
 
                             <td className="w-24 px-3 py-3 text-right whitespace-nowrap text-xs font-semibold text-slate-900 dark:text-slate-100">
-                              {product.variants?.length ? "Per option" : `₱${Number(product.price ?? 0).toLocaleString("en-PH")}`}
+                              {!product.variants?.length && `₱${Number(product.price ?? 0).toLocaleString("en-PH")}`}
                             </td>
 
                             <td className="w-28 px-3 py-3 text-center whitespace-nowrap">
-                              {product.variants?.length ? (
-                                <span className="inline-flex items-center rounded-md border border-emerald-200/80 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
-                                  See options
-                                </span>
-                              ) : (
+                              {!product.variants?.length && (
                                 <span
                                   className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ${
                                     status === "Low stock"
@@ -1279,34 +1280,34 @@ export default function InventoryPage() {
                               )}
                             </td>
 
-                            <td className="w-20 px-4 py-3 whitespace-nowrap text-center">
-                              <div className="flex items-center justify-center gap-1">
+                            <td className="w-40 px-4 py-3 whitespace-nowrap text-center">
+                              <div className="flex items-center justify-center gap-0.5">
                                 <button
                                   type="button"
                                   onClick={() => openMovementSection("stock-in", { productId: product.id })}
                                   title="Quick Stock In"
                                   aria-label={`Quick stock in for ${product.name}`}
-                                  className="rounded p-1 text-emerald-600 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
                                 >
-                                  <ArrowDownRight className="h-3.5 w-3.5" />
+                                  <ArrowDownRight className="h-4 w-4" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => openMovementSection("stock-out", { productId: product.id })}
                                   title="Quick Stock Out"
                                   aria-label={`Quick stock out for ${product.name}`}
-                                  className="rounded p-1 text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-rose-700 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
                                 >
-                                  <ArrowUpRight className="h-3.5 w-3.5" />
+                                  <ArrowUpRight className="h-4 w-4" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => openMovementSection("threshold-adjustment", { productId: product.id })}
                                   title="Quick Threshold Adjustment"
                                   aria-label={`Quick threshold adjustment for ${product.name}`}
-                                  className="rounded p-1 text-amber-600 transition hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-amber-700 transition hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
                                 >
-                                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                                  <SlidersHorizontal className="h-4 w-4" />
                                 </button>
                                 {isAdmin && (
                                   <button
@@ -1314,9 +1315,9 @@ export default function InventoryPage() {
                                     onClick={() => openEditProductModal(product)}
                                     title="Edit product"
                                     aria-label={`Edit product ${product.name}`}
-                                    className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition"
+                                    className="flex h-7 w-7 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition"
                                   >
-                                    <Pencil className="h-3.5 w-3.5" />
+                                    <Pencil className="h-4 w-4" />
                                   </button>
                                 )}
                                 <button
@@ -1325,20 +1326,20 @@ export default function InventoryPage() {
                                   disabled={isDeletingProductId === product.id}
                                   title="Delete product"
                                   aria-label={`Delete product ${product.name}`}
-                                  className="rounded-md p-1.5 text-rose-600 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-950/40 transition"
+                                  className="flex h-7 w-7 items-center justify-center rounded-md text-rose-700 hover:bg-rose-50 hover:text-rose-800 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-950/40 transition"
                                 >
-                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <Trash2 className="h-4 w-4" />
                                 </button>
                               </div>
                             </td>
                           </tr>
 
-                          {/* Nested Variant Rows */}
+                          {/* Product option section continues within the parent product outline. */}
                           {Boolean(product.variants?.length) && (
-                            <tr className="bg-slate-50/70 dark:bg-slate-950/40">
-                              <td colSpan={8} className="px-4 py-3 border-y border-slate-100 dark:border-slate-800">
-                                <div className="ml-6 rounded-lg border border-slate-200/80 bg-white shadow-2xs dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
-                                  <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
+                            <tr>
+                              <td colSpan={8} className="border-x border-b border-slate-200 p-0 dark:border-slate-700">
+                                <div className="overflow-hidden">
+                                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-4 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
                                     <div className="flex items-center gap-1.5">
                                       <Layers3 className="h-3.5 w-3.5 text-indigo-500" />
                                       <span>Product Options ({product.variants?.length})</span>
@@ -1412,9 +1413,9 @@ export default function InventoryPage() {
                                                       openMovementSection("stock-in", { productId: product.id, variantId: variant.id });
                                                     }}
                                                     title="Quick Stock In"
-                                                    className="rounded p-1 text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40 transition"
+                                                    className="flex h-7 w-7 items-center justify-center rounded text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40 transition"
                                                   >
-                                                    <ArrowDownRight className="h-3.5 w-3.5" />
+                                                    <ArrowDownRight className="h-4 w-4" />
                                                   </button>
                                                   <button
                                                     type="button"
@@ -1422,9 +1423,9 @@ export default function InventoryPage() {
                                                       openMovementSection("stock-out", { productId: product.id, variantId: variant.id });
                                                     }}
                                                     title="Quick Stock Out"
-                                                    className="rounded p-1 text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40 transition"
+                                                    className="flex h-7 w-7 items-center justify-center rounded text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40 transition"
                                                   >
-                                                    <ArrowUpRight className="h-3.5 w-3.5" />
+                                                    <ArrowUpRight className="h-4 w-4" />
                                                   </button>
                                                   <button
                                                     type="button"
@@ -1432,17 +1433,17 @@ export default function InventoryPage() {
                                                       openMovementSection("threshold-adjustment", { productId: product.id, variantId: variant.id });
                                                     }}
                                                     title="Quick Threshold Adjustment"
-                                                    className="rounded p-1 text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40 transition"
+                                                    className="flex h-7 w-7 items-center justify-center rounded text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40 transition"
                                                   >
-                                                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                                                    <SlidersHorizontal className="h-4 w-4" />
                                                   </button>
                                                   <button
                                                     type="button"
                                                     onClick={() => setVariantToDelete({ id: variant.id, sku: variant.sku, productName: product.name })}
                                                     title="Delete variant option"
-                                                    className="rounded p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition"
+                                                    className="flex h-7 w-7 items-center justify-center rounded text-slate-500 hover:bg-rose-50 hover:text-rose-700 dark:text-slate-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition"
                                                   >
-                                                    <Trash2 className="h-3 w-3" />
+                                                    <Trash2 className="h-4 w-4" />
                                                   </button>
                                                 </div>
                                               </td>

@@ -727,7 +727,10 @@ export default function AdminOrdersPage() {
       {/* 2. Unified Filter Toolbar (Status Tabs & Search & Date) */}
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-xs sm:px-4 dark:border-slate-800 dark:bg-slate-900">
         {/* Status Pills */}
-        <nav aria-label="Filter orders by status" className={`${styles.statusScroller} -mx-1 flex items-center gap-1 overflow-x-auto px-1`}>
+        <nav
+          aria-label="Filter orders by status"
+          className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8"
+        >
           {statusSummary.map(({ key, label, count }) => {
             const isActive = filterStatus === key;
             const isAttention = key === "AWAITING_PAYMENT_APPROVAL" && count > 0;
@@ -738,15 +741,15 @@ export default function AdminOrdersPage() {
                 type="button"
                 onClick={() => handleFilterStatusChange(key)}
                 aria-pressed={isActive}
-                className={`relative inline-flex min-h-10 shrink-0 items-center gap-2 border-b-2 px-3 text-xs font-semibold transition-colors active:bg-slate-100 dark:active:bg-slate-800 ${
+                className={`flex min-h-14 w-full min-w-0 flex-col items-center justify-center gap-1 rounded-md border px-2 py-2 text-center text-xs font-semibold transition-colors active:translate-y-px ${
                   isActive
-                    ? "border-emerald-600 text-emerald-800 dark:border-emerald-400 dark:text-emerald-300"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-300"
                     : isAttention
-                    ? "border-transparent text-amber-800 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30"
-                    : "border-transparent text-slate-600 hover:bg-slate-50 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white"
+                    ? "border-amber-300 bg-amber-50/70 text-amber-800 hover:border-amber-400 hover:bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800 dark:hover:text-white"
                 }`}
               >
-                <span>{label}</span>
+                <span className="leading-tight">{label}</span>
                 <span
                   className={`min-w-5 rounded px-1 py-0.5 text-center text-[10px] font-bold tabular-nums ${
                     isActive
@@ -851,7 +854,7 @@ export default function AdminOrdersPage() {
                 <th className="py-3 px-4">Customer</th>
                 <th className="py-3 px-4">Channel</th>
                 <th className="py-3 px-4">Pickup Date</th>
-                <th className="py-3 px-4">Items</th>
+                <th className="py-3 px-4">Quantity</th>
                 <th className="py-3 px-4">Payment</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4 text-right">Total</th>
@@ -938,9 +941,9 @@ export default function AdminOrdersPage() {
                           )}
                         </td>
 
-                        {/* Items */}
+                        {/* Quantity */}
                         <td className="py-3 px-4 text-slate-600 dark:text-slate-300 font-medium">
-                          {order.items.length} {order.items.length === 1 ? "item" : "items"}
+                          {order.items.reduce((total, item) => total + item.quantity, 0)}x
                         </td>
 
                         {/* Payment Status & Method */}
@@ -995,11 +998,11 @@ export default function AdminOrdersPage() {
                             <button
                               type="button"
                               onClick={() => setDetailOrderId(order.id)}
-                              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:translate-y-px dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                              aria-label="View order details"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:translate-y-px dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                               title="View order details"
                             >
                               <Eye className="h-3.5 w-3.5 text-slate-500" />
-                              <span>View</span>
                             </button>
 
                             <button
@@ -1266,7 +1269,7 @@ export default function AdminOrdersPage() {
                     Order Items
                   </span>
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {detailOrder.items.length} items
+                    {detailOrder.items.reduce((total, item) => total + item.quantity, 0)}x total
                   </span>
                 </div>
 
@@ -1283,7 +1286,7 @@ export default function AdminOrdersPage() {
                           </span>
                         )}
                         <span className="block text-[11px] text-slate-400 mt-0.5">
-                          {item.quantity} × ₱{Number(item.price).toFixed(2)}
+                          {item.quantity}x · ₱{Number(item.price).toFixed(2)}
                         </span>
                       </div>
                       <span className="shrink-0 font-bold text-slate-900 dark:text-white">

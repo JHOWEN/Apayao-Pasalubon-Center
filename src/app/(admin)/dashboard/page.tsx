@@ -12,21 +12,13 @@ import {
   Plus,
   Printer,
   Receipt,
+  Store,
+  Globe,
   TrendingUp,
-  Users,
   Warehouse,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { useEffect, useRef, useState } from "react";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
 
 type LowStockItem = {
@@ -46,15 +38,16 @@ type TopProductItem = {
   orders: number;
 };
 
-type RevenueTrendItem = {
-  label: string;
-  revenue: number;
-};
-
 type SalesCategoryItem = {
   name: string;
   revenue: number;
   quantity: number;
+};
+
+type SalesChannelItem = {
+  name: string;
+  orders: number;
+  revenue: number;
 };
 
 type DashboardRange = "DAILY" | "WEEKLY" | "MONTHLY" | "ANNUALLY" | "CUSTOM";
@@ -86,33 +79,7 @@ function getAnnualDateRange() {
   return { start: formatDateInput(start), end: formatDateInput(end) };
 }
 
-interface CustomTooltipProps {
-  active?: boolean;
-  payload?: Array<{ value: number }>;
-  label?: string;
-}
-
-function ChartTooltip({ active, payload, label }: CustomTooltipProps) {
-  if (active && payload && payload.length) {
-    return (
-      <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900">
-        <p className="font-medium text-slate-500 dark:text-slate-400">{label}</p>
-        <p className="mt-1 text-sm font-bold text-slate-950 dark:text-white">
-          ₱{Number(payload[0].value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </p>
-      </div>
-    );
-  }
-  return null;
-}
-
-const emptySubscribe = () => () => {};
-function useIsMounted() {
-  return useSyncExternalStore(emptySubscribe, () => true, () => false);
-}
-
 export default function DashboardPage() {
-  const isMounted = useIsMounted();
   const [userName, setUserName] = useState("Admin");
   const [startDate, setStartDate] = useState(() => {
     return formatDateInput(new Date());
@@ -125,7 +92,6 @@ export default function DashboardPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   const [stats, setStats] = useState({
-    customers: 0,
     products: 0,
     orders: 0,
     pendingOrders: 0,
@@ -136,8 +102,8 @@ export default function DashboardPage() {
     totalCost: 0,
     totalPrice: 0,
     topProducts: [] as TopProductItem[],
-    revenueTrend: [] as RevenueTrendItem[],
     salesByCategory: [] as SalesCategoryItem[],
+    channelComparison: [] as SalesChannelItem[],
   });
 
   const [todayStats, setTodayStats] = useState({
@@ -170,7 +136,6 @@ export default function DashboardPage() {
         const summaryData = await summaryResponse.json();
 
         setStats({
-          customers: Number(summaryData?.customers ?? 0),
           products: Number(summaryData?.products ?? 0),
           orders: Number(summaryData?.orders ?? 0),
           pendingOrders: Number(summaryData?.pendingOrders ?? 0),
@@ -181,8 +146,8 @@ export default function DashboardPage() {
           totalCost: Number(summaryData?.totalCost ?? 0),
           totalPrice: Number(summaryData?.totalPrice ?? 0),
           topProducts: Array.isArray(summaryData?.topProducts) ? summaryData.topProducts : [],
-          revenueTrend: Array.isArray(summaryData?.revenueTrend) ? summaryData.revenueTrend : [],
           salesByCategory: Array.isArray(summaryData?.salesByCategory) ? summaryData.salesByCategory : [],
+          channelComparison: Array.isArray(summaryData?.channelComparison) ? summaryData.channelComparison : [],
         });
 
         setTodayStats({
@@ -252,15 +217,15 @@ export default function DashboardPage() {
     });
     const logoUrl = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
 
-    const categoryRows =
-      stats.salesByCategory.length > 0
-        ? stats.salesByCategory
+    const channelRows =
+      stats.channelComparison.length > 0
+        ? stats.channelComparison
             .map(
-              (category) =>
-                `<tr><td>${escapeHtml(category.name)}</td><td>${escapeHtml(category.quantity)}</td><td>${formatReportCurrency(category.revenue)}</td></tr>`
+              (channel) =>
+                `<tr><td>${escapeHtml(channel.name)}</td><td>${escapeHtml(channel.orders)}</td><td>${formatReportCurrency(channel.revenue)}</td></tr>`
             )
             .join("")
-        : `<tr><td colspan="3">No category sales in this period.</td></tr>`;
+        : `<tr><td colspan="3">No completed channel sales in this period.</td></tr>`;
 
     const productRows =
       stats.topProducts.length > 0
@@ -342,8 +307,8 @@ export default function DashboardPage() {
           <div class="metric"><div class="metric-label">Inventory Cost</div><div class="metric-value">${formatReportCurrency(stats.totalCost)}</div></div>
           <div class="metric"><div class="metric-label">Inventory Price</div><div class="metric-value">${formatReportCurrency(stats.totalPrice)}</div></div>
         </div>
-        <h2>Sales by Category</h2>
-        <table><thead><tr><th>Category</th><th>Units Sold</th><th>Revenue</th></tr></thead><tbody>${categoryRows}</tbody></table>
+        <h2>Sales Channels</h2>
+        <table><thead><tr><th>Channel</th><th>Completed Orders</th><th>Revenue</th></tr></thead><tbody>${channelRows}</tbody></table>
         <h2>Top Selling Products</h2>
         <table><thead><tr><th>#</th><th>Product</th><th>Category</th><th>Sold</th><th>Revenue</th></tr></thead><tbody>${productRows}</tbody></table>
         <h2>Low Stock Alerts</h2>
@@ -366,8 +331,6 @@ export default function DashboardPage() {
     (item) => item.stock > 0 && (item.minStock <= 0 || item.stock / item.minStock <= 0.4)
   ).length;
 
-  const maxCategoryRevenue = Math.max(...stats.salesByCategory.map((item) => Number(item.revenue ?? 0)), 1);
-
   const presets = [
     { label: "Daily", value: "DAILY" as const, range: getRecentDateRange(1) },
     { label: "Weekly", value: "WEEKLY" as const, range: getRecentDateRange(7) },
@@ -377,6 +340,19 @@ export default function DashboardPage() {
 
   const totalPeriodRevenue = stats.revenue;
   const totalUnitsSold = stats.salesByCategory.reduce((sum, item) => sum + item.quantity, 0);
+  const posChannel = stats.channelComparison.find((channel) => channel.name.includes("POS")) ?? {
+    name: "POS (Walk-in)",
+    orders: 0,
+    revenue: 0,
+  };
+  const ecommerceChannel = stats.channelComparison.find((channel) => !channel.name.includes("POS")) ?? {
+    name: "Ecommerce",
+    orders: 0,
+    revenue: 0,
+  };
+  const totalChannelOrders = posChannel.orders + ecommerceChannel.orders;
+  const posOrderPercent = totalChannelOrders > 0 ? Math.round((posChannel.orders / totalChannelOrders) * 100) : 0;
+  const ecommerceOrderPercent = totalChannelOrders > 0 ? 100 - posOrderPercent : 0;
 
   function handleCustomDateChange(nextStartDate: string, nextEndDate: string) {
     const safeStart = nextStartDate || formatDateInput(new Date());
@@ -498,59 +474,70 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* 2. Primary KPI Metric Cards (Standard 4-Card Grid) */}
+      {/* 2. Dashboard KPI Metrics */}
       {isLoading ? (
-        <section className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-6">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div key={`dashboard-kpi-skeleton-${index}`} className="animate-pulse flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-slate-300 bg-white p-4 dark:border-slate-800 dark:border-t-slate-700 dark:bg-slate-900">
+        <section
+          aria-label="Loading dashboard metrics"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:auto-rows-[minmax(10rem,1fr)] xl:grid-cols-4 xl:gap-5"
+        >
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div
+              key={`dashboard-kpi-skeleton-${index}`}
+              className={`animate-pulse flex flex-col rounded-md border border-slate-200 border-t-4 border-t-slate-300 bg-white dark:border-slate-800 dark:border-t-slate-700 dark:bg-slate-900 ${
+                index === 0
+                  ? "min-h-[26rem] p-6 sm:col-span-2 xl:col-span-2 xl:row-span-2"
+                  : "min-h-40 p-4"
+              }`}
+            >
               <div className="flex items-center justify-between">
-                <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
-                <div className="h-8 w-8 rounded-md bg-slate-200 dark:bg-slate-700" />
+                <div className="h-4 w-28 rounded bg-slate-200 dark:bg-slate-700" />
+                <div className="h-10 w-10 rounded-md bg-slate-200 dark:bg-slate-700" />
               </div>
               <div className="mt-3 space-y-2">
-                <div className="h-8 w-24 rounded bg-slate-200 dark:bg-slate-700" />
-                <div className="h-3 w-32 rounded bg-slate-200 dark:bg-slate-700" />
+                <div className="h-10 w-36 rounded bg-slate-200 dark:bg-slate-700" />
+                <div className="h-4 w-48 rounded bg-slate-200 dark:bg-slate-700" />
               </div>
             </div>
           ))}
         </section>
       ) : (
-        <section className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-6">
-          {/* Card 1: Revenue */}
-          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-emerald-600 bg-white p-4 dark:border-slate-800 dark:border-t-emerald-500 dark:bg-slate-900">
+        <section
+          aria-label="Dashboard metrics"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:auto-rows-[minmax(10rem,1fr)] xl:grid-cols-4 xl:gap-5"
+        >
+          <div className="flex min-h-[26rem] flex-col rounded-md border border-emerald-200 border-t-4 border-t-emerald-600 bg-emerald-50/50 p-6 dark:border-emerald-900 dark:border-t-emerald-500 dark:bg-slate-900 sm:col-span-2 xl:col-span-2 xl:row-span-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span className="text-base font-semibold text-slate-600 dark:text-slate-300">
                 {range === "DAILY" ? "Today's Revenue" : "Total Revenue"}
               </span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                <TrendingUp className="h-4 w-4" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                <TrendingUp className="h-6 w-6" />
               </div>
             </div>
             <div className="mt-auto pt-3">
-              <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              <p className="text-5xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {formatCurrency(totalPeriodRevenue)}
               </p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
                 {stats.completedOrders} completed sales in selected period
               </p>
             </div>
           </div>
 
-          {/* Card 2: Orders */}
-          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-sky-500 bg-white p-4 dark:border-slate-800 dark:border-t-sky-400 dark:bg-slate-900">
+          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-sky-500 bg-white p-5 dark:border-slate-800 dark:border-t-sky-400 dark:bg-slate-900">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">
                 Orders
               </span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
-                <Receipt className="h-4 w-4" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                <Receipt className="h-5 w-5" />
               </div>
             </div>
             <div className="mt-auto pt-3">
-              <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              <p className="text-4xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.orders}
               </p>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
                 <span className="font-semibold text-amber-600 dark:text-amber-400">{todayStats.pendingOrders} pending</span>
                 <span>·</span>
                 <span>{todayStats.completedOrders} completed today</span>
@@ -558,10 +545,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card 3: Low Stock Alerts */}
-          <div className={`flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 ${stats.lowStock.length > 0 ? "border-t-rose-500 dark:border-t-rose-400" : "border-t-slate-300 dark:border-t-slate-700"}`}>
+          <div className={`flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 ${stats.lowStock.length > 0 ? "border-t-rose-500 dark:border-t-rose-400" : "border-t-slate-300 dark:border-t-slate-700"}`}>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">
                 Low Stock Alerts
               </span>
               <div className={`flex h-8 w-8 items-center justify-center rounded-md ${
@@ -569,14 +555,14 @@ export default function DashboardPage() {
                   ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
                   : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
               }`}>
-                <AlertTriangle className="h-4 w-4" />
+                <AlertTriangle className="h-5 w-5" />
               </div>
             </div>
             <div className="mt-auto pt-3">
-              <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              <p className="text-4xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.lowStock.length}
               </p>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm text-slate-600 dark:text-slate-300">
                 <span className="font-semibold text-rose-600 dark:text-rose-400">{outOfStockCount} out of stock</span>
                 <span>·</span>
                 <span>{criticalStockCount} critical</span>
@@ -584,84 +570,33 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card 4: Total Products */}
-          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-amber-500 bg-white p-4 dark:border-slate-800 dark:border-t-amber-400 dark:bg-slate-900">
+          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-amber-500 bg-white p-5 dark:border-slate-800 dark:border-t-amber-400 dark:bg-slate-900">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">
                 Total Products
               </span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-                <Package className="h-4 w-4" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                <Package className="h-5 w-5" />
               </div>
             </div>
             <div className="mt-auto pt-3">
-              <p className="text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              <p className="text-4xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.products}
               </p>
-              <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
-                Valuation: <span className="font-semibold text-slate-700 dark:text-slate-300">{formatCurrency(stats.totalCost)}</span> cost
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                Products in catalog
               </p>
             </div>
           </div>
-        </section>
-      )}
 
-      {/* Supporting Inventory Valuation & Customer Overview Bar */}
-      {isLoading ? (
-        <section className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-6" aria-label="Loading additional key performance indicators">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div key={`dashboard-support-kpi-skeleton-${index}`} className="animate-pulse flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-slate-300 bg-white p-4 dark:border-slate-800 dark:border-t-slate-700 dark:bg-slate-900">
-              <div className="flex items-center justify-between">
-                <div className="h-3 w-28 rounded bg-slate-200 dark:bg-slate-700" />
-                <div className="h-4 w-4 rounded bg-slate-200 dark:bg-slate-700" />
-              </div>
-              <div className="mt-auto h-8 w-32 rounded bg-slate-200 dark:bg-slate-700" />
-            </div>
-          ))}
-        </section>
-      ) : (
-        <section className="grid grid-cols-1 gap-x-5 gap-y-4 sm:grid-cols-2 xl:grid-cols-4 xl:gap-6" aria-label="Additional key performance indicators">
-          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-cyan-600 bg-white p-4 dark:border-slate-800 dark:border-t-cyan-400 dark:bg-slate-900">
+          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-indigo-500 bg-white p-5 dark:border-slate-800 dark:border-t-indigo-400 dark:bg-slate-900">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Inventory Cost</span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-950/40 dark:text-cyan-300">
-                <Warehouse className="h-4 w-4" />
+              <span className="text-sm font-semibold text-slate-600 dark:text-slate-300">Total Units Sold</span>
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+                <Receipt className="h-5 w-5" />
               </div>
             </div>
-            <p className="mt-auto pt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
-              {formatCurrency(stats.totalCost)}
-            </p>
-          </div>
-          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-teal-600 bg-white p-4 dark:border-slate-800 dark:border-t-teal-400 dark:bg-slate-900">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Retail Value</span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-teal-50 text-teal-700 dark:bg-teal-950/40 dark:text-teal-300">
-                <TrendingUp className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="mt-auto pt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
-              {formatCurrency(stats.totalPrice)}
-            </p>
-          </div>
-          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-blue-600 bg-white p-4 dark:border-slate-800 dark:border-t-blue-400 dark:bg-slate-900">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Active Customers</span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
-                <Users className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="mt-auto pt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
-              {stats.customers}
-            </p>
-          </div>
-          <div className="flex min-h-36 flex-col rounded-md border border-slate-200 border-t-4 border-t-indigo-500 bg-white p-4 dark:border-slate-800 dark:border-t-indigo-400 dark:bg-slate-900">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">Total Units Sold</span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
-                <Receipt className="h-4 w-4" />
-              </div>
-            </div>
-            <p className="mt-auto pt-3 text-3xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+            <p className="mt-auto pt-3 text-4xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
               {totalUnitsSold.toLocaleString()}
             </p>
           </div>
@@ -669,91 +604,22 @@ export default function DashboardPage() {
       )}
 
       {/* 3. Analytics & Operations Section (Main Balanced Multi-Column Layout) */}
-      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-6">
-        {/* Left Column (8 cols): Primary Revenue Trend Chart & Top Products Table */}
-        <div className="min-w-0 space-y-4 xl:col-span-8 xl:space-y-6">
-          {/* Main Visual Element: Sales & Revenue Trend */}
-          <div className="min-w-0 rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                  Revenue Overview
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Daily revenue trend across {formatDateDisplay(startDate)} to {formatDateDisplay(endDate)}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500 dark:text-slate-400">Period Total:</span>
-                <span className="rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-900/40">
-                  {formatCurrency(stats.revenue)}
-                </span>
-              </div>
-            </div>
-
-            <div className="h-60 w-full sm:h-72">
-              {isMounted && stats.revenueTrend.length > 0 && stats.revenue > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart
-                    data={stats.revenueTrend}
-                    margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#059669" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="#059669" stopOpacity={0.0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#94a3b8" strokeOpacity={0.28} />
-                    <XAxis
-                      dataKey="label"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 11, fill: "#64748b" }}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 11, fill: "#64748b" }}
-                      tickFormatter={(val: number) =>
-                        val >= 1000 ? `₱${(val / 1000).toFixed(0)}k` : `₱${val}`
-                      }
-                    />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Area
-                      type="monotone"
-                      dataKey="revenue"
-                      stroke="#059669"
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#revenueGradient)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed border-slate-200 text-center text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                  <TrendingUp className="mb-2 h-7 w-7 text-slate-300 dark:text-slate-600" />
-                  <span>No completed sales transactions recorded for this period.</span>
-                </div>
-              )}
-            </div>
-          </div>
-
+      <div className="space-y-4 xl:space-y-5">
+        <div className="grid min-w-0 grid-cols-1 items-stretch gap-4 xl:grid-cols-12 xl:gap-5">
           {/* Top Selling Products Table */}
-          <div className="min-w-0 rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
+          <div className="min-w-0 rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900 xl:col-span-8">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
                 <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                   Top Selling Products
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   Leading products ranked by sales volume and revenue
                 </p>
               </div>
               <Link
                 href="/reports"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 <span>Full report</span>
                 <ArrowRight className="h-3 w-3" />
@@ -761,66 +627,71 @@ export default function DashboardPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full min-w-152 text-left text-sm">
+              <table className="w-full min-w-[38rem] text-left text-sm">
                 <thead>
                   <tr className="border-b-2 border-slate-200 text-[11px] font-semibold text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                    <th className="py-2.5 pl-1 pr-3 w-8">#</th>
+                    <th className="w-10 py-2.5 pl-1 pr-3">#</th>
                     <th className="py-2.5 px-3">Product</th>
-                    <th className="py-2.5 px-3">Category</th>
-                    <th className="py-2.5 px-3 text-right">Units Sold</th>
-                    <th className="py-2.5 pl-3 pr-1 text-right">Revenue</th>
+                    <th className="w-36 py-2.5 px-3">Category</th>
+                    <th className="w-28 py-2.5 px-3 text-right">Units Sold</th>
+                    <th className="w-32 py-2.5 pl-3 pr-1 text-right">Revenue</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                   {stats.topProducts.length > 0 ? (
                     stats.topProducts.map((product, index) => (
-                      <tr key={product.productId} className="transition-colors hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20">
-                        <td className="py-3 pl-1 pr-3 text-slate-400 font-semibold">{index + 1}</td>
-                        <td className="py-3 px-3">
+                      <tr key={product.productId} className="h-14 transition-colors hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20">
+                        <td className="py-2.5 pl-1 pr-3 font-semibold text-slate-400">{index + 1}</td>
+                        <td className="py-2.5 px-3">
                           <div className="flex items-center gap-2.5">
-                            <div className="h-8 w-8 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
+                            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
                               {product.imageUrl ? (
                                 <Image
                                   src={getPrimaryImageUrl(product.imageUrl) ?? "/logo/apc-logo.png"}
                                   alt={product.name}
-                                  width={32}
-                                  height={32}
+                                  width={36}
+                                  height={36}
                                   className="h-full w-full object-cover"
                                   unoptimized
                                 />
                               ) : (
                                 <div className="flex h-full w-full items-center justify-center text-slate-400">
-                                  <Package className="h-3.5 w-3.5" />
+                                  <Package className="h-4 w-4" />
                                 </div>
                               )}
                             </div>
-                            <div className="min-w-0">
-                              <span className="block truncate font-semibold text-slate-900 dark:text-slate-100">
-                                {product.name}
-                              </span>
-                              <span className="block text-[11px] text-slate-400">
-                                {product.categoryName ?? "Uncategorized"}
-                              </span>
-                            </div>
+                            <span className="block min-w-0 truncate font-semibold text-slate-900 dark:text-slate-100">
+                              {product.name}
+                            </span>
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-slate-600 dark:text-slate-400">
-                          <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                        <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
+                          <span className="inline-flex max-w-full truncate rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                             {product.categoryName ?? "Uncategorized"}
                           </span>
                         </td>
-                        <td className="py-3 px-3 text-right font-medium tabular-nums text-slate-700 dark:text-slate-300">
+                        <td className="py-2.5 px-3 text-right font-medium tabular-nums text-slate-700 dark:text-slate-300">
                           {product.quantity.toLocaleString()}
                         </td>
-                        <td className="py-3 pl-3 pr-1 text-right font-semibold tabular-nums text-slate-900 dark:text-slate-100">
+                        <td className="py-2.5 pl-3 pr-1 text-right font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                           ₱{Number(product.revenue ?? 0).toLocaleString()}
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-400">
-                        No product sales recorded in this period.
+                      <td colSpan={5} className="py-8">
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
+                            <Package className="h-5 w-5" />
+                          </div>
+                          <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            No product sales recorded
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Try a different date range to view product performance.
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -829,84 +700,91 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Sales by Category Contribution */}
-          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-4 flex items-center justify-between">
+          {/* Sales Channels */}
+          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900 xl:col-span-4">
+            <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
-                  Sales by Category
+                  Sales Channels
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Revenue distribution across product categories
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Completed orders by sales channel
                 </p>
               </div>
               <Link
                 href="/analytics"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 <span>Analytics</span>
                 <ArrowRight className="h-3 w-3" />
               </Link>
             </div>
 
-            <div className="space-y-3.5">
-              {stats.salesByCategory.length > 0 ? (
-                stats.salesByCategory.slice(0, 5).map((category) => {
-                  const percentOfTotal = totalPeriodRevenue > 0
-                    ? ((category.revenue / totalPeriodRevenue) * 100).toFixed(1)
-                    : "0";
-                  const barWidth = Math.max((category.revenue / maxCategoryRevenue) * 100, 2);
+            <div
+              className="mb-4 flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
+              aria-label={`${posOrderPercent}% POS, ${ecommerceOrderPercent}% Ecommerce`}
+              role="img"
+            >
+              <div className="bg-emerald-600 transition-[width] dark:bg-emerald-400" style={{ width: `${posOrderPercent}%` }} />
+              <div className="bg-indigo-500 transition-[width] dark:bg-indigo-400" style={{ width: `${ecommerceOrderPercent}%` }} />
+            </div>
 
-                  return (
-                    <div key={category.name} className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          {category.name}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                            {category.quantity} units ({percentOfTotal}%)
-                          </span>
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            {formatCurrency(category.revenue)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                        <div
-                          className="h-full rounded-full bg-emerald-700 transition-all dark:bg-emerald-400"
-                          style={{ width: `${barWidth}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="py-6 text-center text-xs text-slate-400">
-                  No category sales recorded yet.
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              <div className="rounded-md border border-emerald-200/80 bg-emerald-50/60 p-3.5 dark:border-emerald-900/70 dark:bg-emerald-950/20">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    <Store className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                    POS Walk-in
+                  </span>
+                  <span className="text-xs font-bold tabular-nums text-emerald-800 dark:text-emerald-300">
+                    {posOrderPercent}%
+                  </span>
                 </div>
-              )}
+                <p className="mt-2 text-lg font-semibold tabular-nums text-slate-950 dark:text-white">
+                  {formatCurrency(posChannel.revenue)}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {posChannel.orders.toLocaleString()} completed orders
+                </p>
+              </div>
+
+              <div className="rounded-md border border-indigo-200/80 bg-indigo-50/60 p-3.5 dark:border-indigo-900/70 dark:bg-indigo-950/20">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    <Globe className="h-4 w-4 text-indigo-700 dark:text-indigo-400" />
+                    Ecommerce
+                  </span>
+                  <span className="text-xs font-bold tabular-nums text-indigo-800 dark:text-indigo-300">
+                    {ecommerceOrderPercent}%
+                  </span>
+                </div>
+                <p className="mt-2 text-lg font-semibold tabular-nums text-slate-950 dark:text-white">
+                  {formatCurrency(ecommerceChannel.revenue)}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {ecommerceChannel.orders.toLocaleString()} completed orders
+                </p>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Right Column (4 cols): Operations & Actions */}
-        <div className="min-w-0 space-y-4 xl:col-span-4 xl:space-y-6">
+        <div className="grid min-w-0 grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">
           {/* Today's Operational Pulse */}
-          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex h-full flex-col rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4">
-                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
+              <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                 Today&apos;s Overview
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 Order fulfillment status for today
               </p>
             </div>
 
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               <Link
                 href="/admin-orders?status=PENDING"
-                className="group flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-amber-300 hover:bg-amber-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-amber-700/60 dark:hover:bg-amber-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
+                className="group flex min-h-[4.25rem] items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-amber-300 hover:bg-amber-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-amber-700/60 dark:hover:bg-amber-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400">
@@ -924,7 +802,7 @@ export default function DashboardPage() {
 
               <Link
                 href="/admin-orders?status=COMPLETED"
-                className="group flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+                className="group flex min-h-[4.25rem] items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
@@ -942,7 +820,7 @@ export default function DashboardPage() {
 
               <Link
                 href="/admin-orders?status=CANCELLED"
-                className="group flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-slate-300 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-slate-600 dark:hover:bg-slate-700/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
+                className="group flex min-h-[4.25rem] items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-slate-300 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-slate-600 dark:hover:bg-slate-700/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
@@ -961,13 +839,13 @@ export default function DashboardPage() {
           </div>
 
           {/* Low Stock Attention List */}
-          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="flex h-full flex-col rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                   Low Stock Items
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   Items currently at or below minimum threshold
                 </p>
               </div>
@@ -981,7 +859,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Scrollable Low Stock List */}
-            <div className="divide-y divide-slate-100 overflow-hidden border-t border-slate-100 dark:divide-slate-800 dark:border-slate-800">
+            <div className="flex-1 divide-y divide-slate-100 overflow-hidden border-t border-slate-100 dark:divide-slate-800 dark:border-slate-800">
               {stats.lowStock.length > 0 ? (
                 stats.lowStock.slice(0, 7).map((item) => {
                   const ratio = item.minStock > 0 ? item.stock / item.minStock : 0;
@@ -1026,12 +904,12 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick Store Actions */}
-          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-3">
-                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
+          <div className="flex h-full flex-col rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                 Quick Actions
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 Common management shortcuts
               </p>
             </div>
@@ -1039,7 +917,7 @@ export default function DashboardPage() {
             <div className="space-y-2">
               <Link
                 href="/inventory?view=add"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
+                className="flex min-h-11 items-center justify-between rounded-md border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <div className="flex items-center gap-2">
                   <Plus className="h-3.5 w-3.5 text-slate-500" />
@@ -1050,7 +928,7 @@ export default function DashboardPage() {
 
               <Link
                 href="/admin-orders"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
+                className="flex min-h-11 items-center justify-between rounded-md border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <div className="flex items-center gap-2">
                   <Receipt className="h-3.5 w-3.5 text-slate-500" />
@@ -1061,7 +939,7 @@ export default function DashboardPage() {
 
               <Link
                 href="/reports"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
+                className="flex min-h-11 items-center justify-between rounded-md border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <div className="flex items-center gap-2">
                   <Warehouse className="h-3.5 w-3.5 text-slate-500" />

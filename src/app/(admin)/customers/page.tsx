@@ -9,7 +9,6 @@ import {
   ChevronsLeft,
   ChevronsRight,
   Clock,
-  CreditCard,
   Eye,
   Mail,
   MapPin,
@@ -208,7 +207,6 @@ export default function CustomersPage() {
   const verifiedCount = useMemo(() => customers.filter((c) => c.emailVerified && !c.isBlocked).length, [customers]);
   const blockedCount = useMemo(() => customers.filter((c) => c.isBlocked).length, [customers]);
   const withOrdersCount = useMemo(() => customers.filter((c) => c.hasOrders).length, [customers]);
-  const totalRevenue = useMemo(() => customers.reduce((sum, c) => sum + (c.totalSpent || 0), 0), [customers]);
 
   // Pagination calculations
   const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / pageSize));
@@ -465,36 +463,26 @@ export default function CustomersPage() {
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Customer Spend</span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
-              <CreditCard className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-            ₱{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">Cumulative order value</p>
-        </div>
       </div>
 
-      {/* Filter Toolbar Card */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex gap-3 flex-row items-center justify-between">
-          <div className="relative flex-1 max-w-lg">
+      {/* High-Density Customer Ledger Table Card */}
+      <div className="rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
+        <div className="space-y-3 border-b border-slate-200 p-4 dark:border-slate-800">
+          <div className="relative w-full">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Search by name, email, phone, or address..."
+              aria-label="Search customers"
               className="w-full rounded-lg border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-8 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:bg-slate-800"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => handleSearchChange("")}
+                aria-label="Clear customer search"
                 className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
                 <X className="h-4 w-4" />
@@ -502,7 +490,6 @@ export default function CustomersPage() {
             )}
           </div>
 
-          {/* Filter Pills */}
           <div className="flex flex-wrap items-center gap-1.5" aria-label="Customer status filters">
             {(
               [
@@ -542,10 +529,6 @@ export default function CustomersPage() {
             )}
           </div>
         </div>
-      </div>
-
-      {/* High-Density Customer Ledger Table Card */}
-      <div className="rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-200/80 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">

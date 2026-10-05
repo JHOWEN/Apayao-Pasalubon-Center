@@ -645,6 +645,52 @@ body {
   animation: admin-page-enter 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Strengthen neutral admin text while preserving semantic status colors. */
+.admin-page-enter [class~="text-slate-400"] {
+  color: #64748b;
+}
+
+.admin-page-enter [class~="text-slate-500"] {
+  color: #475569;
+}
+
+.admin-page-enter [class~="text-slate-600"] {
+  color: #334155;
+}
+
+.admin-page-enter [class~="text-slate-700"] {
+  color: #1e293b;
+}
+
+.admin-page-enter [class~="text-slate-800"] {
+  color: #0f172a;
+}
+
+.dark .admin-page-enter [class~="text-slate-400"],
+.dark .admin-page-enter [class~="dark:text-slate-400"] {
+  color: #94a3b8;
+}
+
+.dark .admin-page-enter [class~="text-slate-500"],
+.dark .admin-page-enter [class~="dark:text-slate-500"] {
+  color: #cbd5e1;
+}
+
+.dark .admin-page-enter [class~="text-slate-600"],
+.dark .admin-page-enter [class~="dark:text-slate-600"] {
+  color: #e2e8f0;
+}
+
+.dark .admin-page-enter [class~="text-slate-700"],
+.dark .admin-page-enter [class~="dark:text-slate-700"] {
+  color: #f1f5f9;
+}
+
+.dark .admin-page-enter [class~="text-slate-800"],
+.dark .admin-page-enter [class~="dark:text-slate-800"] {
+  color: #f8fafc;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .admin-page-enter {
     animation: none;

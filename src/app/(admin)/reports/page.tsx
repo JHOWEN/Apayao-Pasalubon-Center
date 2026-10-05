@@ -2,17 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  BarChart3,
   CalendarRange,
   Download,
-  Filter,
   Printer,
-  RefreshCw,
   Search,
   ShoppingCart,
   SlidersHorizontal,
   TrendingUp,
   Boxes,
-  PackageCheck,
   AlertTriangle,
   RotateCcw,
   Store,
@@ -128,7 +126,6 @@ const initialState: ReportState = {
 
 export default function ReportsPage() {
   const [report, setReport] = useState<ReportState>(initialState);
-  const [loading, setLoading] = useState(true);
   const [reportType, setReportType] = useState<ReportType>("ALL");
   const [startDate, setStartDate] = useState(() => formatInputDate(new Date()));
   const [endDate, setEndDate] = useState(() => formatInputDate(new Date()));
@@ -160,7 +157,6 @@ export default function ReportsPage() {
       selectedEndDate = endDate,
       selectedCategory = category
     ) => {
-      setLoading(true);
       try {
         const data = await fetchReportData(
           selectedStartDate,
@@ -172,8 +168,6 @@ export default function ReportsPage() {
       } catch (err) {
         console.error("Reports loading error:", err);
         return null;
-      } finally {
-        setLoading(false);
       }
     },
     [category, endDate, fetchReportData, startDate]
@@ -196,10 +190,6 @@ export default function ReportsPage() {
         }
       } catch (err) {
         console.error("Failed to fetch initial report", err);
-      } finally {
-        if (!ignore) {
-          setLoading(false);
-        }
       }
     }
 
@@ -282,7 +272,7 @@ export default function ReportsPage() {
     );
   }, [report.topProducts, searchQuery]);
 
-  // REDESIGNED PRINT TEMPLATE
+  // PRINT TEMPLATE
   const printOfficialDocument = (title: string, subCategory: string, content: string) => {
     const printFrame = document.createElement("iframe");
     printFrame.setAttribute("aria-hidden", "true");
@@ -931,15 +921,15 @@ export default function ReportsPage() {
   const currentReportLabel = useMemo(() => {
     switch (reportType) {
       case "INVENTORY":
-        return "Inventory Valuation";
+        return "Inventory Report";
       case "SALES":
-        return "Sales & Orders";
+        return "Sales Report";
       case "LOW_STOCK":
-        return "Low Stock Alerts";
+        return "Low Stock Alerts Report";
       case "TOP_PRODUCTS":
-        return "Top Products";
+        return "Top Products Report";
       default:
-        return "Full Summary";
+        return "Full Summary Report";
     }
   }, [reportType]);
 
@@ -958,7 +948,7 @@ export default function ReportsPage() {
               </span>
             </div>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Generate, preview, and export audited financial, sales, and inventory valuation reports.
+              Generate, preview, and export audited financial, sales, and inventory reports.
             </p>
           </div>
 
@@ -979,55 +969,73 @@ export default function ReportsPage() {
               <Download className="h-3.5 w-3.5" />
               <span>Export CSV</span>
             </button>
-            <button
-              type="button"
-              onClick={() => void loadReport(startDate, endDate, category)}
-              disabled={loading}
-              title="Refresh Data"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-emerald-600" : ""}`} />
-            </button>
           </div>
         </div>
 
         {/* 2. Report Scope Tabs (Filter by Report) */}
         <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800/80">
-          <div className="flex items-center justify-between gap-2 overflow-x-auto pb-0">
-            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 p-1 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
               {(
                 [
-                  { id: "ALL", label: "Full Summary" },
-                  { id: "INVENTORY", label: "Inventory Valuation" },
-                  { id: "SALES", label: "Sales & Orders" },
-                  { id: "LOW_STOCK", label: "Low Stock Alerts" },
-                  { id: "TOP_PRODUCTS", label: "Top Products" },
+                  {
+                    id: "ALL",
+                    label: "Full Summary Reports",
+                    icon: BarChart3,
+                    activeClass: "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-200",
+                    idleClass: "border-emerald-200 bg-emerald-50/60 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/60",
+                  },
+                  {
+                    id: "INVENTORY",
+                    label: "Inventory Reports",
+                    icon: Boxes,
+                    activeClass: "border-blue-300 bg-blue-100 text-blue-800 dark:border-blue-700 dark:bg-blue-950/70 dark:text-blue-200",
+                    idleClass: "border-blue-200 bg-blue-50/60 text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/60",
+                  },
+                  {
+                    id: "SALES",
+                    label: "Sales Reports",
+                    icon: ShoppingCart,
+                    activeClass: "border-violet-300 bg-violet-100 text-violet-800 dark:border-violet-700 dark:bg-violet-950/70 dark:text-violet-200",
+                    idleClass: "border-violet-200 bg-violet-50/60 text-violet-700 hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300 dark:hover:bg-violet-950/60",
+                  },
+                  {
+                    id: "LOW_STOCK",
+                    label: "Low Stock Alerts Reports",
+                    icon: AlertTriangle,
+                    activeClass: "border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-700 dark:bg-amber-950/70 dark:text-amber-200",
+                    idleClass: "border-amber-200 bg-amber-50/60 text-amber-800 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/60",
+                  },
+                  {
+                    id: "TOP_PRODUCTS",
+                    label: "Top Products Reports",
+                    icon: TrendingUp,
+                    activeClass: "border-teal-300 bg-teal-100 text-teal-800 dark:border-teal-700 dark:bg-teal-950/70 dark:text-teal-200",
+                    idleClass: "border-teal-200 bg-teal-50/60 text-teal-700 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-300 dark:hover:bg-teal-950/60",
+                  },
                 ] as const
               ).map((tab) => {
                 const isActive = reportType === tab.id;
+                const Icon = tab.icon;
                 return (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => setReportType(tab.id)}
-                    className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium tracking-tight transition ${
+                    className={`flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-center text-xs tracking-tight transition ${
                       isActive
-                        ? "bg-white font-semibold text-emerald-700 shadow-sm ring-1 ring-slate-200/80 dark:bg-slate-800 dark:text-emerald-400 dark:ring-slate-700"
-                        : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                        ? `${tab.activeClass} font-semibold shadow-sm`
+                        : `${tab.idleClass} font-medium`
                     }`}
                   >
-                    {tab.label}
+                    <Icon aria-hidden="true" className="h-4 w-4 shrink-0" />
+                    <span>{tab.label}</span>
                   </button>
                 );
               })}
-            </div>
           </div>
         </div>
-      </header>
 
-      {/* 3. Filter Parameters Toolbar (Dates, Category, Reset) */}
-      <section className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex gap-4 flex-row items-end justify-between">
+        <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800/80">
           <div className="space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Quick Period Presets
@@ -1056,8 +1064,8 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="grid gap-3 grid-cols-3 w-auto">
-            <div>
+          <div className="mt-4 grid w-full grid-cols-1 gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2 lg:grid-cols-4 dark:border-slate-800/80">
+            <div className="min-w-0">
               <label
                 htmlFor="report-start-date"
                 className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300"
@@ -1077,7 +1085,7 @@ export default function ReportsPage() {
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label
                 htmlFor="report-end-date"
                 className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300"
@@ -1098,7 +1106,7 @@ export default function ReportsPage() {
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label
                 htmlFor="report-category"
                 className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300"
@@ -1120,128 +1128,20 @@ export default function ReportsPage() {
                 ))}
               </select>
             </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              title="Reset all filters"
-              className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>Reset</span>
-            </button>
-            <div className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
-              <Filter className="h-3.5 w-3.5" />
-              <span>{loading ? "Refreshing..." : "Filters Applied"}</span>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                title="Reset all filters"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-black px-6 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 dark:bg-black dark:text-white dark:hover:bg-slate-800 dark:focus-visible:ring-offset-slate-900"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset</span>
+              </button>
             </div>
           </div>
         </div>
-      </section>
-
-      {/* 4. Primary 5-Card Metric Summary Grid (With Philippine Peso Sign) */}
-      <section aria-label="Summary KPIs" className="grid gap-4 grid-cols-5">
-        {/* Gross Revenue with PESO SIGN BADGE */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Gross Revenue
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-xs font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
-              ₱
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : formatCurrency(report.summary.totalRevenue)}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Completed sales in period
-            </p>
-          </div>
-        </div>
-
-        {/* Completed Orders */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Completed Orders
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
-              <ShoppingCart className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : report.summary.completedOrders}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Finalized transactions
-            </p>
-          </div>
-        </div>
-
-        {/* Units Sold */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Units Sold
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-              <PackageCheck className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : report.summary.totalItemsSold}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Total volume dispensed
-            </p>
-          </div>
-        </div>
-
-        {/* Inventory Cost on Hand */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Cost on Hand
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
-              <Boxes className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : formatCurrency(report.summary.stockValue)}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Inventory capital cost
-            </p>
-          </div>
-        </div>
-
-        {/* Retail Potential Valuation */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Retail Valuation
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-50 text-teal-600 dark:bg-teal-950/50 dark:text-teal-400">
-              <TrendingUp className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : formatCurrency(report.summary.retailValue)}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Expected gross retail value
-            </p>
-          </div>
-        </div>
-      </section>
+      </header>
 
       {/* 5. Interactive Report Workspace (Changes based on Report Type) */}
 

@@ -4,17 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
 import {
-  CalendarRange,
   RefreshCw,
-  TrendingUp,
-  CheckCircle2,
   Package,
   Store,
   Globe,
-  ArrowDownRight,
-  ArrowUpRight,
-  Activity,
-  AlertTriangle,
   Sparkles,
   BarChart3,
   Layers,
@@ -44,7 +37,6 @@ type AnalyticsStats = {
   revenue: number;
   totalCost?: number;
   totalPrice?: number;
-  lowStock: Array<{ id: string; name: string; stock: number; minStock: number }>;
   revenueTrend: Array<{ label: string; revenue: number }>;
   statusBreakdown: Array<{ name: string; orders: number }>;
   channelComparison: Array<{ name: string; orders: number; revenue: number }>;
@@ -61,17 +53,6 @@ type AnalyticsStats = {
   avgOrderValue: number;
   salesByCategory: Array<{ name: string; revenue: number; quantity: number }>;
   salesByProduct: Array<{ name: string; revenue: number; quantity: number }>;
-  inventoryHealth: {
-    lowStockCount: number;
-    outOfStockCount: number;
-    averageStock: number;
-  };
-  inventoryMovement?: {
-    stockIn: number;
-    stockOut: number;
-    netChange: number;
-    lowStockCount: number;
-  };
 };
 
 const rangeOptions: { label: string; value: AnalyticsRange }[] = [
@@ -111,7 +92,6 @@ export default function AnalyticsPage() {
     cancelledOrders: 0,
     completedOrders: 0,
     revenue: 0,
-    lowStock: [],
     revenueTrend: [],
     statusBreakdown: [],
     channelComparison: [],
@@ -120,17 +100,6 @@ export default function AnalyticsPage() {
     avgOrderValue: 0,
     salesByCategory: [],
     salesByProduct: [],
-    inventoryHealth: {
-      lowStockCount: 0,
-      outOfStockCount: 0,
-      averageStock: 0,
-    },
-    inventoryMovement: {
-      stockIn: 0,
-      stockOut: 0,
-      netChange: 0,
-      lowStockCount: 0,
-    },
   });
 
   const [range, setRange] = useState<AnalyticsRange>("WEEKLY");
@@ -138,7 +107,10 @@ export default function AnalyticsPage() {
     formatInputDate(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000))
   );
   const [customTo, setCustomTo] = useState(() => formatInputDate(new Date()));
-  const [showCustomPicker, setShowCustomPicker] = useState(false);
+  const [appliedCustomFrom, setAppliedCustomFrom] = useState(() =>
+    formatInputDate(new Date(Date.now() - 6 * 24 * 60 * 60 * 1000))
+  );
+  const [appliedCustomTo, setAppliedCustomTo] = useState(() => formatInputDate(new Date()));
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshIndex, setRefreshIndex] = useState(0);
@@ -162,9 +134,9 @@ export default function AnalyticsPage() {
     async function fetchStats() {
       try {
         const params = new URLSearchParams({ range });
-        if (range === "CUSTOM" && customFrom && customTo) {
-          params.set("from", customFrom);
-          params.set("to", customTo);
+        if (range === "CUSTOM" && appliedCustomFrom && appliedCustomTo) {
+          params.set("from", appliedCustomFrom);
+          params.set("to", appliedCustomTo);
         }
         const response = await fetch(`/api/admin/analytics?${params.toString()}`);
         if (!response.ok) throw new Error("Failed to fetch analytics");
@@ -186,7 +158,7 @@ export default function AnalyticsPage() {
     return () => {
       ignore = true;
     };
-  }, [range, customFrom, customTo, refreshIndex]);
+  }, [range, appliedCustomFrom, appliedCustomTo, refreshIndex]);
 
   const handleManualRefresh = () => {
     setLoading(true);
@@ -194,14 +166,24 @@ export default function AnalyticsPage() {
   };
 
   const handleSelectRange = (selected: AnalyticsRange) => {
-    setRange(selected);
     if (selected === "CUSTOM") {
-      setShowCustomPicker(true);
-    } else {
-      setShowCustomPicker(false);
+      setRange(selected);
       setLoading(true);
+      return;
     }
+    if (selected === range) return;
+    setRange(selected);
+    setLoading(true);
   };
+
+  const handleApplyCustomRange = () => {
+    setAppliedCustomFrom(customFrom);
+    setAppliedCustomTo(customTo);
+    setLoading(true);
+  };
+
+  const today = formatInputDate(new Date());
+  const isCustomRangeValid = Boolean(customFrom && customTo && customFrom <= customTo && customTo <= today);
 
   // Recharts styling tokens
   const chartColors = useMemo(
@@ -303,204 +285,79 @@ export default function AnalyticsPage() {
 
         {/* Segmented Period Selector Toolbar */}
         <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800/80">
-          <div className="flex flex-row items-center justify-between gap-2.5">
-            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 p-1 dark:border-slate-800 dark:bg-slate-950/60">
-              {rangeOptions.map((option) => {
-                const isActive = range === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => handleSelectRange(option.value)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium tracking-tight transition ${
-                      isActive
-                        ? "bg-white text-emerald-700 font-semibold shadow-sm ring-1 ring-slate-200/80 dark:bg-slate-800 dark:text-emerald-400 dark:ring-slate-700"
-                        : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
-                    }`}
-                  >
-                    {option.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Custom Range Indicator or Quick Date Picker Toggle */}
-            <div className="flex items-center gap-2">
+          <div
+            aria-label="Analytics period"
+            role="group"
+            className="grid w-full grid-cols-2 gap-1 rounded-lg border border-slate-300 bg-slate-50/80 p-1.5 dark:border-slate-700 dark:bg-slate-950/60 sm:grid-cols-3 xl:grid-cols-5"
+          >
+            {rangeOptions.map((option) => {
+              const isActive = range === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => handleSelectRange(option.value)}
+                  aria-pressed={isActive}
+                  className={`flex min-h-10 w-full items-center justify-center rounded-md border px-3 py-2 text-xs font-medium tracking-tight transition sm:text-sm ${
+                    isActive
+                      ? "border-slate-300 bg-white font-semibold text-emerald-700 shadow-sm dark:border-slate-600 dark:bg-slate-800 dark:text-emerald-400"
+                      : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white/70 hover:text-slate-900 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-800/60 dark:hover:text-slate-100"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+          {range === "CUSTOM" && (
+            <div className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-slate-300 bg-slate-50/80 p-3 dark:border-slate-700 dark:bg-slate-950/60 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+              <div>
+                <label
+                  htmlFor="analytics-custom-from"
+                  className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  Start Date
+                </label>
+                <input
+                  id="analytics-custom-from"
+                  type="date"
+                  value={customFrom}
+                  max={customTo || today}
+                  onChange={(event) => setCustomFrom(event.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-emerald-400"
+                />
+              </div>
+              <div>
+                <label
+                  htmlFor="analytics-custom-to"
+                  className="mb-1 block text-xs font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  End Date
+                </label>
+                <input
+                  id="analytics-custom-to"
+                  type="date"
+                  value={customTo}
+                  min={customFrom}
+                  max={today}
+                  onChange={(event) => setCustomTo(event.target.value)}
+                  className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-800 outline-none transition focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/20 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 dark:focus:border-emerald-400"
+                />
+              </div>
               <button
                 type="button"
-                onClick={() => setShowCustomPicker((prev) => !prev)}
-                className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-                  showCustomPicker || range === "CUSTOM"
-                    ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-                }`}
+                onClick={handleApplyCustomRange}
+                disabled={!isCustomRangeValid || loading}
+                className="h-10 rounded-md border border-emerald-700 bg-emerald-700 px-5 text-sm font-semibold text-white transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-500 dark:bg-emerald-500 dark:text-slate-950 dark:hover:bg-emerald-400"
               >
-                <CalendarRange className="h-3.5 w-3.5" />
-                <span>Custom Dates</span>
+                Apply Period
               </button>
-            </div>
-          </div>
-
-          {/* Collapsible Custom Date Pickers */}
-          {showCustomPicker && (
-            <div className="mt-3 animate-in fade-in slide-in-from-top-1 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/60">
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label
-                    htmlFor="analytics-custom-from"
-                    className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300"
-                  >
-                    Start Date
-                  </label>
-                  <input
-                    id="analytics-custom-from"
-                    type="date"
-                    value={customFrom}
-                    max={customTo || formatInputDate(new Date())}
-                    onChange={(event) => {
-                      setCustomFrom(event.target.value);
-                      setRange("CUSTOM");
-                    }}
-                    className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  />
-                </div>
-                <div>
-                  <label
-                    htmlFor="analytics-custom-to"
-                    className="block text-[11px] font-semibold text-slate-600 dark:text-slate-300"
-                  >
-                    End Date
-                  </label>
-                  <input
-                    id="analytics-custom-to"
-                    type="date"
-                    value={customTo}
-                    min={customFrom}
-                    max={formatInputDate(new Date())}
-                    onChange={(event) => {
-                      setCustomTo(event.target.value);
-                      setRange("CUSTOM");
-                    }}
-                    className="mt-1 h-8 w-full rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  />
-                </div>
-                <div className="col-span-1 flex items-end">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRange("CUSTOM");
-                      setLoading(true);
-                      setRefreshIndex((prev) => prev + 1);
-                    }}
-                    className="h-8 w-full rounded-md bg-emerald-600 px-3 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
-                  >
-                    Apply Filter
-                  </button>
-                </div>
-              </div>
             </div>
           )}
         </div>
       </header>
 
-      {/* 2. Primary 4-Card Executive KPI Grid */}
-      <section aria-label="Executive Metrics" className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {/* Metric 1: Gross Sales Revenue */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Gross Revenue
-            </span>
-            <div className="rounded-lg bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
-              <span className="text-sm font-bold leading-none" aria-hidden="true">₱</span>
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : formatCurrency(stats.revenue)}
-            </p>
-            <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400">
-                {stats.completedOrders ?? 0}
-              </span>{" "}
-              completed orders in period
-            </div>
-          </div>
-        </div>
-
-        {/* Metric 2: Average Order Value (AOV) */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Avg. Order Value
-            </span>
-            <div className="rounded-lg bg-indigo-50 p-2 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-              <TrendingUp className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : formatCurrency(stats.avgOrderValue)}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Per completed transaction
-            </p>
-          </div>
-        </div>
-
-        {/* Metric 3: Fulfillment Rate */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Fulfillment Rate
-            </span>
-            <div className="rounded-lg bg-teal-50 p-2 text-teal-600 dark:bg-teal-950/50 dark:text-teal-400">
-              <CheckCircle2 className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : `${stats.completionRate.toFixed(1)}%`}
-            </p>
-            <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-              <span>{stats.orders} active</span>
-              <span>•</span>
-              <span className="text-rose-500 dark:text-rose-400">
-                {stats.cancelledOrders ?? 0} cancelled
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* Metric 4: Inventory Watch */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Inventory Watch
-            </span>
-            <div className="rounded-lg bg-amber-50 p-2 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
-              <Package className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-2xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : `${stats.inventoryHealth.averageStock.toFixed(1)} avg`}
-            </p>
-            <div className="mt-1 flex items-center gap-1.5 text-xs">
-              <span className="inline-flex items-center gap-1 font-semibold text-amber-600 dark:text-amber-400">
-                <AlertTriangle className="h-3 w-3" />
-                {stats.inventoryHealth.lowStockCount} low
-              </span>
-              <span className="text-slate-400">•</span>
-              <span className="text-rose-600 dark:text-rose-400">
-                {stats.inventoryHealth.outOfStockCount} out of stock
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 3. Primary Visual Analytics: Revenue Dynamics & Channel Distribution */}
+      {/* 2. Primary Visual Analytics: Revenue Dynamics & Channel Distribution */}
       <div className="grid gap-6 xl:grid-cols-[1.45fr_1fr]">
         {/* Left: Revenue Dynamics Area Chart */}
         <section className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -698,8 +555,8 @@ export default function AnalyticsPage() {
         </section>
       </div>
 
-      {/* 4. Deep Breakdown: Category Sales, Product Performance, & Inventory Velocity */}
-      <div className="grid gap-6 md:grid-cols-3">
+          {/* 3. Deep Breakdown: Category Sales & Product Performance */}
+          <div className="grid gap-6 md:grid-cols-2">
         {/* Col 1: Sales by Category */}
         <section className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div>
@@ -862,106 +719,6 @@ export default function AnalyticsPage() {
           </div>
         </section>
 
-        {/* Col 3: Inventory Velocity & Critical Stock */}
-        <section className="flex flex-col justify-between rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-          <div>
-            <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Inventory Velocity
-              </h2>
-            </div>
-            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Stock movement throughput & low-stock warnings
-            </p>
-          </div>
-
-          {/* Movement Flow Stat Cards */}
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-2.5 text-center dark:border-emerald-900/60 dark:bg-emerald-950/30">
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
-                <ArrowDownRight className="h-3 w-3" />
-                Inflow
-              </span>
-              <p className="text-sm font-bold text-emerald-800 dark:text-emerald-300">
-                +{stats.inventoryMovement?.stockIn ?? 0}
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-rose-100 bg-rose-50/60 p-2.5 text-center dark:border-rose-900/60 dark:bg-rose-950/30">
-              <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-rose-700 dark:text-rose-400">
-                <ArrowUpRight className="h-3 w-3" />
-                Outflow
-              </span>
-              <p className="text-sm font-bold text-rose-800 dark:text-rose-300">
-                -{stats.inventoryMovement?.stockOut ?? 0}
-              </p>
-            </div>
-
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-center dark:border-slate-700 dark:bg-slate-800">
-              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                Net Flow
-              </span>
-              <p
-                className={`text-sm font-bold ${
-                  (stats.inventoryMovement?.netChange ?? 0) >= 0
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-rose-600 dark:text-rose-400"
-                }`}
-              >
-                {(stats.inventoryMovement?.netChange ?? 0) > 0 ? "+" : ""}
-                {stats.inventoryMovement?.netChange ?? 0}
-              </p>
-            </div>
-          </div>
-
-          {/* Low Stock Warning List */}
-          <div className="mt-4">
-            <div className="mb-2 flex items-center justify-between text-xs">
-              <span className="font-semibold text-slate-700 dark:text-slate-300">
-                Critical Stock Pressure
-              </span>
-              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-                {stats.inventoryHealth.lowStockCount} items
-              </span>
-            </div>
-
-            <div className="space-y-2">
-              {loading ? (
-                <div className="h-28 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
-              ) : stats.lowStock && stats.lowStock.length > 0 ? (
-                stats.lowStock.slice(0, 3).map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between rounded-lg border border-amber-200/80 bg-amber-50/40 p-2 text-xs dark:border-amber-900/50 dark:bg-amber-950/20"
-                  >
-                    <div className="min-w-0 pr-2">
-                      <p className="truncate font-semibold text-slate-800 dark:text-slate-200">
-                        {item.name}
-                      </p>
-                      <p className="text-[10px] text-amber-700 dark:text-amber-400">
-                        Min threshold: {item.minStock} units
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-md bg-amber-200/70 px-2 py-0.5 text-[11px] font-bold text-amber-900 dark:bg-amber-900 dark:text-amber-100">
-                      {item.stock} left
-                    </span>
-                  </div>
-                ))
-              ) : (
-                <div className="flex h-24 items-center justify-center rounded-lg border border-dashed border-slate-200 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                  All inventory stocks are above minimum threshold.
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-4 border-t border-slate-100 pt-3 text-right dark:border-slate-800">
-            <span className="text-xs text-slate-500 dark:text-slate-400">
-              Avg. Stock Level: {stats.inventoryHealth.averageStock} units/item
-            </span>
-          </div>
-        </section>
       </div>
     </div>
   );
