@@ -12,8 +12,8 @@ async function ensureAdminOnly() {
   const payload = token ? await getUserForToken(token) : null;
   if (!payload?.sub || !canAccessAdminPortal(payload.role)) return null;
 
-  const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { role: true } });
-  return user && canAccessAdminPortal(user.role) ? payload.sub : null;
+  const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, name: true, role: true } });
+  return user && canAccessAdminPortal(user.role) ? user : null;
 }
 
 function getVariantLabel(attributes: string | null | undefined, sku: string) {
@@ -31,8 +31,7 @@ function getVariantLabel(attributes: string | null | undefined, sku: string) {
 export async function GET(request: Request) {
   const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:inventory:get", "admin");
   if (rateLimitResponse) return rateLimitResponse;
-  const userId = await ensureAdminOnly();
-  if (!userId) {
+  if (!(await ensureAdminOnly())) {
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
   }
 
@@ -102,8 +101,7 @@ export async function GET(request: Request) {
     ];
   }
 
-  const [transactions, totalCount, stockInCount, stockOutCount, adjustmentCount, returnCount, posSaleCount, reservationCreatedCount, reservationFulfilledCount, reservationReleasedCount] = await Promise.all([
-    prisma.inventoryTransaction.findMany({
+  const transactionsPromise = prisma.inventoryTransaction.findMany({
     where,
     include: {
       product: true,
@@ -113,11 +111,38 @@ export async function GET(request: Request) {
           attributes: true,
         },
       },
+      events: { orderBy: { createdAt: "desc" } },
     },
     orderBy: { createdAt: "desc" },
     skip: (page - 1) * limit,
     take: limit,
-    }),
+  }).catch((error: unknown) => {
+    // A long-lived Next.js dev worker can retain a Prisma Client generated before
+    // InventoryTransactionEvent was added. Keep the inventory list usable until
+    // that worker reloads; current clients return the full event history above.
+    if (!(error instanceof Error) || !/Unknown field [`']events[`']/.test(error.message)) {
+      throw error;
+    }
+
+    return prisma.inventoryTransaction.findMany({
+      where,
+      include: {
+        product: true,
+        variant: {
+          select: {
+            sku: true,
+            attributes: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+  });
+
+  const [transactions, totalCount, stockInCount, stockOutCount, adjustmentCount, returnCount, posSaleCount, reservationCreatedCount, reservationFulfilledCount, reservationReleasedCount] = await Promise.all([
+    transactionsPromise,
     prisma.inventoryTransaction.count({ where }),
     prisma.inventoryTransaction.count({ where: { ...countWhere, type: "STOCK_IN" } }),
     prisma.inventoryTransaction.count({ where: { ...countWhere, type: "STOCK_OUT" } }),
@@ -134,7 +159,9 @@ export async function GET(request: Request) {
   return NextResponse.json(
     {
       transactions: transactions.map((transaction) => {
-      const variantLabel = transaction.variant ? getVariantLabel(transaction.variant.attributes, transaction.variant.sku) : null;
+      const variantLabel = transaction.variant
+        ? getVariantLabel(transaction.variant.attributes, transaction.variant.sku)
+        : transaction.variantSku;
       const productLabel = transaction.product?.name ?? transaction.productName ?? "Unknown product";
       const isLegacyReturn = transaction.type === "STOCK_IN" && transaction.remarks?.toLowerCase().includes("cancelled - stock returned");
       const displayType = isLegacyReturn ? "RETURN" : transaction.type;
@@ -161,8 +188,8 @@ export async function PATCH(request: Request) {
   try {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:inventory:archive", "admin");
     if (rateLimitResponse) return rateLimitResponse;
-    const userId = await ensureAdminOnly();
-    if (!userId) {
+    const actor = await ensureAdminOnly();
+    if (!actor) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
@@ -189,17 +216,43 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: "One or more transactions could not be found." }, { status: 404 });
     }
 
-    const result = await prisma.inventoryTransaction.updateMany({
-      where: { id: { in: ids } },
-      data: {
-        isArchived: action === "archive",
-        archivedAt: action === "archive" ? new Date() : null,
-      },
+    const newArchivedState = action === "archive";
+    const changedTransactions = existingTransactions.filter((transaction) => transaction.isArchived !== newArchivedState);
+    const reason = typeof body.reason === "string" ? body.reason.trim().slice(0, 500) : "";
+    if (changedTransactions.length && reason.length < 3) {
+      return NextResponse.json({ success: false, message: "Please provide a reason of at least 3 characters." }, { status: 400 });
+    }
+
+    const archivedAt = newArchivedState ? new Date() : null;
+    await prisma.$transaction(async (tx) => {
+      for (const transaction of changedTransactions) {
+        const updated = await tx.inventoryTransaction.updateMany({
+          where: { id: transaction.id, isArchived: transaction.isArchived },
+          data: { isArchived: newArchivedState, archivedAt },
+        });
+        if (updated.count !== 1) throw new Error("A transaction changed during this request. Refresh and try again.");
+
+        await tx.inventoryTransactionEvent.create({
+          data: {
+            transactionId: transaction.id,
+            action: newArchivedState ? "ARCHIVED" : "RESTORED",
+            actorUserId: actor.id,
+            actorName: actor.name,
+            actorType: actor.role,
+            reason,
+            previousArchivedState: transaction.isArchived,
+            newArchivedState,
+          },
+        });
+      }
     });
 
-    return NextResponse.json({ success: true, action, updatedCount: result.count, ids });
+    return NextResponse.json({ success: true, action, updatedCount: changedTransactions.length, ids: changedTransactions.map((transaction) => transaction.id) });
   } catch (error) {
     console.error("[PATCH /api/admin/inventory] archive update failed:", error);
+    if (error instanceof Error && error.message.includes("transaction changed during this request")) {
+      return NextResponse.json({ success: false, message: error.message }, { status: 409 });
+    }
     return NextResponse.json({ success: false, message: getUserFacingErrorMessage(error, "Unable to update transaction archive state.") }, { status: 500 });
   }
 }
@@ -208,12 +261,10 @@ export async function POST(request: Request) {
   try {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:inventory:movement", "admin");
     if (rateLimitResponse) return rateLimitResponse;
-    const userId = await ensureAdminOnly();
-    if (!userId) {
+    const actor = await ensureAdminOnly();
+    if (!actor) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
-
-    const actor = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } });
 
     const body = await request.json();
 
@@ -226,7 +277,18 @@ export async function POST(request: Request) {
       );
     }
 
+    if (!Object.values(InventoryType).includes(type as InventoryType)) {
+      return NextResponse.json({ success: false, message: "Invalid inventory movement type." }, { status: 400 });
+    }
+
     const quantityValue = Number(quantity);
+    const isThresholdOnlyUpdate = type === "ADJUSTMENT" && quantityValue === 0;
+    if (!Number.isInteger(quantityValue) || (!isThresholdOnlyUpdate && quantityValue <= 0)) {
+      return NextResponse.json({ success: false, message: isThresholdOnlyUpdate ? "The stock threshold must be a whole number." : "Quantity must be a positive whole number." }, { status: 400 });
+    }
+    if (isThresholdOnlyUpdate && minStock === undefined) {
+      return NextResponse.json({ success: false, message: "A minimum stock threshold is required." }, { status: 400 });
+    }
     const product = await prisma.product.findUnique({
       where: { id: productId },
     });
@@ -241,7 +303,7 @@ export async function POST(request: Request) {
     }
 
     const variant = variantId
-      ? await prisma.productVariant.findFirst({ where: { id: String(variantId), productId }, select: { id: true, stock: true, minStock: true, isActive: true } })
+      ? await prisma.productVariant.findFirst({ where: { id: String(variantId), productId }, select: { id: true, sku: true, stock: true, minStock: true, isActive: true } })
       : null;
     if (variantId && (!variant || !variant.isActive)) {
       return NextResponse.json({ success: false, message: "Variant not found or inactive." }, { status: 404 });
@@ -251,7 +313,9 @@ export async function POST(request: Request) {
     const baseStock = isVariantTarget ? Number(variant?.stock ?? 0) : Number(product.stock ?? 0);
     const baseMinStock = isVariantTarget ? Number(variant?.minStock ?? 5) : Number(product.minStock ?? 5);
     const minStockValue = Number(minStock ?? baseMinStock ?? 5);
-    const isThresholdOnlyUpdate = type === "ADJUSTMENT" && quantityValue === 0;
+    if (isThresholdOnlyUpdate && (!Number.isInteger(minStockValue) || minStockValue < 0)) {
+      return NextResponse.json({ success: false, message: "Minimum stock must be a non-negative whole number." }, { status: 400 });
+    }
     let newStock = baseStock;
 
     if (type === "STOCK_IN" || type === "RETURN") {
@@ -279,7 +343,7 @@ export async function POST(request: Request) {
         await tx.product.update({ where: { id: productId, stock: type === "STOCK_OUT" || type === "ADJUSTMENT" ? { gte: type === "ADJUSTMENT" && !isThresholdOnlyUpdate ? 0 : quantityValue } : undefined }, data: { stock: newStock, minStock: isThresholdOnlyUpdate ? minStockValue : product.minStock } });
       }
 
-      return tx.inventoryTransaction.create({ data: { productId, productName: product.name, variantId: variant?.id ?? null, type, eventType: isThresholdOnlyUpdate ? "THRESHOLD_ADJUSTMENT" : type, quantity: isThresholdOnlyUpdate ? minStockValue : quantityValue, stockBefore: baseStock, stockAfter: newStock, remarks: normalizedRemarks, performedByName: actor?.name ?? null, performedByType: actor?.role ?? "ADMIN", source: "INVENTORY" } });
+      return tx.inventoryTransaction.create({ data: { productId, productName: product.name, variantId: variant?.id ?? null, variantSku: variant?.sku ?? null, type, eventType: isThresholdOnlyUpdate ? "THRESHOLD_ADJUSTMENT" : type, quantity: isThresholdOnlyUpdate ? minStockValue : quantityValue, stockBefore: baseStock, stockAfter: newStock, minStockBefore: isThresholdOnlyUpdate ? baseMinStock : null, minStockAfter: isThresholdOnlyUpdate ? minStockValue : null, remarks: normalizedRemarks, performedById: actor.id, performedByName: actor.name, performedByType: actor.role, source: "INVENTORY" } });
     });
 
     return NextResponse.json({ success: true, transaction }, { status: 201 });

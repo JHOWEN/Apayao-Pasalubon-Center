@@ -42,15 +42,80 @@ export async function PUT(
       updateData.stock = Number(body.stock ?? 0);
     if (typeof body.minStock !== "undefined")
       updateData.minStock = Number(body.minStock ?? 5);
+    if (typeof updateData.stock === "number" && (!Number.isInteger(updateData.stock) || updateData.stock < 0)) {
+      return NextResponse.json({ success: false, message: "Stock must be a non-negative whole number." }, { status: 400 });
+    }
+    if (typeof updateData.minStock === "number" && (!Number.isInteger(updateData.minStock) || updateData.minStock < 0)) {
+      return NextResponse.json({ success: false, message: "Minimum stock must be a non-negative whole number." }, { status: 400 });
+    }
     if (typeof body.sku === "string" && body.sku.trim()) updateData.sku = body.sku.trim();
     if (typeof body.isActive !== "undefined") updateData.isActive = body.isActive === true;
     if (Array.isArray(body.imageUrls)) updateData.imageUrl = JSON.stringify(body.imageUrls.filter((value: unknown): value is string => typeof value === "string" && Boolean(value.trim())).map((value: string) => value.trim()));
     if (body.attributes && typeof body.attributes === "object" && !Array.isArray(body.attributes)) updateData.attributes = JSON.stringify(body.attributes);
 
-    const updatedVariant = await prisma.productVariant.update({
-      where: { id: variantId },
-      data: updateData,
-      include: { product: true },
+    const actor = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } });
+    const updatedVariant = await prisma.$transaction(async (tx) => {
+      const original = await tx.productVariant.findUnique({
+        where: { id: variantId },
+        include: { product: { select: { name: true } } },
+      });
+      if (!original) throw new Error("Variant not found.");
+
+      const updated = await tx.productVariant.update({
+        where: { id: variantId },
+        data: updateData,
+        include: { product: true },
+      });
+
+      if (original.stock !== updated.stock) {
+        await tx.inventoryTransaction.create({
+          data: {
+            productId: updated.productId,
+            variantId: updated.id,
+            variantSku: original.sku,
+            productName: original.product.name,
+            performedById: userId,
+            performedByName: actor?.name ?? null,
+            performedByType: actor?.role ?? "ADMIN",
+            source: "INVENTORY",
+            type: "ADJUSTMENT",
+            eventType: "ADJUSTMENT",
+            quantity: updated.stock,
+            stockBefore: original.stock,
+            stockAfter: updated.stock,
+            remarks: typeof body.stockChangeReason === "string" && body.stockChangeReason.trim()
+              ? body.stockChangeReason.trim().slice(0, 500)
+              : "Variant stock quantity updated from product management",
+          },
+        });
+      }
+
+      if (original.minStock !== updated.minStock) {
+        await tx.inventoryTransaction.create({
+          data: {
+            productId: updated.productId,
+            variantId: updated.id,
+            variantSku: original.sku,
+            productName: original.product.name,
+            performedById: userId,
+            performedByName: actor?.name ?? null,
+            performedByType: actor?.role ?? "ADMIN",
+            source: "INVENTORY",
+            type: "ADJUSTMENT",
+            eventType: "THRESHOLD_ADJUSTMENT",
+            quantity: updated.minStock,
+            stockBefore: updated.stock,
+            stockAfter: updated.stock,
+            minStockBefore: original.minStock,
+            minStockAfter: updated.minStock,
+            remarks: typeof body.minStockChangeReason === "string" && body.minStockChangeReason.trim()
+              ? body.minStockChangeReason.trim().slice(0, 500)
+              : "Variant minimum stock threshold updated from product management",
+          },
+        });
+      }
+
+      return updated;
     });
 
     return NextResponse.json({
@@ -87,7 +152,7 @@ export async function DELETE(
       // Keep historical orders and audit rows, but detach the deleted option.
       await tx.cartItem.updateMany({ where: { variantId }, data: { variantId: null } });
       await tx.orderItem.updateMany({ where: { variantId }, data: { variantId: null } });
-      await tx.inventoryTransaction.updateMany({ where: { variantId }, data: { variantId: null } });
+      await tx.inventoryTransaction.updateMany({ where: { variantId }, data: { variantId: null, variantSku: variant.sku } });
       await tx.productVariant.delete({ where: { id: variantId } });
     });
 

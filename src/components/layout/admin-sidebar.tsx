@@ -21,7 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { clearAdminNotificationCount, getAdminNotificationCount } from "@/lib/admin-notifications";
-import { isSidebarLinkActive } from "@/utils/sidebar-nav";
+import { isSidebarLinkActive, normalizeSidebarPathname } from "@/utils/sidebar-nav";
 
 const dashboardLink = { href: "/dashboard", label: "Dashboard", icon: LayoutGrid };
 const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
@@ -66,6 +66,7 @@ export function AdminSidebar({
   onCloseMobile?: () => void;
 } = {}) {
   const pathname = usePathname();
+  const normalizedPathname = normalizeSidebarPathname(pathname);
   const router = useRouter();
   const [notificationCount, setNotificationCount] = useState(0);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -275,18 +276,18 @@ export function AdminSidebar({
               title={effectiveCollapsed ? dashboardLink.label : undefined}
               aria-label={dashboardLink.label}
               className={`group relative flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors duration-150 max-lg:min-h-10 max-lg:justify-center max-lg:px-1 max-lg:py-2 ${
-                pathname === dashboardLink.href
-                  ? "bg-emerald-500/10 font-semibold text-emerald-800 dark:text-emerald-300 border border-emerald-500/20 dark:bg-emerald-500/15 shadow-2xs"
+                normalizedPathname === dashboardLink.href
+                  ? "bg-emerald-100 font-semibold text-emerald-900 border border-emerald-300 shadow-2xs dark:bg-emerald-500/20 dark:text-emerald-200 dark:border-emerald-500/40"
                   : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/80 dark:hover:text-slate-100"
               } ${effectiveCollapsed ? "justify-center px-1.5 py-1.5" : ""}`}
             >
-              {pathname === dashboardLink.href && !effectiveCollapsed && (
-                <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-emerald-600 dark:bg-emerald-400" />
+              {normalizedPathname === dashboardLink.href && !effectiveCollapsed && (
+                <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-emerald-700 dark:bg-emerald-300" />
               )}
               <dashboardLink.icon
                 className={`h-4.5 w-4.5 shrink-0 transition-colors ${
-                  pathname === dashboardLink.href
-                    ? "text-emerald-600 dark:text-emerald-400"
+                  normalizedPathname === dashboardLink.href
+                    ? "text-emerald-700 dark:text-emerald-300"
                     : "text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300"
                 }`}
               />
@@ -318,18 +319,18 @@ export function AdminSidebar({
                       aria-label={link.label}
                       className={`group relative flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors duration-150 max-lg:min-h-10 max-lg:justify-center max-lg:px-1 max-lg:py-2 ${
                         isActive
-                          ? "bg-emerald-500/10 font-semibold text-emerald-800 dark:text-emerald-300 border border-emerald-500/20 dark:bg-emerald-500/15 shadow-2xs"
+                          ? "bg-emerald-100 font-semibold text-emerald-900 border border-emerald-300 shadow-2xs dark:bg-emerald-500/20 dark:text-emerald-200 dark:border-emerald-500/40"
                           : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/80 dark:hover:text-slate-100"
                       } ${effectiveCollapsed ? "justify-center px-1.5 py-1.5" : ""}`}
                     >
                       {isActive && !effectiveCollapsed && (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-emerald-600 dark:bg-emerald-400" />
+                        <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-emerald-700 dark:bg-emerald-300" />
                       )}
 
                       <Icon
                         className={`h-4.5 w-4.5 shrink-0 transition-colors ${
                           isActive
-                            ? "text-emerald-600 dark:text-emerald-400"
+                            ? "text-emerald-700 dark:text-emerald-300"
                             : "text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300"
                         }`}
                       />

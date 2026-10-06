@@ -4,21 +4,18 @@ import { useCallback, useEffect, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
-  ArrowDownRight,
-  ArrowUpRight,
+  ArrowRight,
   CalendarDays,
+  Clock,
   ChevronLeft,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
   ClipboardList,
-  Clock,
   Download,
   FileText,
   ListFilter,
-  Package,
   RefreshCw,
-  RotateCcw,
   Search,
   User,
   X,
@@ -32,12 +29,16 @@ interface ActivityRecord {
   quantity: number;
   stockBefore?: number | null;
   stockAfter?: number | null;
+  minStockBefore?: number | null;
+  minStockAfter?: number | null;
   reservedBefore?: number | null;
   reservedAfter?: number | null;
   remarks?: string | null;
   createdAt: string;
   performedByName?: string | null;
   performedByType?: string | null;
+  performedById?: string | null;
+  orderId?: string | null;
   source?: string | null;
   customerName?: string | null;
   orderNumber?: string | null;
@@ -47,8 +48,20 @@ interface ActivityRecord {
   productName?: string | null;
   productDisplayName?: string | null;
   variantLabel?: string | null;
+  variantSku?: string | null;
   isArchived?: boolean | null;
   archivedAt?: string | null;
+  events?: Array<{
+    id: string;
+    action: string;
+    actorUserId?: string | null;
+    actorName?: string | null;
+    actorType?: string | null;
+    reason: string;
+    previousArchivedState: boolean;
+    newArchivedState: boolean;
+    createdAt: string;
+  }>;
   product?: { name?: string };
   variant?: { sku?: string; attributes?: string | null } | null;
 }
@@ -70,7 +83,7 @@ function movementLabel(
 ) {
   const eventLabels: Record<string, string> = {
     POS_SALE: "POS Sale",
-    THRESHOLD_ADJUSTMENT: "Adjustment",
+    THRESHOLD_ADJUSTMENT: "Threshold update",
     STOCK_IN: "Stock In",
     STOCK_OUT: "Stock Out",
     RETURN: "Return",
@@ -110,12 +123,48 @@ function stockChangeLabel(record: ActivityRecord) {
 function sourceLabel(source?: string | null) {
   if (source?.toUpperCase() === "POS") return "POS Terminal";
   if (source?.toUpperCase() === "ECOMMERCE") return "Storefront";
-  return "Store";
+  if (source?.toUpperCase() === "INVENTORY") return "Admin Inventory";
+  if (source?.toUpperCase() === "ADMIN") return "Admin Action";
+  if (source?.toUpperCase() === "SYSTEM") return "System";
+  return source || "Unknown source";
 }
 
-function stockTransitionLabel(record: ActivityRecord) {
-  if (record.stockBefore == null || record.stockAfter == null) return "Not recorded";
-  return `${record.stockBefore} -> ${record.stockAfter}`;
+function StockTransition({
+  record,
+  compact = false,
+}: {
+  record: ActivityRecord;
+  compact?: boolean;
+}) {
+  const isMinimumStock = record.minStockBefore != null || record.minStockAfter != null;
+  const before = isMinimumStock ? record.minStockBefore : record.stockBefore;
+  const after = isMinimumStock ? record.minStockAfter : record.stockAfter;
+  const label = isMinimumStock ? "Minimum stock level" : "Stock on hand";
+  const displayValue = (value: number | null | undefined) =>
+    value == null ? "Not recorded" : value.toLocaleString();
+
+  return (
+    <div className={compact ? "mt-2" : "rounded-xl border border-slate-200 p-4 dark:border-slate-800"}>
+      <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        {label}
+      </p>
+      <div className="flex items-center gap-1.5">
+        <div className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 dark:border-slate-700 dark:bg-slate-800/70">
+          <span className="block text-[9px] font-semibold uppercase tracking-wider text-slate-400">Before</span>
+          <span className="block truncate font-mono text-xs font-semibold tabular-nums text-slate-700 dark:text-slate-200" title={displayValue(before)}>
+            {displayValue(before)}
+          </span>
+        </div>
+        <ArrowRight aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+        <div className="min-w-0 flex-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1.5 dark:border-emerald-900 dark:bg-emerald-950/30">
+          <span className="block text-[9px] font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400">After</span>
+          <span className="block truncate font-mono text-xs font-semibold tabular-nums text-emerald-800 dark:text-emerald-200" title={displayValue(after)}>
+            {displayValue(after)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function badgeClasses(
@@ -297,11 +346,20 @@ export default function InventoryTransactionsPage() {
 
   async function updateArchive(action: "archive" | "restore", ids: string[]) {
     if (!ids.length) return;
+    const reason = window.prompt(
+      `Why are you ${action === "archive" ? "archiving" : "restoring"} ${ids.length === 1 ? "this transaction" : `these ${ids.length} transactions`}?`,
+    );
+    if (reason === null) return;
+    if (reason.trim().length < 3) {
+      window.alert("Please provide a reason of at least 3 characters.");
+      return;
+    }
+
     try {
       const response = await fetch("/api/admin/inventory", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids, action }),
+        body: JSON.stringify({ ids, action, reason: reason.trim() }),
       });
       const data = await response.json().catch(() => null);
       if (!response.ok)
@@ -348,16 +406,21 @@ export default function InventoryTransactionsPage() {
           "Stock Change",
           "Stock Before",
           "Stock After",
+          "Minimum Stock Before",
+          "Minimum Stock After",
           "Performed by",
+          "Performed by user ID",
           "Actor type",
           "Channel",
           "Customer",
           "Order",
+          "Order ID",
           "Payment Method",
           "Payment Status",
           "Payment Reference",
           "Archived",
           "Archived At",
+          "Archive History",
           "Remarks",
         ],
         ...exportRows.map((record) => [
@@ -372,16 +435,21 @@ export default function InventoryTransactionsPage() {
           stockChangeLabel(record),
           record.stockBefore ?? "Not recorded",
           record.stockAfter ?? "Not recorded",
+          record.minStockBefore ?? "Not recorded",
+          record.minStockAfter ?? "Not recorded",
           record.performedByName || "System",
+          record.performedById || "",
           record.performedByType || "SYSTEM",
           sourceLabel(record.source),
           record.customerName || "",
           record.orderNumber || "",
+          record.orderId || "",
           record.paymentMethod || "",
           record.paymentStatus || "",
           record.paymentReference || "",
           record.isArchived ? "Yes" : "No",
           record.archivedAt ? new Date(record.archivedAt).toLocaleString() : "",
+          record.events?.map((event) => `${event.action} by ${event.actorName || "Unknown user"} (${event.actorUserId || "no user ID"}) at ${new Date(event.createdAt).toLocaleString()}: ${event.reason}`).join("; ") || "",
           record.remarks || "",
         ]),
       ];
@@ -422,7 +490,7 @@ export default function InventoryTransactionsPage() {
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Track stock received, sold, returned, and reserved for open orders.
+            Review inventory changes, who recorded them, and the supporting reason.
           </p>
         </div>
         <div className="flex gap-2">
@@ -448,40 +516,6 @@ export default function InventoryTransactionsPage() {
           </button>
         </div>
       </header>
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {(
-          [
-            [
-              "Stock In Entries",
-              countsByType.STOCK_IN,
-              ArrowDownRight,
-              "text-emerald-600",
-            ],
-            ["POS Sales", countsByType.POS_SALE, ArrowUpRight, "text-rose-600"],
-            ["Adjustments", countsByType.ADJUSTMENT, ClipboardList, "text-amber-600"],
-            ["Returns", countsByType.RETURN, RotateCcw, "text-amber-600"],
-          ] as const
-        ).map(([label, count, Icon, color]) => (
-          <div
-            key={label}
-            className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900"
-          >
-            <div className="flex items-center justify-between text-xs font-medium text-slate-500 dark:text-slate-400">
-              <span>{label}</span>
-              <Icon className={`h-5 w-5 ${color}`} />
-            </div>
-            <div className="mt-2 text-2xl font-bold tabular-nums text-slate-900 dark:text-white">
-              {count.toLocaleString()}
-            </div>
-            <p className={`mt-1 text-[11px] font-medium ${color}`}>
-              {label === "Returns"
-                ? "Customer returns to stock"
-                : "Ledger entries"}
-            </p>
-          </div>
-        ))}
-      </div>
 
       <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900 sm:p-5">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -662,22 +696,29 @@ export default function InventoryTransactionsPage() {
           )}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-245 text-left text-xs">
+          <table className="w-full min-w-[1120px] table-fixed text-left text-sm">
+            <colgroup>
+              <col className="w-12" />
+              <col className="w-36" />
+              <col className="w-[22%]" />
+              <col className="w-[25%]" />
+              <col className="w-[16%]" />
+              <col />
+            </colgroup>
             <thead className="border-b border-slate-200 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-800/60">
               <tr>
                 {[
                   "",
-                  "Date & time",
-                  "Product / variant",
-                  "Movement",
+                  "Date / time",
+                  "Product",
                   "Stock change",
-                  "Stock left",
-                  "Recorded by / channel",
-                  "Order / customer / audit note",
+                  "Actor",
+                  "Reference / reason",
                 ].map((heading, index) => (
                   <th
                     key={heading || "select"}
-                    className="whitespace-nowrap px-4 py-3 font-semibold text-slate-600 dark:text-slate-300"
+                    scope="col"
+                    className="whitespace-nowrap px-4 py-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400"
                   >
                     {index === 0 ? (
                       <input
@@ -703,7 +744,7 @@ export default function InventoryTransactionsPage() {
               {isLoading ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={6}
                     className="px-4 py-14 text-center text-slate-500"
                   >
                     Loading transactions ledger...
@@ -711,7 +752,7 @@ export default function InventoryTransactionsPage() {
                 </tr>
               ) : records.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-14 text-center">
+                  <td colSpan={6} className="px-4 py-14 text-center">
                     <ClipboardList className="mx-auto mb-2 h-7 w-7 text-slate-400" />
                     <p className="font-semibold text-slate-800 dark:text-slate-200">
                       No inventory transactions found
@@ -731,7 +772,7 @@ export default function InventoryTransactionsPage() {
                     className="cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-slate-800/60"
                   >
                     <td
-                      className="px-4 py-3"
+                      className="px-3 py-4 align-top"
                       onClick={(event) => event.stopPropagation()}
                     >
                       <input
@@ -747,52 +788,52 @@ export default function InventoryTransactionsPage() {
                         }
                       />
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-slate-600 dark:text-slate-300">
-                      <span className="block font-medium">{new Date(record.createdAt).toLocaleDateString()}</span>
-                      <span className="mt-0.5 block text-[10px] text-slate-400">{new Date(record.createdAt).toLocaleTimeString()}</span>
+                    <td className="whitespace-nowrap px-4 py-4 align-top">
+                      <span className="block text-[13px] font-semibold tabular-nums text-slate-800 dark:text-slate-100">{new Date(record.createdAt).toLocaleDateString()}</span>
+                      <span className="mt-1 block text-[11px] tabular-nums text-slate-500 dark:text-slate-400">{new Date(record.createdAt).toLocaleTimeString()}</span>
                     </td>
-                    <td className="px-4 py-3 font-semibold text-slate-900 dark:text-white">
+                    <td className="px-4 py-4 align-top">
+                      <span className="block break-words text-[13px] font-semibold leading-5 text-slate-900 dark:text-white">
                       {record.productDisplayName ||
                         record.productName ||
                         record.product?.name ||
                         "Unknown item"}
+                      </span>
                       {record.variantLabel && (
-                        <div className="mt-0.5 font-normal text-slate-500">
+                        <div className="mt-1 break-words text-[11px] font-normal leading-4 text-slate-500 dark:text-slate-400">
                           {record.variantLabel}
                           {record.variant?.sku
-                            ? ` | SKU: ${record.variant.sku}`
+                            ? ` / SKU: ${record.variant.sku}`
                             : ""}
                         </div>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-4 align-top">
                       <span
-                        className={`inline-flex rounded-md border px-2 py-1 text-[11px] font-semibold ${badgeClasses(record.type, Boolean(record.isArchived), record.eventType)}`}
+                        className={`inline-flex rounded-md border px-2 py-1 text-[10px] font-bold ${badgeClasses(record.type, Boolean(record.isArchived), record.eventType)}`}
                       >
                         {record.isArchived
                           ? "Archived"
                           : movementLabel(record.type, record.remarks, record.eventType)}
                       </span>
+                      <span className="mt-2 block whitespace-nowrap text-[13px] font-semibold tabular-nums text-slate-800 dark:text-slate-100">
+                        {stockChangeLabel(record)}
+                      </span>
+                      <StockTransition record={record} compact />
                     </td>
-                    <td className="whitespace-nowrap px-4 py-3 font-semibold tabular-nums">
-                      {stockChangeLabel(record)}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 font-mono text-slate-700 dark:text-slate-200">
-                      {record.stockAfter ?? "Not recorded"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="block font-medium text-slate-800 dark:text-slate-200">{record.performedByName?.trim() || "System"}</span>
-                      <span className="mt-0.5 block text-[10px] text-slate-500">
-                        {record.performedByType || "SYSTEM"} | {sourceLabel(record.source)}
+                    <td className="px-4 py-4 align-top">
+                      <span className="block break-words text-[13px] font-semibold leading-5 text-slate-800 dark:text-slate-100">{record.performedByName?.trim() || "System"}</span>
+                      <span className="mt-1 block text-[11px] leading-4 text-slate-500 dark:text-slate-400">
+                        {record.performedByType || "SYSTEM"} / {sourceLabel(record.source)}
                       </span>
                     </td>
-                    <td className="max-w-sm px-4 py-3">
-                      <span className="block font-medium text-slate-800 dark:text-slate-200">
-                        {record.orderNumber ? `#${record.orderNumber}` : record.customerName || "No linked order"}
+                    <td className="px-4 py-4 align-top">
+                      <span className="block break-words text-[12px] font-semibold leading-5 text-slate-800 dark:text-slate-200">
+                        {record.orderNumber ? `Order #${record.orderNumber}` : record.customerName || "No order reference"}
                       </span>
-                      {record.orderNumber && record.customerName && <span className="block text-[10px] text-slate-500">{record.customerName}</span>}
-                      <span className="mt-1 line-clamp-2 block wrap-break-word text-[11px] text-slate-500" title={record.remarks || undefined}>
-                        {record.remarks || "No remarks"}
+                      {record.orderNumber && record.customerName && <span className="mt-0.5 block text-[11px] leading-4 text-slate-500 dark:text-slate-400">{record.customerName}</span>}
+                      <span className="mt-2 line-clamp-2 block wrap-break-word text-[12px] leading-4 text-slate-600 dark:text-slate-400" title={record.remarks || undefined}>
+                        {record.remarks || "No reason recorded"}
                       </span>
                     </td>
                   </tr>
@@ -918,10 +959,10 @@ export default function InventoryTransactionsPage() {
                   </div>
                   <div>
                     <h2 className="font-bold text-slate-900 dark:text-white">
-                      Transaction Details
+                      Audit record
                     </h2>
                     <p className="text-xs text-slate-500">
-                      Comprehensive audit record
+                      Inventory change and accountability
                     </p>
                   </div>
                 </div>
@@ -957,25 +998,14 @@ export default function InventoryTransactionsPage() {
                     </p>
                   </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
+                <StockTransition record={selectedRecord} />
                   <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-                    <p className="text-xs text-slate-500">Stock transition</p>
-                    <p className="mt-2 text-lg font-semibold tabular-nums">
-                      {stockTransitionLabel(selectedRecord)}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">Before {"->"} After</p>
-                  </div>
-                </div>
-                <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
                   <div className="flex items-center gap-2 text-xs font-semibold">
                     <Clock className="h-4 w-4 text-slate-400" />
                     Recorded date and time
                   </div>
                   <p className="mt-2 text-sm">
                     {new Date(selectedRecord.createdAt).toLocaleString()}
-                  </p>
-                  <p className="mt-1 break-all font-mono text-[11px] text-slate-400">
-                    {selectedRecord.createdAt}
                   </p>
                 </div>
                 <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
@@ -996,62 +1026,47 @@ export default function InventoryTransactionsPage() {
                     )}
                   </dl>
                 </div>
+                {selectedRecord.events && selectedRecord.events.length > 0 && (
+                  <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
+                    <div className="flex items-center gap-2 text-xs font-semibold">
+                      <Archive className="h-4 w-4 text-slate-400" />
+                      Archive history
+                    </div>
+                    <ol className="mt-3 space-y-3">
+                      {selectedRecord.events.map((event) => (
+                        <li key={event.id} className="border-l-2 border-amber-300 pl-3 dark:border-amber-700">
+                          <p className="text-xs font-semibold">{event.action === "ARCHIVED" ? "Archived" : "Restored"} by {event.actorName || "Unknown user"} ({event.actorType || "Unknown role"})</p>
+                          <p className="mt-1 text-xs text-slate-500">{new Date(event.createdAt).toLocaleString()}</p>
+                          <p className="mt-1 whitespace-pre-wrap wrap-break-word text-xs">{event.reason}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
                 <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
                   <div className="flex items-center gap-2 text-xs font-semibold">
-                    <Package className="h-4 w-4 text-slate-400" />
-                    Item details
+                    <User className="h-4 w-4 text-slate-400" />
+                    Item and source
                   </div>
-                  <p className="mt-3 text-xs text-slate-500">Product</p>
-                  <p className="font-semibold">
+                  <p className="mt-3 font-semibold">
                     {selectedRecord.productDisplayName ||
                       selectedRecord.productName ||
                       selectedRecord.product?.name ||
                       "Unknown product"}
                   </p>
-                  {selectedRecord.variantLabel && (
-                    <p className="mt-1 text-sm text-slate-500">
-                      {selectedRecord.variantLabel}
-                    </p>
-                  )}
-                </div>
-                <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-                  <div className="flex items-center gap-2 text-xs font-semibold">
-                    <User className="h-4 w-4 text-slate-400" />
-                    Actor and channel
-                  </div>
-                  <p className="mt-3">
-                    {selectedRecord.performedByName || "System"} (
-                    {selectedRecord.performedByType || "SYSTEM"})
+                  {selectedRecord.variantLabel && <p className="mt-0.5 text-sm text-slate-500">{selectedRecord.variantLabel}</p>}
+                  <p className="mt-3 text-sm">
+                    {selectedRecord.performedByName?.trim() || "System"} · {selectedRecord.performedByType || "SYSTEM"}
                   </p>
-                  <p className="text-sm text-slate-500">
-                    {sourceLabel(selectedRecord.source)}
-                    {selectedRecord.orderNumber
-                      ? ` | #${selectedRecord.orderNumber}`
-                      : ""}
-                  </p>
+                  <p className="text-xs text-slate-500">{sourceLabel(selectedRecord.source)}{selectedRecord.orderNumber ? ` · Order #${selectedRecord.orderNumber}` : ""}</p>
+                  {selectedRecord.customerName && <p className="mt-1 text-xs text-slate-500">Customer: {selectedRecord.customerName}</p>}
                 </div>
-                  {(selectedRecord.paymentMethod || selectedRecord.paymentStatus || selectedRecord.paymentReference) && (
-                    <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
-                      <div className="flex items-center gap-2 text-xs font-semibold">
-                        <FileText className="h-4 w-4 text-slate-400" />
-                        Payment audit
-                      </div>
-                      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-xs">
-                        <dt className="text-slate-500">Method</dt>
-                        <dd className="text-right">{selectedRecord.paymentMethod || "Not recorded"}</dd>
-                        <dt className="text-slate-500">Status</dt>
-                        <dd className="text-right">{selectedRecord.paymentStatus || "Not recorded"}</dd>
-                        <dt className="text-slate-500">Reference</dt>
-                        <dd className="break-all text-right font-mono text-[11px]">{selectedRecord.paymentReference || "Not recorded"}</dd>
-                      </dl>
-                    </div>
-                  )}
                 <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-800">
                   <div className="flex items-center gap-2 text-xs font-semibold">
                     <FileText className="h-4 w-4 text-slate-400" />
-                    Full audit remarks
+                    Reason and notes
                   </div>
-                  <p className="mt-3 whitespace-pre-wrap wrap-break-word rounded-lg border border-slate-200 bg-slate-50 p-3 font-mono text-xs dark:border-slate-700 dark:bg-slate-800/70">
+                  <p className="mt-3 whitespace-pre-wrap wrap-break-word rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/70">
                     {selectedRecord.remarks ||
                       "No remarks provided for this transaction entry."}
                   </p>

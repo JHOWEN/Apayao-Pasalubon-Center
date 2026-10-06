@@ -17,9 +17,13 @@ export class InsufficientStockError extends Error {
 }
 
 type InventoryAuditContext = {
+  actorUserId?: string | null;
+  orderId?: string | null;
   eventType?: string | null;
   reservedBefore?: number | null;
   reservedAfter?: number | null;
+  minStockBefore?: number | null;
+  minStockAfter?: number | null;
   performedByType?: "ADMIN" | "STAFF" | "SYSTEM" | "CUSTOMER";
   source?: "INVENTORY" | "POS" | "ECOMMERCE" | "ADMIN";
   customerName?: string | null;
@@ -100,15 +104,17 @@ export async function applyOrderInventoryMovement(
     let stockBefore: number;
     let stockAfter: number;
     let productName: string | null = null;
+    let variantSku: string | null = null;
 
     if (item.variantId) {
       const variant = await tx.productVariant.findUnique({
         where: { id: item.variantId },
-        select: { id: true, stock: true, isActive: true, product: { select: { name: true, isActive: true } } },
+        select: { id: true, sku: true, stock: true, isActive: true, product: { select: { name: true, isActive: true } } },
       });
 
       stockBefore = Number(variant?.stock ?? 0);
       productName = variant?.product.name ?? null;
+      variantSku = variant?.sku ?? null;
       if (!variant || !variant.product.isActive || (type === "STOCK_OUT" && !variant.isActive) || !isInventoryMovementAllowed(item, type, stockBefore)) {
         if (type === "STOCK_OUT") throw new InsufficientStockError(productName ?? item.productId);
         continue;
@@ -155,12 +161,17 @@ export async function applyOrderInventoryMovement(
       data: {
         productId: item.productId,
         productName,
+        orderId: auditContext.orderId ?? null,
+        performedById: auditContext.actorUserId ?? null,
         variantId: item.variantId || null,
+        variantSku,
         type,
         eventType: auditContext.eventType ?? (type === "STOCK_OUT" ? "STOCK_OUT" : type === "RETURN" ? "RETURN" : "STOCK_IN"),
         quantity,
         stockBefore,
         stockAfter,
+        minStockBefore: auditContext.minStockBefore ?? null,
+        minStockAfter: auditContext.minStockAfter ?? null,
         reservedBefore: auditContext.reservedBefore ?? (auditContext.eventType === "RESERVATION_CREATED" || auditContext.eventType === "RESERVATION_RELEASED" ? (auditContext.eventType === "RESERVATION_RELEASED" ? quantity : 0) : null),
         reservedAfter: auditContext.reservedAfter ?? (auditContext.eventType === "RESERVATION_CREATED" || auditContext.eventType === "RESERVATION_RELEASED" ? (auditContext.eventType === "RESERVATION_CREATED" ? quantity : 0) : null),
         remarks,
@@ -198,7 +209,7 @@ export async function recordInventoryLifecycleEvent(
   await Promise.all(items.map(async (item) => {
     const quantity = Number(item.quantity ?? 0);
     const variant = item.variantId
-      ? await tx.productVariant.findUnique({ where: { id: item.variantId }, select: { stock: true } })
+      ? await tx.productVariant.findUnique({ where: { id: item.variantId }, select: { sku: true, stock: true } })
       : null;
     const product = await tx.product.findUnique({ where: { id: item.productId }, select: { name: true, stock: true } });
     const stock = Number(variant?.stock ?? product?.stock ?? 0);
@@ -209,7 +220,10 @@ export async function recordInventoryLifecycleEvent(
       data: {
         productId: item.productId,
         productName: product?.name ?? null,
+        orderId: auditContext.orderId ?? null,
+        performedById: auditContext.actorUserId ?? null,
         variantId: item.variantId || null,
+        variantSku: variant?.sku ?? null,
         type: "ADJUSTMENT",
         eventType,
         quantity: 0,

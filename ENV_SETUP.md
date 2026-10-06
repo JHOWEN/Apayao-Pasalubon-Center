@@ -15,6 +15,7 @@ NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-super-secret-random-string-here
 NEXT_PUBLIC_APP_URL=https://your-canonical-app-domain.example
 JWT_SECRET=generate-a-unique-secret-with-at-least-32-random-bytes
+ADMIN_ROUTE_KEY=generate-a-unique-url-safe-key-with-at-least-32-random-bytes
 EMAIL_VERIFICATION_SECRET=generate-a-separate-unique-secret-with-at-least-32-random-bytes
 PASSWORD_RESET_SECRET=generate-another-unique-secret-with-at-least-32-random-bytes
 
@@ -130,6 +131,15 @@ Rate limiting uses Upstash Redis in production so multiple application
 instances share the same login and API limits. Keep the Redis credentials
 server-only. PostgreSQL remains the fallback when Redis is not configured or
 temporarily unavailable, with an in-memory fallback during database failure.
+
+`ADMIN_ROUTE_KEY` controls the opaque prefix for admin pages and admin APIs.
+Generate at least 32 random bytes encoded as URL-safe base64, configure the
+same value on every application instance, and keep it server-only. Direct
+admin URLs redirect to the prefixed URLs after authentication; both the
+prefixed pages and their APIs still require a valid admin or staff session.
+Successful admin API actions and individual database mutations are written to
+the `AdminAuditLog` table. Login attempts, including rejected and throttled
+attempts, are written there as well.
 
 ## Testing Configuration
 

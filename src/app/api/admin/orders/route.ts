@@ -401,6 +401,8 @@ export async function POST(request: Request) {
           `Walk-in sale ${createdOrder.orderNumber} completed`,
           authCheck.user?.name,
           {
+            actorUserId: authCheck.payload.sub,
+            orderId: createdOrder.id,
             performedByType: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
             source: "POS",
             customerName: createdOrder.customerName,
@@ -562,6 +564,8 @@ export async function PUT(request: Request) {
           `Order ${existingOrder.orderNumber} completed`,
           authCheck.user?.name,
           {
+            actorUserId: authCheck.payload.sub,
+            orderId: existingOrder.id,
             performedByType: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
             source: "ECOMMERCE",
             customerName: existingOrder.customerName,
@@ -585,6 +589,8 @@ export async function PUT(request: Request) {
           `Order ${existingOrder.orderNumber} completed - reservation completed; no additional stock deduction`,
           authCheck.user?.name,
           {
+            actorUserId: authCheck.payload.sub,
+            orderId: existingOrder.id,
             performedByType: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
             source: "ECOMMERCE",
             customerName: existingOrder.customerName,
@@ -608,6 +614,8 @@ export async function PUT(request: Request) {
           `Order ${existingOrder.orderNumber} cancelled - stock returned`,
           authCheck.user?.name,
           {
+            actorUserId: authCheck.payload.sub,
+            orderId: existingOrder.id,
             performedByType: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
             source: movementSource,
             customerName: existingOrder.customerName,

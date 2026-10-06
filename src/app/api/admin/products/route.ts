@@ -278,6 +278,7 @@ export async function POST(request: Request) {
           data: {
             productId: createdProduct.id,
             productName: createdProduct.name,
+            performedById: userId,
             type: "STOCK_IN",
             eventType: "STOCK_IN",
             quantity: initialStock,
@@ -295,20 +296,25 @@ export async function POST(request: Request) {
         await tx.productVariant.createMany({ data: normalizedVariants.map((variant) => ({ productId: createdProduct.id, ...variant })) });
         const createdVariants = await tx.productVariant.findMany({ where: { productId: createdProduct.id }, select: { id: true, sku: true, stock: true } });
         await tx.inventoryTransaction.createMany({
-          data: normalizedVariants.filter((variant) => variant.stock > 0).map((variant) => ({
-            productId: createdProduct.id,
-            variantId: createdVariants.find((createdVariant) => createdVariant.sku === variant.sku)?.id,
-            productName: createdProduct.name,
-            type: "STOCK_IN" as const,
-            eventType: "STOCK_IN",
-            quantity: variant.stock,
-            stockBefore: 0,
-            stockAfter: variant.stock,
-            remarks: `Initial stock - variant ${variant.sku}`,
-            performedByName: actor?.name ?? null,
-            performedByType: actor?.role ?? "ADMIN",
-            source: "INVENTORY",
-          })),
+          data: normalizedVariants.filter((variant) => variant.stock > 0).map((variant) => {
+            const createdVariant = createdVariants.find((entry) => entry.sku === variant.sku);
+            return {
+              productId: createdProduct.id,
+              variantId: createdVariant?.id,
+              variantSku: createdVariant?.sku,
+              productName: createdProduct.name,
+              performedById: userId,
+              type: "STOCK_IN" as const,
+              eventType: "STOCK_IN",
+              quantity: variant.stock,
+              stockBefore: 0,
+              stockAfter: variant.stock,
+              remarks: `Initial stock - variant ${variant.sku}`,
+              performedByName: actor?.name ?? null,
+              performedByType: actor?.role ?? "ADMIN",
+              source: "INVENTORY",
+            };
+          }),
         });
       }
 
@@ -341,6 +347,7 @@ export async function PUT(request: Request) {
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
+    const actor = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } });
 
     const body = await request.json();
     if (!body.id) {
@@ -364,6 +371,12 @@ export async function PUT(request: Request) {
     if (typeof body.cost !== "undefined") updateData.cost = Number(body.cost ?? 0);
     if (typeof body.stock !== "undefined") updateData.stock = Number(body.stock ?? 0);
     if (typeof body.minStock !== "undefined") updateData.minStock = Number(body.minStock ?? 5);
+    if (typeof updateData.stock === "number" && (!Number.isInteger(updateData.stock) || updateData.stock < 0)) {
+      return NextResponse.json({ success: false, message: "Stock must be a non-negative whole number." }, { status: 400 });
+    }
+    if (typeof updateData.minStock === "number" && (!Number.isInteger(updateData.minStock) || updateData.minStock < 0)) {
+      return NextResponse.json({ success: false, message: "Minimum stock must be a non-negative whole number." }, { status: 400 });
+    }
     if (typeof body.isActive !== "undefined") updateData.isActive = body.isActive;
     if (typeof body.sellingMode === "string" && ["SIMPLE", "PARENT_AND_VARIANTS"].includes(body.sellingMode)) updateData.sellingMode = body.sellingMode;
       if (typeof body.status === "string" && ["DRAFT", "PUBLISHED", "UNPUBLISHED", "ARCHIVED"].includes(body.status)) updateData.status = body.status;
@@ -391,6 +404,10 @@ export async function PUT(request: Request) {
       imageUrl: Array.isArray(variant.imageUrls) ? JSON.stringify(variant.imageUrls.filter((value: unknown): value is string => typeof value === "string" && Boolean(value.trim())).map((value: string) => value.trim())) : undefined,
     })).filter((variant: { id: string }) => variant.id);
 
+    if (productVariantUpdates.some((variant) => typeof variant.minStock === "number" && (!Number.isInteger(variant.minStock) || variant.minStock < 0))) {
+      return NextResponse.json({ success: false, message: "Variant minimum stock must be a non-negative whole number." }, { status: 400 });
+    }
+
     if (!Object.keys(updateData).length) {
       return NextResponse.json({ success: false, message: "No product data to update." }, { status: 400 });
     }
@@ -414,11 +431,65 @@ export async function PUT(request: Request) {
       : updateData;
 
     const product = await prisma.$transaction(async (tx) => {
+      const originalProduct = await tx.product.findUnique({
+        where: { id: String(body.id) },
+        select: { stock: true, minStock: true },
+      });
+      if (!originalProduct) throw new Error("Product not found.");
+
       const updated = await tx.product.update({
         where: { id: String(body.id) },
         data: productUpdateData,
         include: { category: true, variants: true },
       });
+
+      const previousStock = Number(originalProduct.stock);
+      const nextStock = Number(updated.stock);
+      if (previousStock !== nextStock) {
+          await tx.inventoryTransaction.create({
+            data: {
+              productId: updated.id,
+              productName: updated.name,
+              performedById: userId,
+              performedByName: actor?.name ?? null,
+              performedByType: actor?.role ?? "ADMIN",
+              source: "INVENTORY",
+              type: "ADJUSTMENT",
+              eventType: "ADJUSTMENT",
+              quantity: nextStock,
+              stockBefore: previousStock,
+              stockAfter: nextStock,
+              remarks: typeof body.stockChangeReason === "string" && body.stockChangeReason.trim()
+                ? body.stockChangeReason.trim().slice(0, 500)
+                : "Stock quantity updated from product management",
+            },
+          });
+      }
+
+      const previousMinStock = Number(originalProduct.minStock);
+      const nextMinStock = Number(updated.minStock);
+      if (previousMinStock !== nextMinStock) {
+          await tx.inventoryTransaction.create({
+            data: {
+              productId: updated.id,
+              productName: updated.name,
+              performedById: userId,
+              performedByName: actor?.name ?? null,
+              performedByType: actor?.role ?? "ADMIN",
+              source: "INVENTORY",
+              type: "ADJUSTMENT",
+              eventType: "THRESHOLD_ADJUSTMENT",
+              quantity: nextMinStock,
+              stockBefore: Number(updated.stock),
+              stockAfter: Number(updated.stock),
+              minStockBefore: previousMinStock,
+              minStockAfter: nextMinStock,
+              remarks: typeof body.minStockChangeReason === "string" && body.minStockChangeReason.trim()
+                ? body.minStockChangeReason.trim().slice(0, 500)
+                : "Minimum stock threshold updated from product management",
+            },
+          });
+      }
 
       for (const variant of productVariantUpdates) {
         const data: Record<string, unknown> = {};
@@ -429,7 +500,35 @@ export async function PUT(request: Request) {
         if (typeof variant.attributes !== "undefined") data.attributes = variant.attributes;
         if (typeof variant.imageUrl !== "undefined") data.imageUrl = variant.imageUrl;
         if (Object.keys(data).length) {
-          await tx.productVariant.update({ where: { id: variant.id, productId: updated.id }, data });
+          const existingVariant = await tx.productVariant.findFirst({
+            where: { id: variant.id, productId: updated.id },
+            select: { minStock: true, stock: true, sku: true },
+          });
+          const updatedVariant = await tx.productVariant.update({ where: { id: variant.id, productId: updated.id }, data });
+          if (existingVariant && typeof variant.minStock !== "undefined" && existingVariant.minStock !== updatedVariant.minStock) {
+            await tx.inventoryTransaction.create({
+              data: {
+                productId: updated.id,
+                variantId: updatedVariant.id,
+                variantSku: existingVariant.sku,
+                productName: updated.name,
+                performedById: userId,
+                performedByName: actor?.name ?? null,
+                performedByType: actor?.role ?? "ADMIN",
+                source: "INVENTORY",
+                type: "ADJUSTMENT",
+                eventType: "THRESHOLD_ADJUSTMENT",
+                quantity: updatedVariant.minStock,
+                stockBefore: existingVariant.stock,
+                stockAfter: existingVariant.stock,
+                minStockBefore: existingVariant.minStock,
+                minStockAfter: updatedVariant.minStock,
+                remarks: typeof body.minStockChangeReason === "string" && body.minStockChangeReason.trim()
+                  ? body.minStockChangeReason.trim().slice(0, 500)
+                  : "Minimum stock threshold updated from product management",
+              },
+            });
+          }
         }
       }
 

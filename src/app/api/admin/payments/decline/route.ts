@@ -112,6 +112,8 @@ export async function POST(request: Request) {
           `Order ${order.orderNumber} cancelled - stock returned`,
           actor?.name,
           {
+            actorUserId: authCheck.payload.sub,
+            orderId: order.id,
             performedByType: actor?.role === "STAFF" ? "STAFF" : "ADMIN",
             source,
             customerName: order.customerName,

@@ -88,8 +88,9 @@ export async function expireWalletReservations(now = new Date(), limit = 50) {
             })),
             "RETURN",
             `Order ${candidate.orderNumber} expired - stock returned`,
-            null,
+            "Reservation expiry",
             {
+              orderId: candidate.id,
               performedByType: "SYSTEM",
               source: "ECOMMERCE",
               orderNumber: candidate.orderNumber,

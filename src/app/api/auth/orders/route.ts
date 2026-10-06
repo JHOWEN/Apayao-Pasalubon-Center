@@ -329,6 +329,8 @@ export async function POST(request: Request) {
         `Order ${createdOrder.orderNumber} placed - stock reserved`,
         user.name,
         {
+          actorUserId: user.id,
+          orderId: createdOrder.id,
           performedByType: "CUSTOMER",
           source: "ECOMMERCE",
           customerName: createdOrder.customerName,
@@ -466,6 +468,8 @@ export async function PUT(request: Request) {
             `Order ${existingOrder.orderNumber} cancelled - stock returned`,
             user.name,
             {
+              actorUserId: user.id,
+              orderId: existingOrder.id,
               performedByType: "CUSTOMER",
               source: "ECOMMERCE",
               customerName: existingOrder.customerName,

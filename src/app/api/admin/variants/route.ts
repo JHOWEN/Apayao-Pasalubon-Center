@@ -35,7 +35,7 @@ export async function POST(request: Request) {
       if (stock > 0) {
         const product = await tx.product.findUnique({ where: { id: productId }, select: { name: true } });
         await tx.inventoryTransaction.create({
-          data: { productId, variantId: created.id, productName: product?.name ?? null, type: "STOCK_IN", eventType: "STOCK_IN", quantity: stock, stockBefore: 0, stockAfter: stock, remarks: `Initial stock - variant ${sku}`, performedByName: actor?.name ?? null, performedByType: actor?.role ?? "ADMIN", source: "INVENTORY" },
+          data: { productId, variantId: created.id, variantSku: created.sku, productName: product?.name ?? null, type: "STOCK_IN", eventType: "STOCK_IN", quantity: stock, stockBefore: 0, stockAfter: stock, remarks: `Initial stock - variant ${sku}`, performedById: userId, performedByName: actor?.name ?? null, performedByType: actor?.role ?? "ADMIN", source: "INVENTORY" },
         });
       }
 

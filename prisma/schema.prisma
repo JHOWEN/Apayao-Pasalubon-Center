@@ -31,6 +31,8 @@ model User {
   reviews                         ProductReview[]
   authSessions                    AuthSession[]
   orderEvents                     OrderEvent[]     @relation("OrderEventActor")
+  inventoryTransactions           InventoryTransaction[]      @relation("InventoryTransactionActor")
+  inventoryTransactionEvents      InventoryTransactionEvent[] @relation("InventoryTransactionEventActor")
 
   @@index([role])
 }
@@ -150,6 +152,7 @@ model Order {
   user              User?         @relation(fields: [userId], references: [id])
   items             OrderItem[]
   events            OrderEvent[]
+  inventoryTransactions InventoryTransaction[]
 
   @@index([status, createdAt])
   @@index([paymentStatus, createdAt])
@@ -203,11 +206,15 @@ model InventoryTransaction {
   id               String          @id @default(cuid())
   productId        String?
   productName      String?
+  orderId          String?
+  performedById    String?
   type             InventoryType
   eventType        String?
   quantity         Int
   stockBefore      Int?
   stockAfter       Int?
+  minStockBefore   Int?
+  minStockAfter    Int?
   reservedBefore   Int?
   reservedAfter    Int?
   remarks          String?
@@ -223,14 +230,38 @@ model InventoryTransaction {
   isArchived       Boolean         @default(false)
   archivedAt       DateTime?
   variantId        String?
+  variantSku       String?
   product          Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
   variant          ProductVariant? @relation(fields: [variantId], references: [id])
+  order            Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  performedBy      User?           @relation("InventoryTransactionActor", fields: [performedById], references: [id], onDelete: SetNull)
+  events           InventoryTransactionEvent[]
 
   @@index([type, createdAt])
   @@index([eventType, createdAt])
   @@index([orderNumber])
   @@index([variantId, createdAt])
   @@index([source, createdAt])
+  @@index([orderId, createdAt])
+  @@index([performedById, createdAt])
+}
+
+model InventoryTransactionEvent {
+  id                    String                          @id @default(cuid())
+  transactionId         String
+  action                InventoryTransactionEventAction
+  actorUserId           String?
+  actorName             String?
+  actorType             String?
+  reason                String
+  previousArchivedState Boolean
+  newArchivedState      Boolean
+  createdAt             DateTime                        @default(now())
+  transaction           InventoryTransaction            @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  actor                 User?                           @relation("InventoryTransactionEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([transactionId, createdAt])
+  @@index([actorUserId, createdAt])
 }
 
 model ProductGroup {
@@ -357,6 +388,11 @@ enum InventoryType {
   STOCK_OUT
   ADJUSTMENT
   RETURN
+}
+
+enum InventoryTransactionEventAction {
+  ARCHIVED
+  RESTORED
 }
 
 enum ProductGroupStatus {

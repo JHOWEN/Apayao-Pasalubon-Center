@@ -25,6 +25,7 @@ Required for the current production app:
 | `DATABASE_URL`                                       | Reachable PostgreSQL connection string for the selected environment.                            |
 | `NEXT_PUBLIC_APP_URL`                                | Canonical HTTPS origin, for example `https://shop.example.com`; used to construct email links.  |
 | `JWT_SECRET`                                         | Signs 10-minute access tokens. Use a unique random secret of at least 32 bytes.                 |
+| `ADMIN_ROUTE_KEY`                                    | Random URL-safe key of at least 32 bytes used to prefix admin pages and APIs. Keep server-only and consistent across instances. |
 | `EMAIL_VERIFICATION_SECRET`                          | Signs verification links; use a separate unique random secret.                                  |
 | `PASSWORD_RESET_SECRET`                              | Signs password-reset links; use a separate unique random secret.                                |
 | `SUPABASE_URL`                                       | Supabase project URL used by the Storage adapter.                                               |
@@ -49,7 +50,7 @@ Login stores only a hash of each rotating refresh token in PostgreSQL (7 days by
 
 1. From a clean release branch, run `npx prisma validate`.
 2. Review the pending migration files and take a database backup or snapshot.
-3. Apply already-created migrations to the production database with `npx prisma migrate deploy`. Do not use `prisma migrate dev` against production.
+3. Apply already-created migrations to the production database with `npx prisma migrate deploy`. This creates the `AdminAuditLog` table. Do not use `prisma migrate dev` against production.
 4. Verify Vercel's production `DATABASE_URL` points to the intended database, then check `GET /api/health` after deployment. It should return HTTP 200 with the database check marked `ok`.
 
 ## 4. Configure email and verify links

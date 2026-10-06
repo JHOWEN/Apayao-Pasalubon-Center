@@ -418,8 +418,8 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {/* 4-Card KPI Metric Summary Grid */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {/* 3-Card KPI Metric Summary Grid */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Customers</span>
