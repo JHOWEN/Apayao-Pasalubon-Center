@@ -97,7 +97,7 @@ export default function CartPage() {
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <main className="min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
+    <main className="storefront-page-cart min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6">
         
         {/* Navigation Breadcrumb */}

@@ -2,12 +2,14 @@
 
 import Image from "@/components/safe-image";
 import Link from "next/link";
-import { Minus, Plus, ShoppingBag, Star, X } from "lucide-react";
+import { Heart, Minus, Plus, ShoppingBag, Star, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { addToCart, getStoredUser } from "@/features/cart/lib/cart";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
+import { cleanProductDescription } from "@/features/catalog/utils/product-text";
+import { isFavoriteProduct, recordRecentlyViewed, toggleFavoriteProduct } from "@/features/catalog/lib/favorites";
 
 interface ProductCardProps {
   id: string;
@@ -56,6 +58,7 @@ export function ProductCard({
   const [selectedVariantId, setSelectedVariantId] = useState(variants[0]?.id ?? "");
   const [quantity, setQuantity] = useState(1);
   const [quantityInput, setQuantityInput] = useState("1");
+  const [isFavorite, setIsFavorite] = useState(() => isFavoriteProduct(id));
   const totalAvailableStock = hasVariants
     ? variants.reduce((total, variant) => total + Math.max(0, variant.stock), 0)
     : Math.max(0, stock);
@@ -64,9 +67,20 @@ export function ProductCard({
   const primaryImage = getPrimaryImageUrl(imageUrl);
   const selectedVariantImage = getPrimaryImageUrl(selectedVariant?.imageUrls?.[0]);
   const activeVariantImage = selectedVariantImage || primaryImage;
+  const catalogDescription = cleanProductDescription(description, "Authentic local product from Apayao.");
   const variantAttributeName = variants.flatMap((variant) => Object.keys(variant.attributes ?? {}))[0] ?? "";
   const displayPrice = hasVariants && variants[0] ? variants[0].price : price;
   const roundedRating = Math.round(averageRating);
+
+  function handleFavorite(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsFavorite(toggleFavoriteProduct({ id, name, imageUrl: primaryImage, price: displayPrice }));
+  }
+
+  function rememberProduct() {
+    recordRecentlyViewed({ id, name, imageUrl: primaryImage, price: displayPrice });
+  }
 
   function getVariantLabel(variant: NonNullable<ProductCardProps["variants"]>[number]) {
     return Object.entries(variant.attributes ?? {})
@@ -117,19 +131,20 @@ export function ProductCard({
   }
 
   return (
-    <article className="storefront-product-card group flex h-full flex-col overflow-hidden rounded-lg border border-white/10 bg-[#12141c] transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:shadow-[0_8px_20px_rgba(32,39,32,0.09)]">
+    <article className="storefront-product-card group relative flex h-full flex-col overflow-hidden rounded-lg border border-white/10 bg-[#12141c] transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:shadow-[0_8px_20px_rgba(32,39,32,0.09)]">
       {/* Product Image Area */}
-      <Link href={`/products/${id}`} className="relative block shrink-0 overflow-hidden bg-[#181b24]">
-        <div className="relative aspect-square w-full overflow-hidden">
-          <Image
-            src={activeVariantImage || "/logo/apc-logo.png"}
-            alt={name}
-            fill
-            priority={priority}
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-          />
-        </div>
+      <div className="relative shrink-0">
+        <Link href={`/products/${id}`} onClick={rememberProduct} className="relative block overflow-hidden bg-[#181b24]">
+          <div className="relative aspect-square w-full overflow-hidden">
+            <Image
+              src={activeVariantImage || "/logo/apc-logo.png"}
+              alt={name}
+              fill
+              priority={priority}
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+            />
+          </div>
 
         {/* Floating Top Badges */}
         <div className="pointer-events-none absolute left-2.5 right-2.5 top-2.5 z-20 flex items-start justify-between gap-1.5">
@@ -173,19 +188,30 @@ export function ProductCard({
             </span>
           </div>
         )}
-      </Link>
+        </Link>
+
+        <button
+          type="button"
+          onClick={handleFavorite}
+          aria-label={isFavorite ? `Remove ${name} from favorites` : `Save ${name} to favorites`}
+          aria-pressed={isFavorite}
+          className="storefront-favorite absolute bottom-2.5 right-3 z-30 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white backdrop-blur-md transition hover:scale-105"
+        >
+          <Heart className={`h-4 w-4 ${isFavorite ? "fill-current" : ""}`} />
+        </button>
+      </div>
 
       {/* Product Details Body */}
       <div className="flex flex-1 flex-col p-3.5 sm:p-4">
         {/* Name */}
-        <Link href={`/products/${id}`} className="block">
+        <Link href={`/products/${id}`} onClick={rememberProduct} className="block">
           <h3 className="line-clamp-2 text-sm font-semibold tracking-tight text-white transition-colors group-hover:text-[#ffb36f] sm:text-base leading-snug">
             {name}
           </h3>
         </Link>
 
-        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-400">
-          {description ?? "Authentic local product from Apayao."}
+        <p className="mt-2 min-h-10 line-clamp-2 break-words text-[11px] leading-5 text-slate-400 sm:text-xs">
+          {catalogDescription}
         </p>
 
         {/* Rating & Sold count */}
@@ -207,26 +233,10 @@ export function ProductCard({
           </span>
         </div>
 
-        {/* Price & Stocks Badge */}
-        <div className="mt-3 flex flex-col items-stretch gap-2 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
+        {/* Price */}
+        <div className="mt-3 border-t border-white/10 pt-3">
           <span className="text-base font-bold text-white sm:text-lg">
             ₱{Number(displayPrice).toFixed(2)}
-          </span>
-          <span className={`inline-flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold sm:w-auto sm:py-0.5 ${
-            isAvailable
-              ? totalAvailableStock <= 5
-                ? "border-amber-400/30 bg-amber-500/15 text-amber-300"
-                : "border-emerald-400/30 bg-emerald-500/15 text-emerald-300"
-              : "border-rose-400/30 bg-rose-500/15 text-rose-300"
-          }`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${
-              isAvailable
-                ? totalAvailableStock <= 5 ? "bg-amber-400" : "bg-emerald-400"
-                : "bg-rose-400"
-            }`} />
-            {isAvailable
-              ? totalAvailableStock <= 5 ? `${totalAvailableStock} left` : `${totalAvailableStock} in stock`
-              : "Out of stock"}
           </span>
         </div>
 

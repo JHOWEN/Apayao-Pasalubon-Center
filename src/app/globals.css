@@ -189,7 +189,7 @@ textarea:focus-visible {
   }
 
   .storefront-shell .storefront-home .storefront-product-card [class~="bg-[#ff8a1e]"] {
-    background-color: #ff8a1e !important;
+    background-color: var(--storefront-accent) !important;
   }
 
   .storefront-shell .storefront-home .storefront-catalog > .flex:first-child {
@@ -247,7 +247,7 @@ textarea:focus-visible {
   }
 
   .storefront-shell main:not(.storefront-home) [class~="bg-[#ff8a1e]"] {
-    background-color: #ff8a1e !important;
+    background-color: var(--storefront-accent) !important;
   }
 
   .storefront-shell .storefront-tracking-summary {
@@ -497,11 +497,11 @@ textarea:focus-visible {
 
   @media (min-width: 64rem) {
     body:has([data-admin-sidebar-collapsed="false"]) .admin-product-modal-backdrop {
-      --admin-sidebar-width: 17.75rem;
+      --admin-sidebar-width: 18rem;
     }
 
     body:has([data-admin-sidebar-collapsed="true"]) .admin-product-modal-backdrop {
-      --admin-sidebar-width: 4.5rem;
+      --admin-sidebar-width: 5rem;
     }
   }
 
@@ -721,4 +721,676 @@ body {
   [class*="inventory-success-"] {
     animation: none;
   }
+}
+
+/* Storefront hierarchy: one calm reading path across cart, checkout, orders,
+   profile, favorites, and product detail. Route markup can keep its behavior
+   while the shell provides consistent type, surfaces, and action emphasis. */
+.storefront-shell main:not(.storefront-home) {
+  min-height: calc(100vh - 9rem);
+  color: var(--storefront-ink) !important;
+}
+
+.storefront-shell main:not(.storefront-home) > div:first-child {
+  width: 100%;
+  max-width: 80rem;
+  margin-inline: auto;
+}
+
+.storefront-shell main:not(.storefront-home) h1 {
+  color: var(--storefront-ink) !important;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(2rem, 4vw, 3.25rem);
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.storefront-shell main:not(.storefront-home) h2 {
+  color: var(--storefront-ink) !important;
+  letter-spacing: -0.02em;
+}
+
+.storefront-shell main:not(.storefront-home) h3 {
+  color: var(--storefront-ink) !important;
+}
+
+.storefront-shell main:not(.storefront-home) p {
+  color: var(--storefront-muted);
+}
+
+.storefront-shell main:not(.storefront-home) [class~="text-white"],
+.storefront-shell main:not(.storefront-home) [class~="text-slate-950"],
+.storefront-shell main:not(.storefront-home) [class~="text-slate-900"],
+.storefront-shell main:not(.storefront-home) [class~="text-slate-800"] {
+  color: var(--storefront-ink) !important;
+}
+
+.storefront-shell main:not(.storefront-home) [class~="text-slate-200"],
+.storefront-shell main:not(.storefront-home) [class~="text-slate-300"],
+.storefront-shell main:not(.storefront-home) [class~="text-slate-400"],
+.storefront-shell main:not(.storefront-home) [class~="text-slate-500"],
+.storefront-shell main:not(.storefront-home) [class~="text-[#B8B8B8]"],
+.storefront-shell main:not(.storefront-home) [class~="text-[#D5D5D5]"] {
+  color: var(--storefront-muted) !important;
+}
+
+.storefront-shell main:not(.storefront-home) [class~="border"],
+.storefront-shell main:not(.storefront-home) [class*="border-white/"],
+.storefront-shell main:not(.storefront-home) [class*="border-slate-"] {
+  border-color: var(--storefront-line) !important;
+}
+
+.storefront-shell main:not(.storefront-home) [class~="bg-[#0a0d14]"],
+.storefront-shell main:not(.storefront-home) [class~="bg-[#0D0D0D]"],
+.storefront-shell main:not(.storefront-home) [class~="bg-[#121212]"],
+.storefront-shell main:not(.storefront-home) [class~="bg-[#12141c]"],
+.storefront-shell main:not(.storefront-home) [class~="bg-[#141414]"],
+.storefront-shell main:not(.storefront-home) [class~="bg-[#151515]"],
+.storefront-shell main:not(.storefront-home) [class~="bg-[#181b24]"],
+.storefront-shell main:not(.storefront-home) [class~="bg-[#202020]"],
+.storefront-shell main:not(.storefront-home) [class~="bg-white"] {
+  background-color: var(--storefront-surface) !important;
+}
+
+.storefront-shell main:not(.storefront-home) [class~="bg-white/5"],
+.storefront-shell main:not(.storefront-home) [class~="bg-white/10"],
+.storefront-shell main:not(.storefront-home) [class~="bg-slate-50"],
+.storefront-shell main:not(.storefront-home) [class~="bg-slate-100"] {
+  background-color: var(--storefront-surface-soft) !important;
+}
+
+.storefront-shell main:not(.storefront-home) [class~="bg-[#ff8a1e]"],
+.storefront-shell main:not(.storefront-home) [class~="bg-[#FF8A1E]"] {
+  background-color: var(--storefront-accent) !important;
+}
+
+.storefront-shell main:not(.storefront-home) [class~="bg-orange-50"],
+.storefront-shell main:not(.storefront-home) [class~="bg-amber-50"],
+.storefront-shell main:not(.storefront-home) [class~="bg-amber-100"] {
+  background-color: var(--storefront-accent-soft) !important;
+}
+
+.storefront-shell main:not(.storefront-home) [class~="text-[#ff8a1e]"],
+.storefront-shell main:not(.storefront-home) [class~="text-[#FF8A1E]"],
+.storefront-shell main:not(.storefront-home) [class~="text-[#ffb36f]"],
+.storefront-shell main:not(.storefront-home) [class~="text-[#FFB36F]"] {
+  color: var(--storefront-accent) !important;
+}
+
+.storefront-shell main:not(.storefront-home) :is(input, select, textarea) {
+  border-color: var(--storefront-line) !important;
+  background-color: var(--storefront-surface) !important;
+  color: var(--storefront-ink) !important;
+}
+
+.storefront-shell main:not(.storefront-home) :is(input, select, textarea)::placeholder {
+  color: var(--storefront-muted) !important;
+}
+
+.storefront-shell main:not(.storefront-home) :is(input, select, textarea):focus {
+  border-color: var(--storefront-accent) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--storefront-accent) 16%, transparent);
+  outline: 0;
+}
+
+.storefront-shell main:not(.storefront-home) img[class~="bg-white"] {
+  background-color: #fff !important;
+}
+
+.storefront-shell main:not(.storefront-home) label {
+  color: var(--storefront-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.storefront-shell main:not(.storefront-home) a,
+.storefront-shell main:not(.storefront-home) button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.storefront-shell main:not(.storefront-home) a[class~="bg-[#ff8a1e]"],
+.storefront-shell main:not(.storefront-home) a[class~="bg-[#FF8A1E]"],
+.storefront-shell main:not(.storefront-home) button[class~="bg-[#ff8a1e]"],
+.storefront-shell main:not(.storefront-home) button[class~="bg-[#FF8A1E]"] {
+  color: var(--storefront-accent-contrast) !important;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--storefront-accent) 24%, transparent);
+}
+
+.storefront-shell main:not(.storefront-home) :is(article, aside, form, section.storefront-appearance) {
+  border-color: var(--storefront-line) !important;
+}
+
+.storefront-shell main.storefront-page-cart > div:first-child,
+.storefront-shell main.storefront-page-orders > div:first-child,
+.storefront-shell main.storefront-page-profile > div:first-child {
+  padding-top: clamp(2rem, 5vw, 4rem);
+}
+
+.storefront-shell main.storefront-page-cart > div:first-child > :first-child,
+.storefront-shell main.storefront-page-orders > div:first-child > :first-child {
+  margin-bottom: 0.5rem;
+}
+
+.storefront-shell main.storefront-page-cart article,
+.storefront-shell main.storefront-page-orders article,
+.storefront-shell main.storefront-page-profile > div:first-child > div,
+.storefront-shell main.storefront-page-profile > div:first-child > section {
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--storefront-ink) 6%, transparent) !important;
+}
+
+.storefront-shell main.storefront-page-cart aside,
+.storefront-shell main.storefront-page-checkout aside {
+  border-top: 3px solid var(--storefront-accent) !important;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--storefront-ink) 8%, transparent) !important;
+}
+
+.storefront-shell main.storefront-page-cart article:hover,
+.storefront-shell main.storefront-page-orders article:hover {
+  border-color: color-mix(in srgb, var(--storefront-accent) 52%, var(--storefront-line)) !important;
+}
+
+.storefront-shell main.storefront-page-checkout > div:first-child {
+  padding-top: clamp(1.5rem, 4vw, 3rem);
+  padding-bottom: clamp(2rem, 5vw, 4rem);
+}
+
+.storefront-shell main.storefront-page-checkout form,
+.storefront-shell main.storefront-page-checkout aside {
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--storefront-ink) 6%, transparent) !important;
+}
+
+.storefront-shell main.storefront-page-checkout form h2,
+.storefront-shell main.storefront-page-checkout aside h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.35rem;
+  letter-spacing: -0.025em;
+}
+
+.storefront-shell main.storefront-page-product > div:first-child {
+  padding-top: clamp(1.5rem, 4vw, 3rem);
+}
+
+.storefront-shell main.storefront-page-product h1 {
+  font-size: clamp(2.1rem, 5vw, 4rem);
+}
+
+.storefront-shell main.storefront-page-product :is([class*="bg-[#12141c"], [class*="bg-[#181b24"], [class*="bg-white"]) {
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--storefront-ink) 6%, transparent);
+}
+
+.storefront-shell main.storefront-page-state > div:first-child {
+  border-color: var(--storefront-line) !important;
+  background: var(--storefront-surface) !important;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--storefront-ink) 8%, transparent) !important;
+}
+
+.storefront-shell main.storefront-page-state > div:first-child h1 {
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+}
+
+@media (max-width: 767px) {
+  .storefront-shell main:not(.storefront-home) > div:first-child {
+    padding-inline: 1rem;
+  }
+
+  .storefront-shell main:not(.storefront-home) h1 {
+    font-size: clamp(1.9rem, 10vw, 2.7rem);
+  }
+
+  .storefront-shell main.storefront-page-cart aside,
+  .storefront-shell main.storefront-page-checkout aside {
+    position: static;
+  }
+}
+
+/* Three-color storefront system: paper, ink, and terracotta accent. */
+.storefront-shell {
+  --storefront-canvas: #f5f1e8;
+  --storefront-surface: #fffdf8;
+  --storefront-surface-soft: #e9e2d5;
+  --storefront-ink: #233027;
+  --storefront-muted: #5c665d;
+  --storefront-line: #d7d0c3;
+  --storefront-accent: #a94f17;
+  --storefront-accent-soft: #f4e3d4;
+  --storefront-accent-contrast: #fffdf8;
+  --storefront-shadow: 0 18px 45px rgba(65, 50, 35, 0.12);
+  color: var(--storefront-ink) !important;
+}
+
+.storefront-shell[data-theme="dark"] {
+  --storefront-canvas: #121914;
+  --storefront-surface: #1c251e;
+  --storefront-surface-soft: #2b372d;
+  --storefront-ink: #f6f1e7;
+  --storefront-muted: #bbc2b9;
+  --storefront-line: #465248;
+  --storefront-accent: #e28a50;
+  --storefront-accent-soft: #3a2b20;
+  --storefront-accent-contrast: #172019;
+  --storefront-shadow: 0 18px 45px rgba(0, 0, 0, 0.24);
+}
+
+.storefront-shell .storefront-subpage,
+.storefront-shell main:not(.storefront-home) {
+  background: var(--storefront-canvas) !important;
+  color: var(--storefront-ink) !important;
+}
+
+.storefront-shell .storefront-subpage [class~="border"],
+.storefront-shell .storefront-subpage [class*="border-white/"],
+.storefront-shell .storefront-subpage [class*="border-slate-"] {
+  border-color: var(--storefront-line) !important;
+}
+
+.storefront-shell .storefront-subpage [class~="text-white"],
+.storefront-shell .storefront-subpage [class~="text-slate-900"],
+.storefront-shell .storefront-subpage [class~="text-slate-800"] {
+  color: var(--storefront-ink) !important;
+}
+
+.storefront-shell .storefront-subpage [class~="text-slate-300"],
+.storefront-shell .storefront-subpage [class~="text-slate-400"],
+.storefront-shell .storefront-subpage [class~="text-slate-500"],
+.storefront-shell .storefront-subpage [class~="text-[#B8B8B8]"],
+.storefront-shell .storefront-subpage [class~="text-[#D5D5D5]"] {
+  color: var(--storefront-muted) !important;
+}
+
+.storefront-shell .storefront-subpage [class~="bg-[#12141c]"],
+.storefront-shell .storefront-subpage [class~="bg-[#181b24]"],
+.storefront-shell .storefront-subpage [class~="bg-white"] {
+  background-color: var(--storefront-surface) !important;
+}
+
+.storefront-shell .storefront-subpage [class~="bg-[#ff8a1e]"],
+.storefront-shell .storefront-subpage [class~="bg-[#FF8A1E]"],
+.storefront-shell .storefront-subpage [class~="bg-orange-500"] {
+  background-color: var(--storefront-accent) !important;
+}
+
+.storefront-shell .storefront-subpage [class~="text-[#ff8a1e]"],
+.storefront-shell .storefront-subpage [class~="text-[#FF8A1E]"],
+.storefront-shell .storefront-subpage [class~="text-[#ffb36f]"],
+.storefront-shell .storefront-subpage [class~="text-[#FFB36F]"] {
+  color: var(--storefront-accent) !important;
+}
+
+.storefront-shell .storefront-favorite {
+  color: var(--storefront-accent-contrast) !important;
+}
+
+.storefront-shell .storefront-favorite[aria-pressed="true"] {
+  color: var(--storefront-accent) !important;
+  border-color: var(--storefront-accent) !important;
+}
+
+.storefront-shell .storefront-mobile-product-cta {
+  border-color: var(--storefront-line) !important;
+  background: color-mix(in srgb, var(--storefront-surface) 94%, transparent) !important;
+}
+
+@media (max-width: 767px) {
+  .storefront-shell .storefront-mobile-product-cta {
+    display: flex;
+  }
+
+  .storefront-shell main:has(.storefront-mobile-product-cta) {
+    padding-bottom: 5.5rem;
+  }
+}
+
+/* Storefront polish: a warm, editorial surface that keeps the shopping path calm. */
+html {
+  scroll-behavior: smooth;
+}
+
+.storefront-shell {
+  --storefront-shadow: 0 10px 24px rgba(58, 45, 31, 0.08);
+  background-image: radial-gradient(circle at 12% 0%, rgba(167, 66, 18, 0.06), transparent 32rem);
+}
+
+.storefront-shell .storefront-announcement {
+  background: var(--storefront-accent-soft) !important;
+  border-color: var(--storefront-line) !important;
+  color: var(--storefront-muted) !important;
+}
+
+.storefront-shell .storefront-announcement-dot {
+  background: var(--storefront-accent) !important;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--storefront-accent) 14%, transparent);
+}
+
+.storefront-shell .storefront-home {
+  background-image:
+    radial-gradient(circle at 85% 8%, rgba(167, 66, 18, 0.08), transparent 24rem),
+    linear-gradient(180deg, var(--storefront-canvas) 0%, #eef0e9 100%) !important;
+}
+
+.storefront-shell .storefront-home .storefront-hero {
+  border-radius: 1.75rem !important;
+  box-shadow: var(--storefront-shadow) !important;
+}
+
+.storefront-shell .storefront-home .storefront-hero-copy {
+  background: linear-gradient(135deg, var(--storefront-surface) 0%, #fbfaf6 100%) !important;
+}
+
+.storefront-shell[data-theme="dark"] .storefront-home {
+  background-image:
+    radial-gradient(circle at 85% 8%, rgba(241, 138, 73, 0.1), transparent 24rem),
+    linear-gradient(180deg, var(--storefront-canvas) 0%, var(--storefront-canvas) 100%) !important;
+}
+
+.storefront-shell[data-theme="dark"] .storefront-home .storefront-hero-copy {
+  background: linear-gradient(135deg, var(--storefront-surface) 0%, var(--storefront-surface-soft) 100%) !important;
+}
+
+.storefront-shell .storefront-home .storefront-hero h1,
+.storefront-shell .storefront-home .storefront-catalog h2,
+.storefront-shell .storefront-home .storefront-how-to h2,
+.storefront-shell .storefront-home .storefront-contact h3 {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: -0.045em;
+  text-wrap: balance;
+}
+
+.storefront-shell .storefront-home .storefront-hero h1 {
+  font-size: clamp(2.25rem, 4.5vw, 4.5rem);
+  line-height: 0.98;
+}
+
+.storefront-shell .storefront-home .storefront-benefits,
+.storefront-shell .storefront-home .storefront-how-to,
+.storefront-shell .storefront-home .storefront-contact {
+  box-shadow: 0 4px 14px rgba(58, 45, 31, 0.05) !important;
+}
+
+.storefront-shell .storefront-home .storefront-benefits > div > div {
+  min-height: 4.25rem;
+  border-right: 1px solid var(--storefront-line);
+}
+
+.storefront-shell .storefront-home .storefront-benefits > div > div:last-child {
+  border-right: 0;
+}
+
+.storefront-shell .storefront-home .storefront-product-card,
+.storefront-shell .storefront-home article[role="link"] {
+  border-radius: 1.25rem !important;
+  box-shadow: 0 3px 10px rgba(58, 45, 31, 0.05) !important;
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease !important;
+}
+
+.storefront-shell .storefront-home .storefront-product-card:hover,
+.storefront-shell .storefront-home article[role="link"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(58, 45, 31, 0.09) !important;
+}
+
+.storefront-shell .storefront-home .storefront-product-card > a:first-child,
+.storefront-shell .storefront-home article[role="link"] > div:first-child {
+  background: #e5e8df !important;
+}
+
+.storefront-shell .storefront-home .storefront-catalog select {
+  color: var(--storefront-ink) !important;
+}
+
+.storefront-shell .storefront-home .storefront-catalog select option {
+  background: var(--storefront-surface);
+  color: var(--storefront-ink);
+}
+
+.storefront-shell .storefront-cart-nudge {
+  border-color: var(--storefront-accent) !important;
+  background: color-mix(in srgb, var(--storefront-surface) 92%, var(--storefront-accent-soft)) !important;
+  color: var(--storefront-ink) !important;
+}
+
+.storefront-shell .storefront-cart-nudge svg,
+.storefront-shell .storefront-cart-nudge span:last-child {
+  color: var(--storefront-accent) !important;
+}
+
+.storefront-shell a,
+.storefront-shell button,
+.storefront-shell select {
+  transition-duration: 180ms;
+}
+
+.storefront-shell button:active,
+.storefront-shell a:active {
+  transform: scale(0.98);
+}
+
+.storefront-shell [data-category-menu] button:focus-visible,
+.storefront-shell select:focus-visible {
+  outline: 2px solid var(--storefront-accent) !important;
+  outline-offset: 3px;
+}
+
+@media (max-width: 767px) {
+  .storefront-shell .storefront-home .storefront-benefits > div > div {
+    border-right: 0;
+  }
+
+  .storefront-shell .storefront-home .storefront-benefits > div > div:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--storefront-line);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .storefront-shell .storefront-product-card,
+  .storefront-shell .storefront-home article[role="link"],
+  .storefront-shell .storefront-cart-nudge {
+    transition: none !important;
+  }
+}
+
+/* Keep interactive feedback visible after the theme token overrides. */
+.storefront-shell main:not(.storefront-home) .storefront-product-card.group:hover h3 {
+  color: var(--storefront-accent) !important;
+}
+
+.storefront-shell main:not(.storefront-home) :is(a, button):focus-visible {
+  outline: 2px solid var(--storefront-accent) !important;
+  outline-offset: 2px;
+}
+
+/* Brand accent override: sampled from the Amber mark (#893101). */
+.storefront-shell {
+  --storefront-accent: #893101 !important;
+  --storefront-accent-readable: #893101 !important;
+  --storefront-accent-soft: #f3e1d6 !important;
+  --storefront-accent-contrast: #fffdf8 !important;
+  --storefront-warning: #893101 !important;
+}
+
+.storefront-shell[data-theme="dark"] {
+  --storefront-accent: #893101 !important;
+  --storefront-accent-readable: #efb18c !important;
+  --storefront-accent-soft: #3b2116 !important;
+  --storefront-accent-contrast: #fffdf8 !important;
+  --storefront-warning: #efb18c !important;
+}
+
+.storefront-shell [class*="text-[#ff8a1e]"],
+.storefront-shell [class*="text-[#FF8A1E]"],
+.storefront-shell [class*="text-[#ffb36f]"],
+.storefront-shell [class*="text-[#FFB36F]"],
+.storefront-shell [class*="text-orange-"],
+.storefront-shell [class*="text-amber-"] {
+  color: var(--storefront-accent-readable) !important;
+}
+
+.storefront-shell [class*="border-[#ff8a1e]"],
+.storefront-shell [class*="border-[#FF8A1E]"],
+.storefront-shell [class*="border-orange-"],
+.storefront-shell [class*="border-amber-"] {
+  border-color: color-mix(in srgb, var(--storefront-accent) 55%, transparent) !important;
+}
+
+.storefront-shell [class~="bg-[#ff8a1e]"],
+.storefront-shell [class~="bg-[#FF8A1E]"],
+.storefront-shell [class~="bg-orange-500"],
+.storefront-shell [class~="bg-amber-500"],
+.storefront-shell [class~="bg-amber-400"],
+.storefront-shell [class~="bg-amber-300"] {
+  background-color: var(--storefront-accent) !important;
+}
+
+.storefront-shell [class*="bg-[#ff8a1e]/5"],
+.storefront-shell [class*="bg-[#FF8A1E]/5"],
+.storefront-shell [class*="bg-orange-500/5"],
+.storefront-shell [class*="bg-amber-500/5"] {
+  background-color: color-mix(in srgb, var(--storefront-accent) 5%, transparent) !important;
+}
+
+.storefront-shell [class*="bg-[#ff8a1e]/10"],
+.storefront-shell [class*="bg-[#FF8A1E]/10"],
+.storefront-shell [class*="bg-orange-500/10"],
+.storefront-shell [class*="bg-amber-500/10"],
+.storefront-shell [class*="bg-amber-400/10"] {
+  background-color: color-mix(in srgb, var(--storefront-accent) 10%, transparent) !important;
+}
+
+.storefront-shell [class*="bg-[#ff8a1e]/15"],
+.storefront-shell [class*="bg-[#FF8A1E]/15"],
+.storefront-shell [class*="bg-orange-500/15"],
+.storefront-shell [class*="bg-amber-500/15"] {
+  background-color: color-mix(in srgb, var(--storefront-accent) 15%, transparent) !important;
+}
+
+.storefront-shell [class*="bg-[#ff8a1e]/20"],
+.storefront-shell [class*="bg-[#FF8A1E]/20"],
+.storefront-shell [class*="bg-orange-500/20"],
+.storefront-shell [class*="bg-amber-500/20"],
+.storefront-shell [class*="bg-amber-400/20"] {
+  background-color: color-mix(in srgb, var(--storefront-accent) 20%, transparent) !important;
+}
+
+.storefront-shell [class*="bg-[#ff8a1e]/25"],
+.storefront-shell [class*="bg-[#FF8A1E]/25"],
+.storefront-shell [class*="bg-orange-500/25"] {
+  background-color: color-mix(in srgb, var(--storefront-accent) 25%, transparent) !important;
+}
+
+.storefront-shell [class*="bg-[#ff8a1e]/30"],
+.storefront-shell [class*="bg-[#FF8A1E]/30"],
+.storefront-shell [class*="bg-orange-500/30"],
+.storefront-shell [class*="bg-amber-500/30"] {
+  background-color: color-mix(in srgb, var(--storefront-accent) 30%, transparent) !important;
+}
+
+.storefront-shell [class*="bg-[#ff8a1e]/40"],
+.storefront-shell [class*="bg-[#FF8A1E]/40"],
+.storefront-shell [class*="bg-orange-500/40"],
+.storefront-shell [class*="bg-amber-500/40"] {
+  background-color: color-mix(in srgb, var(--storefront-accent) 40%, transparent) !important;
+}
+
+.storefront-shell [class*="bg-[#ff8a1e]/50"],
+.storefront-shell [class*="bg-[#FF8A1E]/50"],
+.storefront-shell [class*="bg-orange-500/50"],
+.storefront-shell [class*="bg-amber-950/50"] {
+  background-color: color-mix(in srgb, var(--storefront-accent) 50%, transparent) !important;
+}
+
+.storefront-shell [class*="bg-[#ff8a1e]/60"],
+.storefront-shell [class*="bg-[#FF8A1E]/60"],
+.storefront-shell [class*="bg-orange-500/60"] {
+  background-color: color-mix(in srgb, var(--storefront-accent) 60%, transparent) !important;
+}
+
+.storefront-shell [class*="bg-[#ff8a1e]/85"],
+.storefront-shell [class*="bg-[#FF8A1E]/85"],
+.storefront-shell [class*="bg-orange-500/85"],
+.storefront-shell [class*="bg-amber-500/85"] {
+  background-color: color-mix(in srgb, var(--storefront-accent) 85%, transparent) !important;
+}
+
+.storefront-shell :is(a, button):hover[class*="hover:bg-[#f97316]"],
+.storefront-shell :is(a, button):hover[class*="hover:bg-[#F97316]"],
+.storefront-shell :is(a, button):hover[class*="hover:bg-orange-500"],
+.storefront-shell :is(a, button):hover[class*="hover:bg-amber-500"] {
+  background-color: var(--storefront-accent) !important;
+}
+
+.storefront-shell :is(a, button):hover[class*="hover:text-[#ff8a1e]"],
+.storefront-shell :is(a, button):hover[class*="hover:text-[#FF8A1E]"],
+.storefront-shell :is(a, button):hover[class*="hover:text-[#ffb36f]"],
+.storefront-shell :is(a, button):hover[class*="hover:text-amber-"] {
+  color: var(--storefront-accent-readable) !important;
+}
+
+.storefront-shell :is(input, select, textarea):focus[class*="focus:border-[#ff8a1e]"],
+.storefront-shell :is(input, select, textarea):focus[class*="focus:border-[#FF8A1E]"],
+.storefront-shell :is(input, select, textarea):focus[class*="focus:border-amber-"] {
+  border-color: var(--storefront-accent) !important;
+}
+
+.storefront-shell [class*="ring-[#ff8a1e]"],
+.storefront-shell [class*="ring-[#FF8A1E]"],
+.storefront-shell [class*="ring-amber-"] {
+  --tw-ring-color: var(--storefront-accent) !important;
+}
+
+.storefront-shell [class*="fill-[#ff8a1e]"],
+.storefront-shell [class*="fill-[#FF8A1E]"],
+.storefront-shell [class*="fill-amber-"] {
+  fill: var(--storefront-accent) !important;
+}
+
+.storefront-shell [class*="rgba(255,138,30"] {
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--storefront-accent) 24%, transparent) !important;
+}
+
+.storefront-shell [class*="from-[#ff8a1e]"],
+.storefront-shell [class*="from-orange-500"],
+.storefront-shell [class*="via-amber-500"],
+.storefront-shell [class*="to-amber-500"],
+.storefront-shell [class*="to-orange-500"] {
+  background-image: linear-gradient(90deg, var(--storefront-accent), var(--storefront-accent)) !important;
+}
+
+.storefront-shell .storefront-home .storefront-status-badge[class*="bg-amber"],
+.storefront-shell .storefront-order-status[data-order-status="PENDING"] {
+  border-color: color-mix(in srgb, var(--storefront-accent) 55%, transparent) !important;
+  background-color: color-mix(in srgb, var(--storefront-accent) 18%, transparent) !important;
+  color: var(--storefront-accent-readable) !important;
+}
+
+.storefront-shell {
+  background-image: radial-gradient(
+    circle at 12% 0%,
+    color-mix(in srgb, var(--storefront-accent) 6%, transparent),
+    transparent 32rem
+  ) !important;
+}
+
+.storefront-shell .storefront-home {
+  background-image:
+    radial-gradient(
+      circle at 85% 8%,
+      color-mix(in srgb, var(--storefront-accent) 8%, transparent),
+      transparent 24rem
+    ),
+    linear-gradient(180deg, var(--storefront-canvas) 0%, #eef0e9 100%) !important;
+}
+
+.storefront-shell[data-theme="dark"] .storefront-home {
+  background-image:
+    radial-gradient(
+      circle at 85% 8%,
+      color-mix(in srgb, var(--storefront-accent) 10%, transparent),
+      transparent 24rem
+    ),
+    linear-gradient(180deg, var(--storefront-canvas) 0%, var(--storefront-canvas) 100%) !important;
 }

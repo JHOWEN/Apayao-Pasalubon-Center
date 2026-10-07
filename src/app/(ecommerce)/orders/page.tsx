@@ -9,7 +9,7 @@ import {
   ShoppingBag,
   Star,
 } from "lucide-react";
-import { getStoredUser, saveCartItems } from "@/features/cart/lib/cart";
+import { getCartItems, getStoredUser, saveCartItems } from "@/features/cart/lib/cart";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
 import { fetchWithTimeout, getResponseErrorMessage, getUserFacingErrorMessage } from "@/lib/client-fetch";
 import { getEffectivePaymentStatus } from "@/lib/order";
@@ -273,29 +273,47 @@ export default function OrdersPage() {
   }
 
   function handleBuyAgain(order: OrderSummary) {
-    const latestItem = order.items.at(-1) ?? order.items[0];
+    const repeatItems = order.items.filter((item) => item.productId).map((item) => {
+      const variantLabel = getOrderItemVariantLabel(item);
 
-    if (!latestItem?.productId) {
+      return {
+        productId: item.productId as string,
+        name: item.productNameSnapshot || item.product?.name || "Product",
+        price: Number(item.price ?? item.subtotal ?? 0),
+        imageUrl: getPrimaryImageUrl(item.product?.imageUrl) ?? fallbackProductImage,
+        stock: 9999,
+        quantity: Math.max(1, Number(item.quantity ?? 1)),
+        variantId: item.variantId ?? undefined,
+        variantSku: item.variantSkuSnapshot ?? item.variant?.sku,
+        variantLabel: variantLabel || undefined,
+      };
+    });
+
+    if (!repeatItems.length) {
       return;
     }
 
-    const variantLabel = getOrderItemVariantLabel(latestItem);
+    const nextCart = getCartItems();
+    repeatItems.forEach((repeatItem) => {
+      const existing = nextCart.find(
+        (item) => item.productId === repeatItem.productId && item.variantId === repeatItem.variantId,
+      );
 
-    saveCartItems([
-      {
-        productId: latestItem.productId,
-        name: latestItem.productNameSnapshot || latestItem.product?.name || "Product",
-        price: Number(latestItem.price ?? latestItem.subtotal ?? 0),
-        imageUrl: getPrimaryImageUrl(latestItem.product?.imageUrl) ?? fallbackProductImage,
-        stock: 9999,
-        quantity: Math.max(1, Number(latestItem.quantity ?? 1)),
-        variantId: latestItem.variantId ?? undefined,
-        variantSku: latestItem.variantSkuSnapshot ?? latestItem.variant?.sku,
-        variantLabel: variantLabel || undefined,
-      },
-    ]);
+      if (existing) {
+        existing.quantity += repeatItem.quantity;
+        existing.price = repeatItem.price;
+        existing.imageUrl = repeatItem.imageUrl;
+        existing.stock = repeatItem.stock;
+        existing.variantSku = repeatItem.variantSku;
+        existing.variantLabel = repeatItem.variantLabel;
+      } else {
+        nextCart.push(repeatItem);
+      }
+    });
 
-    router.push("/checkout");
+    saveCartItems(nextCart);
+    window.dispatchEvent(new Event("storage"));
+    router.push("/cart");
   }
 
   useEffect(() => {
@@ -347,7 +365,7 @@ export default function OrdersPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
+    <main className="storefront-page-orders min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6">
         
         {/* Navigation Breadcrumb */}

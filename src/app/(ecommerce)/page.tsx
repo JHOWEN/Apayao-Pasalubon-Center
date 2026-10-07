@@ -2,10 +2,11 @@
 
 import Image from "@/components/safe-image";
 import Link from "next/link";
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
+  ArrowDownUp,
   ChevronDown,
   CircleDollarSign,
   Globe,
@@ -140,6 +141,7 @@ function EcommerceHomeContent() {
   const [catalogTotalCount, setCatalogTotalCount] = useState(0);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<"featured" | "popular" | "rating" | "price-low" | "price-high">("featured");
   const searchQuery = searchParams.get("search")?.trim() ?? "";
   const categoryQuery = searchParams.get("category")?.trim() ?? "";
   const isTimeoutError = (catalogError ?? "").toLowerCase().includes("timed out");
@@ -337,9 +339,19 @@ function EcommerceHomeContent() {
   }
 
   const activeCategory = categories.find((c) => c.id === categoryQuery);
+  const visibleProducts = useMemo(() => {
+    if (sortBy === "featured") return products;
+
+    return [...products].sort((first, second) => {
+      if (sortBy === "popular") return Number(second.soldCount ?? 0) - Number(first.soldCount ?? 0);
+      if (sortBy === "rating") return Number(second.averageRating ?? 0) - Number(first.averageRating ?? 0);
+      if (sortBy === "price-low") return Number(first.price ?? 0) - Number(second.price ?? 0);
+      return Number(second.price ?? 0) - Number(first.price ?? 0);
+    });
+  }, [products, sortBy]);
 
   return (
-    <main className="storefront-home min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
+    <main className="storefront-home min-h-screen bg-[#0a0d14] pb-16 text-slate-100">
       <style>{`
         @keyframes shimmer {
           0% { background-position: 200% 0; }
@@ -441,14 +453,14 @@ function EcommerceHomeContent() {
           {/* Header & Controls */}
           <div className="flex flex-col gap-4 border-b border-white/10 pb-5 md:flex-row md:items-end md:justify-between">
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-widest text-[#ff8a1e]">
-                Explore Collection
+              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-[#ff8a1e]">
+                Curated for pickup
               </div>
               <h2 className="mt-1 text-2xl font-bold tracking-tight text-white sm:text-3xl">
                 Store Catalog
               </h2>
               <p className="mt-1 text-xs sm:text-sm text-slate-400">
-                Discover local favorites crafted with care by Apayao artisans.
+                Discover local favorites crafted with care by Apayao artisans. Stock is checked when you order.
               </p>
             </div>
 
@@ -511,6 +523,22 @@ function EcommerceHomeContent() {
                   </div>
                 )}
               </div>
+
+              <label className="flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-[#12141c] px-3.5 text-xs font-semibold text-white transition focus-within:border-[#ff8a1e]/60">
+                <ArrowDownUp className="h-3.5 w-3.5 text-slate-400" aria-hidden="true" />
+                <span className="sr-only">Sort products</span>
+                <select
+                  value={sortBy}
+                  onChange={(event) => setSortBy(event.target.value as typeof sortBy)}
+                  className="max-w-36 cursor-pointer appearance-none border-0 bg-transparent text-xs font-semibold text-inherit outline-none"
+                >
+                  <option value="featured">Featured</option>
+                  <option value="popular">Most popular</option>
+                  <option value="rating">Top rated</option>
+                  <option value="price-low">Price: low to high</option>
+                  <option value="price-high">Price: high to low</option>
+                </select>
+              </label>
             </div>
           </div>
 
@@ -550,7 +578,7 @@ function EcommerceHomeContent() {
 
           {/* Catalog summary */}
           <div className="flex flex-col items-start gap-1 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-            <span>Showing {products.length} of {catalogTotalCount} products</span>
+            <span>Showing {visibleProducts.length} of {catalogTotalCount} products</span>
             <span className="font-semibold text-slate-200">{catalogTotalCount} products available</span>
           </div>
 
@@ -593,7 +621,7 @@ function EcommerceHomeContent() {
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 sm:gap-4 lg:gap-5">
-              {products.map((product, productIndex) => {
+              {visibleProducts.map((product, productIndex) => {
                 if (product.productGroup?.items?.length) {
                   return (
                     <ProductGroupCard
@@ -620,6 +648,7 @@ function EcommerceHomeContent() {
                     averageRating={Number(product.averageRating ?? 0)}
                     reviewCount={Number(product.reviewCount ?? 0)}
                     latestReview={product.latestReview}
+                    soldCount={Number(product.soldCount ?? 0)}
                     priority={productIndex < 4}
                   />
                 );

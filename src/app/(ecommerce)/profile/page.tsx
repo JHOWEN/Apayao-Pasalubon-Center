@@ -375,7 +375,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
+    <main className="storefront-page-profile min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
       <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6">
         
         {/* Header Card with Avatar */}

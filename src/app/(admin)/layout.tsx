@@ -7,7 +7,6 @@ import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   Bell,
-  ChevronRight,
   ExternalLink,
   Menu,
   Moon,
@@ -20,31 +19,16 @@ import { getPickupDateKey } from "@/lib/order";
 const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
 type ThemeMode = "light" | "dark" | "system";
 
-function getRouteInfo(pathname: string) {
-  if (pathname.startsWith("/pos")) return { category: "Sales", title: "Point of Sale" };
-  if (pathname.startsWith("/admin-orders")) return { category: "Sales", title: "Orders" };
-  if (pathname.startsWith("/products")) return { category: "Catalog", title: "Products" };
-  if (pathname.startsWith("/categories")) return { category: "Catalog", title: "Categories" };
-  if (pathname.startsWith("/inventory/transactions")) return { category: "Stock", title: "Transactions" };
-  if (pathname.startsWith("/inventory")) return { category: "Stock", title: "Inventory" };
-  if (pathname.startsWith("/customers")) return { category: "Customers", title: "Accounts" };
-  if (pathname.startsWith("/analytics")) return { category: "Insights", title: "Analytics" };
-  if (pathname.startsWith("/reports")) return { category: "Insights", title: "Reports" };
-  if (pathname.startsWith("/admin-settings")) return { category: "Workspace", title: "Settings" };
-  if (pathname.startsWith("/dashboard")) return { category: "Dashboard", title: "Dashboard" };
-  return { category: "Admin", title: "Console" };
-}
-
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const routeInfo = getRouteInfo(pathname);
 
   const [avatarSrc, setAvatarSrc] = useState(fallbackAvatarSrc);
   const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
   const [sessionStatus, setSessionStatus] = useState<"checking" | "verified" | "unavailable">("checking");
   const [sessionRetryVersion, setSessionRetryVersion] = useState(0);
   const [theme, setTheme] = useState<ThemeMode>("system");
+  const [isDarkAppearance, setIsDarkAppearance] = useState(false);
   const [isThemeInitialized, setIsThemeInitialized] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -204,6 +188,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     const root = document.documentElement;
     const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const resolvedTheme = theme === "system" ? (systemPrefersDark ? "dark" : "light") : theme;
+    setIsDarkAppearance(resolvedTheme === "dark");
 
     root.classList.toggle("dark", resolvedTheme === "dark");
     root.style.colorScheme = resolvedTheme;
@@ -384,26 +369,17 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         {/* Main Application Area */}
         <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-visible">
           {/* Top Panel Header */}
-          <header className="relative z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-3 sm:px-5 lg:px-7 dark:border-slate-800 dark:bg-slate-900">
+          <header className="relative z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-[#06262b] px-3 text-slate-200 sm:px-5 lg:px-7">
             <div className="flex min-w-0 items-center gap-2 sm:gap-3">
               <button
                 type="button"
                 onClick={() => setIsMobileNavOpen(true)}
                 aria-label="Open navigation"
                 aria-expanded={isMobileNavOpen}
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f08b32] lg:hidden dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-none border border-white/15 text-slate-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7] lg:hidden"
               >
                 <Menu className="h-4.5 w-4.5" />
               </button>
-              <div className="flex min-w-0 items-center gap-2.5 text-slate-900 dark:text-white">
-                <div className="hidden items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 sm:flex dark:text-slate-500">
-                  <span>{routeInfo.category}</span>
-                  <ChevronRight className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600" />
-                </div>
-                <span className="truncate text-sm font-semibold sm:text-[15px]">
-                  {routeInfo.title}
-                </span>
-              </div>
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
@@ -412,27 +388,27 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 href="/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hidden sm:inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
+                className="hidden sm:inline-flex items-center gap-2 rounded-none px-3 py-2 text-xs font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
                 title="Open customer storefront in a new tab"
               >
-                <ExternalLink className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
+                <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
                 <span>View Store</span>
               </Link>
 
-              <div className="hidden sm:block h-5 w-px bg-slate-200 dark:bg-slate-800 mx-0.5" />
+              <div className="hidden sm:block h-5 w-px bg-white/15 mx-0.5" />
 
               {/* Pickup Notifications Popover */}
               <div className="relative z-40" ref={notificationMenuRef}>
                 <button
                   type="button"
                   onClick={() => setIsNotificationsOpen((value) => !value)}
-                  className="relative flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f08b32] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                  className="relative flex h-9 w-9 items-center justify-center rounded-none text-slate-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"
                   aria-label="Pickup alerts"
                   title="Pickup alerts"
                 >
                   <Bell className="h-4.5 w-4.5" />
                   {notifications.length > 0 ? (
-                    <span className="absolute -right-1 -top-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-sm ring-2 ring-white dark:ring-slate-900 animate-in zoom-in-50">
+                    <span className="absolute -right-1 -top-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-sm ring-2 ring-[#06262b] animate-in zoom-in-50">
                       {notifications.length}
                     </span>
                   ) : null}
@@ -507,27 +483,44 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 )}
               </div>
 
-              {/* Theme toggle */}
+              {/* Appearance toggle */}
               <button
                 type="button"
-                onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-                title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f08b32] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                role="switch"
+                aria-checked={isDarkAppearance}
+                aria-label="Dark appearance"
+                title={`Dark appearance ${isDarkAppearance ? "on" : "off"}`}
+                onClick={() => {
+                  const nextAppearance = !isDarkAppearance;
+                  setIsDarkAppearance(nextAppearance);
+                  setTheme(nextAppearance ? "dark" : "light");
+                }}
+                className="inline-flex h-11 min-w-11 items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"
               >
-                {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+                <span
+                  aria-hidden="true"
+                  className={`relative h-5 w-9 rounded-full transition-colors ${
+                    isDarkAppearance ? "bg-[#0b4650]" : "bg-slate-300 dark:bg-slate-600"
+                  }`}
+                >
+                  <span
+                    className={`absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm transition-transform ${
+                      isDarkAppearance ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  >
+                    {isDarkAppearance ? (
+                      <Moon aria-hidden="true" className="h-2.5 w-2.5 text-[#0b4650]" />
+                    ) : (
+                      <Sun aria-hidden="true" className="h-2.5 w-2.5 text-amber-500" />
+                    )}
+                  </span>
+                </span>
               </button>
 
-              <div className="ml-1 flex items-center gap-2 border-l border-slate-200 pl-2.5 sm:ml-1.5 sm:pl-3 dark:border-slate-800">
-                <div className="hidden text-right md:block">
-                  <p className="text-xs font-semibold leading-4 text-slate-800 dark:text-slate-100">
-                    {userRole === "STAFF" ? "Staff workspace" : "Admin workspace"}
-                  </p>
-                  <p className="text-[10px] leading-4 text-slate-400 dark:text-slate-500">APC Inventory</p>
-                </div>
+              <div className="ml-1 flex items-center sm:ml-1.5">
                 <div
                   role="img"
-                  className="relative flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
+                  className="relative flex h-9 w-9 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/15"
                   aria-label={userRole === "STAFF" ? "Staff account" : "Admin account"}
                   title={userRole === "STAFF" ? "Staff account" : "Admin account"}
                 >
@@ -541,7 +534,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                     />
                   </div>
 
-                  <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" />
+                  <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[#06262b] bg-emerald-500" />
                 </div>
               </div>
             </div>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { clearStoredUser, getCartCount, getStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
-import { AlertTriangle, Bell, LogOut, Menu, Search, ShoppingCart, User, X } from "lucide-react";
+import { AlertTriangle, Bell, Heart, LogOut, Menu, Moon, Search, ShoppingCart, Sun, User, X } from "lucide-react";
 
 type EcommerceUser = {
   name?: string;
@@ -320,6 +320,15 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     router.push("/");
   }
 
+  function toggleTheme() {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    window.localStorage.setItem("apc-theme", nextTheme);
+    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+    document.documentElement.style.colorScheme = nextTheme;
+    window.dispatchEvent(new CustomEvent("apc-theme-updated", { detail: nextTheme }));
+  }
+
   const links = [
     { href: "/", label: "Home", section: "home" },
     { href: "/#catalog", label: "Shop", section: "shop" },
@@ -450,6 +459,10 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
         }
       `}</style>
       <header className="storefront-header sticky top-0 z-40 border-b border-white/8 bg-[#070b14]/85 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.35)] transition-colors duration-300">
+        <div className="storefront-announcement border-b border-white/8 px-4 py-2 text-center text-[10px] font-semibold tracking-[0.12em] text-slate-300 sm:text-[11px]">
+          <span className="storefront-announcement-dot mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle" aria-hidden="true" />
+          Store Hours · Open daily, 7:00 AM–8:30 PM
+        </div>
         <div className="mx-auto w-full max-w-7xl px-4 py-2.5 sm:px-6 sm:py-3 lg:px-8">
           <div className="flex items-center justify-between gap-2 sm:gap-4">
             
@@ -545,6 +558,24 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                   <Search className="h-4 w-4" />
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={toggleTheme}
+                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+                title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+                className="flex h-9.5 w-9.5 items-center justify-center rounded-xl border border-white/10 bg-transparent text-white transition-all duration-150 hover:border-amber-400/40 hover:text-amber-200 active:scale-95"
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+
+              <Link
+                href="/favorites"
+                aria-label="View saved favorites"
+                className="flex h-9.5 w-9.5 items-center justify-center rounded-xl border border-white/10 bg-transparent text-white transition-all duration-150 hover:border-amber-400/40 hover:text-amber-200 active:scale-95"
+              >
+                <Heart className="h-4 w-4" />
+              </Link>
 
               {/* Shopping Cart Button */}
               <Link
@@ -662,6 +693,23 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                 )}
               </Link>
 
+              <button
+                type="button"
+                onClick={toggleTheme}
+                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-transparent text-white transition-all duration-150 hover:text-amber-200 active:scale-95 sm:h-9.5 sm:w-9.5 sm:rounded-xl"
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+
+              <Link
+                href="/favorites"
+                aria-label="View saved favorites"
+                className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-transparent text-white transition-all duration-150 hover:text-amber-200 active:scale-95 sm:flex sm:h-9.5 sm:w-9.5 sm:rounded-xl"
+              >
+                <Heart className="h-4 w-4" />
+              </Link>
+
               {user && <div className="hidden sm:block">{renderNotificationButton()}</div>}
 
               {user && (
@@ -729,6 +777,15 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                 </button>
               </form>
 
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="mt-3 flex w-full items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-left text-xs font-semibold text-slate-200 transition hover:border-amber-400/40 hover:text-amber-200"
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                {theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              </button>
+
               {user && <div className="mt-3 sm:hidden">{renderNotificationButton(true)}</div>}
 
               <nav aria-label="Mobile navigation" className="mt-3 space-y-1">
@@ -758,6 +815,15 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                   );
                 })}
               </nav>
+
+              <Link
+                href="/favorites"
+                onClick={() => setMobileMenuOpen(false)}
+                className="mt-2 flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-300 transition-all hover:bg-white/5 hover:text-white"
+              >
+                <Heart className="h-4 w-4" />
+                Saved favorites
+              </Link>
 
               {user ? (
                 <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/10 pt-3">
@@ -801,6 +867,21 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
         </div>
       </header>
       {children}
+      {cartCount > 0 && pathname !== "/cart" && pathname !== "/checkout" && (
+        <Link
+          href="/cart"
+          className="storefront-cart-nudge fixed inset-x-3 bottom-3 z-30 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-[0_14px_35px_rgba(32,39,32,0.2)] backdrop-blur-xl transition hover:-translate-y-0.5 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:mx-0"
+          aria-label={`View cart with ${cartCount} item${cartCount === 1 ? "" : "s"}`}
+        >
+          <span className="flex items-center gap-2 text-xs font-semibold">
+            <ShoppingCart className="h-4 w-4" aria-hidden="true" />
+            {cartCount} item{cartCount === 1 ? "" : "s"} ready for checkout
+          </span>
+          <span className="inline-flex items-center gap-1 text-xs font-bold">
+            View cart <span aria-hidden="true">→</span>
+          </span>
+        </Link>
+      )}
       {cartStockWarning && (
         <div
           role="alert"

@@ -73,6 +73,7 @@ export function AdminSidebar({
   const [notificationCount, setNotificationCount] = useState(0);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
+  const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [avatarSrc, setAvatarSrc] = useState(fallbackAvatarSrc);
 
@@ -88,6 +89,12 @@ export function AdminSidebar({
           }))
           .filter((section) => section.links.length > 0);
 
+  const showDashboardLink = userRole === "ADMIN";
+  const railLinks = [
+    ...(userRole === "ADMIN" ? [dashboardLink] : []),
+    ...visibleSections.flatMap((section) => section.links),
+  ];
+
   useEffect(() => {
     async function loadUserRole() {
       try {
@@ -101,6 +108,7 @@ export function AdminSidebar({
             : fallbackAvatarSrc;
 
         setAvatarSrc(nextAvatarSrc);
+        setAdminName(typeof data?.user?.name === "string" ? data.user.name : "");
         setAdminEmail(typeof data?.user?.email === "string" ? data.user.email : "");
 
         if (data?.user?.role === "ADMIN" || data?.user?.role === "STAFF") {
@@ -172,22 +180,93 @@ export function AdminSidebar({
   }
 
   const effectiveCollapsed = !isMobile && isCollapsed;
+  const accountName = adminName.trim() || adminEmail.split("@")[0] || "Admin account";
 
   return (
     <aside
       data-admin-sidebar-collapsed={effectiveCollapsed}
-      className={`relative min-w-0 shrink-0 border-r border-white/8 bg-[#14231f] text-slate-200 transition-[width] duration-200 ease-out ${
+      className={`relative min-w-0 shrink-0 bg-[#06262b] text-slate-200 transition-[width] duration-200 ease-out ${
         isMobile
-          ? "fixed inset-y-0 left-0 z-[60] flex h-dvh w-[min(19rem,88vw)] flex-col shadow-2xl shadow-slate-950/25 lg:sticky lg:top-0 lg:z-auto lg:h-dvh lg:w-72 lg:shadow-none"
-          : `hidden h-dvh flex-col lg:sticky lg:top-0 lg:flex ${
-              effectiveCollapsed ? "lg:w-[4.5rem]" : "lg:w-72"
+          ? "fixed inset-y-0 left-0 z-60 flex h-dvh w-[min(19rem,88vw)] flex-col shadow-2xl shadow-slate-950/25 lg:sticky lg:top-0 lg:z-auto lg:h-dvh lg:w-72 lg:flex-row lg:shadow-none"
+          : `hidden h-dvh flex-row lg:sticky lg:top-0 lg:z-40 lg:flex ${
+              effectiveCollapsed ? "lg:w-20" : "lg:w-72"
             }`
       }`}
     >
-      <div className={`flex h-full min-h-0 flex-col py-2.5 ${effectiveCollapsed ? "px-2" : "px-3"}`}>
+      <div className="flex h-full min-h-0 w-full">
+        <div
+          className={`${!isMobile && effectiveCollapsed ? "flex" : "hidden"} w-full min-w-0 flex-1 flex-col items-center bg-[#06262b] py-3`}
+        >
+          <Link
+            href={userRole === "ADMIN" ? dashboardLink.href : "/pos"}
+            onClick={handleLinkClick}
+            aria-label="APC Inventory home"
+            title="APC Inventory"
+            className="relative mb-4 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white p-0.5 ring-1 ring-white/15 transition-transform hover:scale-[1.03]"
+          >
+            <Image src={logoSrc} alt="APC logo" fill sizes="40px" className="object-cover" />
+          </Link>
+
+          {effectiveCollapsed && (
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(false)}
+              className="mb-3 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
+          )}
+
+          <nav aria-label="Quick admin navigation" className="admin-sidebar-nav flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto px-1">
+            {railLinks.map((link) => {
+              const Icon = link.icon;
+              const isActive =
+                link.href === dashboardLink.href
+                  ? normalizedPathname === dashboardLink.href
+                  : isSidebarLinkActive(pathname, link.href);
+
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={handleLinkClick}
+                  title={link.label}
+                  aria-label={link.label}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`group relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7] ${
+                    isActive
+                      ? "bg-[#0b4650] text-[#b4f2fa]"
+                      : "text-[#a8bbc0] hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <Icon className="h-4.5 w-4.5" />
+                  {link.href === "/admin-orders" && notificationCount > 0 && (
+                    <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#13889a] px-1 text-[8px] font-bold text-white ring-2 ring-[#06262b]">
+                      {notificationCount > 9 ? "9+" : notificationCount}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="mt-3 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#1597ae] transition-colors hover:bg-white/10 hover:text-[#57d3e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut className="h-4.5 w-4.5" />
+          </button>
+        </div>
+
+      <div className={`h-full min-h-0 min-w-0 flex-1 flex-col bg-[#06262b] px-3.5 py-2.5 ${effectiveCollapsed ? "hidden" : "flex"}`}>
         {/* Brand */}
         <div
-          className={`relative mb-2 flex min-h-11 items-center border-b border-white/10 pb-3 ${
+          className={`relative mb-2 flex min-h-11 items-center ${
             effectiveCollapsed ? "flex-col justify-center gap-2.5" : "gap-3"
           }`}
         >
@@ -226,7 +305,7 @@ export function AdminSidebar({
                 <button
                   type="button"
                   onClick={() => setIsCollapsed((val) => !val)}
-                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
+                  className="-mr-7 z-50 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#06262b] text-slate-300 shadow-sm ring-1 ring-white/10 transition-colors hover:bg-[#0b4650] hover:text-white"
                   aria-label="Collapse sidebar"
                   title="Collapse sidebar"
                 >
@@ -262,28 +341,25 @@ export function AdminSidebar({
         </div>
 
         {/* Dashboard Link (Admin Only) */}
-        {userRole === "ADMIN" && (
-          <div className="mb-1">
+        {showDashboardLink && (
+          <div className="mb-2">
             <Link
               href={dashboardLink.href}
               onClick={handleLinkClick}
               title={effectiveCollapsed ? dashboardLink.label : undefined}
               aria-label={dashboardLink.label}
               aria-current={normalizedPathname === dashboardLink.href ? "page" : undefined}
-              className={`group relative flex min-h-[2.125rem] items-center gap-3 rounded-xl px-3 py-1.5 text-sm transition-colors ${
+              className={`group relative flex min-h-9 items-center gap-3 rounded-none px-3 py-2 text-sm transition-colors ${
                 normalizedPathname === dashboardLink.href
-                  ? "bg-white/10 font-semibold text-white ring-1 ring-inset ring-white/10"
-                  : "text-slate-400 hover:bg-white/6 hover:text-slate-100"
+                  ? "bg-[#0b4650] font-semibold text-white"
+                  : "text-slate-300 hover:bg-white/8 hover:text-white"
               } ${effectiveCollapsed ? "justify-center px-1.5 py-1.5" : ""}`}
             >
-              {normalizedPathname === dashboardLink.href && !effectiveCollapsed && (
-                <span className="absolute -left-3 top-2 bottom-2 w-0.5 rounded-r-full bg-[#f08b32]" />
-              )}
               <dashboardLink.icon
                 className={`h-4.5 w-4.5 shrink-0 transition-colors ${
                   normalizedPathname === dashboardLink.href
-                    ? "text-[#f3a45f]"
-                    : "text-slate-500 group-hover:text-slate-200"
+                    ? "text-[#a9eaf3]"
+                    : "text-[#a8bbc0] group-hover:text-white"
                 }`}
               />
               {!effectiveCollapsed && <span>{dashboardLink.label}</span>}
@@ -292,15 +368,15 @@ export function AdminSidebar({
         )}
 
         {/* Main Navigation Items */}
-        <nav aria-label="Admin navigation" className="admin-sidebar-nav flex-1 min-h-0 space-y-2.5 overflow-y-auto pr-0.5">
+        <nav aria-label="Admin navigation" className="admin-sidebar-nav flex w-full min-h-0 flex-1 flex-col space-y-3 overflow-y-auto">
           {visibleSections.map((section) => (
-            <div key={section.title} className="space-y-0.5">
+            <div key={section.title} className="space-y-1">
               {!effectiveCollapsed && (
-                <p className="px-3 pb-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                   {section.title}
                 </p>
               )}
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {section.links.map((link) => {
                   const Icon = link.icon;
                   const isActive = isSidebarLinkActive(pathname, link.href);
@@ -312,22 +388,19 @@ export function AdminSidebar({
                       onClick={handleLinkClick}
                       title={link.label}
                       aria-label={link.label}
-                      className={`group relative flex min-h-[2.125rem] items-center gap-3 rounded-xl px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                      className={`group relative flex min-h-9 items-center gap-3 rounded-none px-3 py-2 text-[13px] font-medium transition-colors ${
                         isActive
-                          ? "bg-white/10 font-semibold text-white ring-1 ring-inset ring-white/10"
-                          : "text-slate-400 hover:bg-white/6 hover:text-slate-100"
+                          ? "bg-[#0b4650] font-semibold text-white"
+                          : "text-slate-300 hover:bg-white/8 hover:text-white"
                       } ${effectiveCollapsed ? "justify-center px-1.5 py-1.5" : ""}`}
                       aria-current={isActive ? "page" : undefined}
                     >
-                      {isActive && !effectiveCollapsed && (
-                        <span className="absolute -left-3 top-2 bottom-2 w-0.5 rounded-r-full bg-[#f08b32]" />
-                      )}
 
                       <Icon
                         className={`h-4.5 w-4.5 shrink-0 transition-colors ${
                           isActive
-                            ? "text-[#f3a45f]"
-                            : "text-slate-500 group-hover:text-slate-200"
+                            ? "text-[#a9eaf3]"
+                            : "text-[#a8bbc0] group-hover:text-white"
                         }`}
                       />
 
@@ -355,76 +428,36 @@ export function AdminSidebar({
           ))}
         </nav>
 
-        {/* User Profile & Footer Section */}
-        {!effectiveCollapsed ? (
-          <div className="mt-2 border-t border-white/10 pt-3">
-            <div className="flex items-center gap-2.5 rounded-xl bg-white/5 p-2.5">
-              <div className="relative flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 text-emerald-100 ring-1 ring-white/10">
-                <Image
-                  src={avatarSrc}
-                  alt="Admin profile"
-                  fill
-                  sizes="32px"
-                  className="object-cover"
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div
-                  className="truncate text-xs font-medium text-slate-200"
-                  title={adminEmail || "Admin account"}
-                >
-                  {adminEmail || "Admin account"}
-                </div>
-                <div className="mt-0.5">
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-slate-500">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                    {userRole === "ADMIN"
-                      ? "Administrator"
-                      : userRole === "STAFF"
-                      ? "Staff Member"
-                      : "User"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSignOut}
-              aria-label="Sign out"
-              className="group mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-slate-400 transition-colors hover:bg-rose-400/10 hover:text-rose-300"
-            >
-              <LogOut className="h-3.5 w-3.5 transition-colors" />
-              <span>Sign out</span>
-            </button>
+        {/* Account and sign out */}
+        <div className="mt-auto flex min-w-0 shrink-0 items-center gap-2.5 pt-3">
+          <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-white/10 ring-1 ring-white/10">
+            <Image
+              src={avatarSrc}
+              alt=""
+              fill
+              sizes="36px"
+              className="object-cover"
+            />
           </div>
-        ) : (
-          <div className="mt-2 border-t border-white/10 pt-3">
-            <div className="flex flex-col items-center gap-2">
-              <div
-                className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/10 text-emerald-100 ring-1 ring-white/10"
-                title={`${adminEmail || "User"} (${userRole === "ADMIN" ? "Administrator" : "Staff"})`}
-              >
-                <Image
-                  src={avatarSrc}
-                  alt="Admin profile"
-                  fill
-                  sizes="32px"
-                  className="object-cover"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-400/10 hover:text-rose-300"
-                aria-label="Sign out"
-                title="Sign out"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-              </button>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[11px] font-medium leading-tight text-slate-200" title={accountName}>
+              {accountName}
+            </div>
+            <div className="mt-0.5 truncate text-[9px] leading-tight text-slate-400" title={adminEmail}>
+              {adminEmail}
             </div>
           </div>
-        )}
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#1597ae] transition-colors hover:bg-white/10 hover:text-[#57d3e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
       </div>
     </aside>
   );

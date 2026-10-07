@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   ChevronRight,
+  Heart,
   Minus,
   PackageSearch,
   Plus,
@@ -20,6 +21,7 @@ import {
 } from "lucide-react";
 import { addToCart, getStoredUser } from "@/features/cart/lib/cart";
 import { getPrimaryImageUrl, parseImageUrls } from "@/features/catalog/utils/product-images";
+import { isFavoriteProduct, recordRecentlyViewed, toggleFavoriteProduct } from "@/features/catalog/lib/favorites";
 import { fetchWithTimeout, RequestTimeoutError } from "@/lib/client-fetch";
 
 const formatReviewDate = (value: string) => {
@@ -136,6 +138,7 @@ export default function ProductDetailPage() {
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const [, setShowOptionsModal] = useState(false);
   const [reviewOptionValue, setReviewOptionValue] = useState("all");
+  const [isFavorite, setIsFavorite] = useState(false);
   const [groupedOptionItems, setGroupedOptionItems] = useState<
     Array<{
       optionValue: string;
@@ -178,6 +181,18 @@ export default function ProductDetailPage() {
       .replace(/([a-z])([A-Z])/g, "$1 $2")
       .replace(/[_-]+/g, " ")
       .replace(/\b\w/g, (character) => character.toUpperCase());
+
+  function toggleProductFavorite() {
+    if (!product?.id) return;
+    setIsFavorite(
+      toggleFavoriteProduct({
+        id: product.id,
+        name: product.name ?? "Product",
+        imageUrl: getPrimaryImageUrl(product.imageUrl),
+        price: Number(product.price ?? 0),
+      }),
+    );
+  }
 
   useEffect(() => {
     const hashTarget = typeof window !== "undefined" ? window.location.hash.replace("#", "") : "";
@@ -234,6 +249,14 @@ export default function ProductDetailPage() {
         } else {
           setLookupMessage("");
           setProduct(productPayload);
+          const viewedProduct = {
+            id: String(productPayload.id),
+            name: String(productPayload.name ?? "Product"),
+            imageUrl: getPrimaryImageUrl(productPayload.imageUrl),
+            price: Number(productPayload.price ?? 0),
+          };
+          recordRecentlyViewed(viewedProduct);
+          setIsFavorite(isFavoriteProduct(viewedProduct.id));
           const preferredVariant =
             Array.isArray(productPayload.variants) && productPayload.variants.length > 0
               ? productPayload.variants.find(
@@ -764,7 +787,7 @@ export default function ProductDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#0a0d14] px-4 py-8">
+      <main className="storefront-page-product min-h-screen bg-[#0a0d14] px-4 py-8">
         <div className="mx-auto max-w-7xl animate-pulse space-y-6">
           <div className="h-6 w-32 rounded-lg bg-white/10" />
           <div className="grid gap-8 lg:grid-cols-2">
@@ -783,7 +806,7 @@ export default function ProductDetailPage() {
 
   if (!product) {
     return (
-      <main className="min-h-screen bg-[#0a0d14] px-4 py-16 text-center text-slate-100">
+      <main className="storefront-page-product min-h-screen bg-[#0a0d14] px-4 py-16 text-center text-slate-100">
         <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-[#12141c] p-8 shadow-2xl">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200">
             {isTimeoutLookup ? <TimerReset className="h-6 w-6" /> : <PackageSearch className="h-6 w-6" />}
@@ -824,7 +847,7 @@ export default function ProductDetailPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
+    <main className="storefront-page-product min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
       {/* Cart success */}
       {addedToast && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-2xl border border-emerald-400/30 bg-[#12141c] px-4 py-3 text-sm text-white shadow-2xl animate-fadeUp">
@@ -906,9 +929,18 @@ export default function ProductDetailPage() {
               <span className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-[#ffb36f]">
                 {product.category?.name ?? "Local Goods"}
               </span>
-              <span className="font-mono text-[11px] text-slate-400">
-                SKU: {effectiveSku}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-[11px] text-slate-400">SKU: {effectiveSku}</span>
+                <button
+                  type="button"
+                  onClick={toggleProductFavorite}
+                  aria-label={isFavorite ? "Remove product from favorites" : "Save product to favorites"}
+                  aria-pressed={isFavorite}
+                  className="storefront-favorite inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white transition hover:scale-105"
+                >
+                  <Heart className={`h-4 w-4 ${isFavorite ? "fill-current" : ""}`} />
+                </button>
+              </div>
             </div>
 
             {/* 2. Product Name */}
@@ -931,7 +963,7 @@ export default function ProductDetailPage() {
             </div>
 
             {/* 4. Price & 7. Stock Information */}
-            <div className="flex flex-wrap items-baseline gap-4 border-y border-white/10 py-4">
+            <div className="space-y-2 border-y border-white/10 py-4">
               <div className="text-3xl sm:text-4xl font-black tracking-tight text-white">
                 ₱{effectivePrice.toFixed(2)}
               </div>
@@ -1102,6 +1134,25 @@ export default function ProductDetailPage() {
                   className="flex h-12 w-full items-center justify-center rounded-xl border border-white/20 bg-white/5 px-6 text-sm font-bold text-white transition hover:bg-white/10 hover:border-white/30 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Buy Now
+                </button>
+              </div>
+
+              <div className="storefront-mobile-product-cta fixed inset-x-3 bottom-3 z-30 hidden items-center gap-2 rounded-2xl border border-white/15 bg-[#12141c]/95 p-2 shadow-2xl backdrop-blur-xl">
+                <button
+                  type="button"
+                  onClick={() => handleMainAction("cart")}
+                  disabled={effectiveStock <= 0}
+                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#ff8a1e] px-3 text-xs font-bold text-slate-950 transition hover:bg-[#f97316] disabled:opacity-50"
+                >
+                  <ShoppingBag className="h-4 w-4" /> Add to cart
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMainAction("buy")}
+                  disabled={effectiveStock <= 0}
+                  className="flex h-11 flex-1 items-center justify-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-bold text-white transition hover:bg-white/15 disabled:opacity-50"
+                >
+                  Buy now
                 </button>
               </div>
             </div>

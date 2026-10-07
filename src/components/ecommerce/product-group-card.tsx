@@ -3,9 +3,11 @@
 import Image from "@/components/safe-image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Minus, Plus, ShoppingCart, Star, X } from "lucide-react";
+import { Heart, Minus, Plus, ShoppingCart, Star, X } from "lucide-react";
 import { addToCart, getStoredUser } from "@/features/cart/lib/cart";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
+import { cleanProductDescription } from "@/features/catalog/utils/product-text";
+import { isFavoriteProduct, recordRecentlyViewed, toggleFavoriteProduct } from "@/features/catalog/lib/favorites";
 import { useState } from "react";
 
 interface ProductItem {
@@ -54,16 +56,16 @@ export function ProductGroupCard({
   soldCount?: number;
 }) {
   const router = useRouter();
-  const [isOptionModalOpen, setIsOptionModalOpen] = useState(false);
-  const [selectedOptionId, setSelectedOptionId] = useState("");
-  const [selectedQuantity, setSelectedQuantity] = useState(1);
-
   const groupId =
     group.id && group.id !== "undefined"
       ? group.id
       : group.parentProduct?.id && group.parentProduct.id !== "undefined"
       ? group.parentProduct.id
       : null;
+  const [isOptionModalOpen, setIsOptionModalOpen] = useState(false);
+  const [selectedOptionId, setSelectedOptionId] = useState("");
+  const [selectedQuantity, setSelectedQuantity] = useState(1);
+  const [isFavorite, setIsFavorite] = useState(() => (groupId ? isFavoriteProduct(groupId) : false));
 
   const validItems = group.items.filter(
     (item): item is GroupItem & { inventoryProduct: ProductItem } =>
@@ -143,34 +145,55 @@ export function ProductGroupCard({
   const isInStock = totalAvailableStock > 0;
   const displayPrice = Number(optionItems[0]?.inventoryProduct.price ?? selectedProduct.price);
   const roundedRating = Math.round(Number(selectedProduct.averageRating ?? 0));
+  const catalogDescription = cleanProductDescription(
+    selectedProduct.description,
+    "Quality handcrafted product from Apayao.",
+  );
+
+  function handleFavorite(event: React.MouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!groupId) return;
+    setIsFavorite(toggleFavoriteProduct({ id: groupId, name: group.name, imageUrl, price: displayPrice }));
+  }
+
+  function rememberGroup() {
+    if (!groupId) return;
+    recordRecentlyViewed({ id: groupId, name: group.name, imageUrl, price: displayPrice });
+  }
 
   return (
     <>
       <article
         role="link"
         tabIndex={0}
-        onClick={() => groupId && router.push(`/products/${groupId}`)}
+        onClick={() => {
+          rememberGroup();
+          if (groupId) router.push(`/products/${groupId}`);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
+            rememberGroup();
             if (groupId) router.push(`/products/${groupId}`);
           }
         }}
-        className="group flex h-full min-w-0 cursor-pointer flex-col overflow-hidden rounded-xl border border-white/10 bg-[#12141c] transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:shadow-[0_12px_32px_rgba(0,0,0,0.35)] outline-none focus-visible:ring-2 focus-visible:ring-[#ff8a1e]"
+        className="storefront-product-card group relative flex h-full min-w-0 cursor-pointer flex-col overflow-hidden rounded-xl border border-white/10 bg-[#12141c] transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:shadow-[0_12px_32px_rgba(0,0,0,0.35)] outline-none focus-visible:ring-2 focus-visible:ring-[#ff8a1e]"
       >
         {/* Product Group Image */}
-        <div className="relative aspect-square w-full overflow-hidden bg-[#181b24]">
-          <Image
-            src={imageUrl}
-            alt={group.name || selectedProduct.name || "Product group"}
-            fill
-            priority={group.priority}
-            sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
-            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-            onError={(event) => {
-              event.currentTarget.src = "/logo/apc-logo.png";
-            }}
-          />
+        <div className="relative shrink-0">
+          <div className="relative aspect-square w-full overflow-hidden bg-[#181b24]">
+            <Image
+              src={imageUrl}
+              alt={group.name || selectedProduct.name || "Product group"}
+              fill
+              priority={group.priority}
+              sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
+              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+              onError={(event) => {
+                event.currentTarget.src = "/logo/apc-logo.png";
+              }}
+            />
 
           {/* Floating Top Badges */}
           <div className="absolute left-2.5 top-2.5 right-2.5 flex items-start justify-between gap-1.5 pointer-events-none">
@@ -187,7 +210,7 @@ export function ProductGroupCard({
                   : "border-rose-400/30 bg-rose-500/20 text-rose-200"
               }`}
             >
-              {isInStock ? (totalAvailableStock <= 5 ? `${totalAvailableStock} left` : `${totalAvailableStock} in stock`) : "Sold out"}
+              {isInStock ? (totalAvailableStock <= 5 ? "Limited" : "In Stock") : "Sold out"}
             </span>
           </div>
 
@@ -198,6 +221,17 @@ export function ProductGroupCard({
               </span>
             </div>
           )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleFavorite}
+            aria-label={isFavorite ? `Remove ${group.name} from favorites` : `Save ${group.name} to favorites`}
+            aria-pressed={isFavorite}
+            className="storefront-favorite absolute bottom-2.5 right-3 z-30 flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white backdrop-blur-md transition hover:scale-105"
+          >
+            <Heart className={`h-4 w-4 ${isFavorite ? "fill-current" : ""}`} />
+          </button>
         </div>
 
         {/* Product Group Info */}
@@ -206,8 +240,8 @@ export function ProductGroupCard({
             {group.name}
           </h3>
 
-          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-400">
-            {selectedProduct.description ?? "Quality handcrafted product from Apayao."}
+          <p className="mt-2 min-h-10 line-clamp-2 break-words text-[11px] leading-5 text-slate-400 sm:text-xs">
+            {catalogDescription}
           </p>
 
           {/* Rating */}
@@ -233,37 +267,12 @@ export function ProductGroupCard({
             </span>
           </div>
 
-          {/* Price & Stocks Badge */}
-          <div className="mt-3 flex flex-col items-stretch gap-2 border-t border-white/10 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          {/* Price */}
+          <div className="mt-3 border-t border-white/10 pt-3">
             <span className="text-base font-bold text-white sm:text-lg">
               ₱{displayPrice.toFixed(2)}
             </span>
 
-            {/* Stocks Badge visible on catalog */}
-            <span
-              className={`inline-flex w-full items-center justify-center gap-1.5 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold sm:w-auto sm:py-0.5 ${
-                isInStock
-                  ? totalAvailableStock <= 5
-                    ? "border-amber-400/30 bg-amber-500/15 text-amber-300"
-                    : "border-emerald-400/30 bg-emerald-500/15 text-emerald-300"
-                  : "border-rose-400/30 bg-rose-500/15 text-rose-300"
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  isInStock
-                    ? totalAvailableStock <= 5
-                      ? "bg-amber-400"
-                      : "bg-emerald-400"
-                    : "bg-rose-400"
-                }`}
-              />
-              {isInStock
-                ? totalAvailableStock <= 5
-                  ? `${totalAvailableStock} left`
-                  : `${totalAvailableStock} in stock`
-                : "Out of stock"}
-            </span>
           </div>
 
           {/* Options / Variants - separated from the price */}

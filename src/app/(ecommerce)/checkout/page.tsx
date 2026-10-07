@@ -327,7 +327,7 @@ export default function CheckoutPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-100 text-slate-900 dark:bg-[#0D0D0D] dark:text-white">
+    <main className="storefront-page-checkout min-h-screen bg-slate-100 text-slate-900 dark:bg-[#0D0D0D] dark:text-white">
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 xl:px-8">
         <div className="mb-8 flex flex-col gap-4 rounded-3xl border border-slate-200 bg-[linear-gradient(135deg,rgba(255,255,255,0.7),rgba(255,138,30,0.12))] p-5 shadow-sm md:p-6 dark:border-white/10 dark:bg-[linear-gradient(135deg,rgba(255,255,255,0.04),rgba(255,138,30,0.08))] xl:flex-row xl:items-center xl:justify-between">
           <div>
@@ -337,6 +337,21 @@ export default function CheckoutPage() {
             </div>
             <h1 className="text-3xl font-semibold tracking-[-0.03em] text-slate-900 dark:text-white sm:text-4xl">Complete your order</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-600 dark:text-[#B8B8B8]">Add your pickup details and choose a payment method to place your reservation.</p>
+            <ol aria-label="Checkout progress" className="mt-5 grid max-w-xl grid-cols-4 gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500 dark:text-[#B8B8B8]">
+              {[
+                { label: "Cart", done: true },
+                { label: "Pickup", done: true },
+                { label: "Payment", done: false },
+                { label: "Done", done: false },
+              ].map((step, index) => (
+                <li key={step.label} className="flex items-center gap-1.5">
+                  <span className={`flex h-6 w-6 items-center justify-center rounded-full border text-[10px] ${step.done ? "border-[#FF8A1E] bg-[#FF8A1E] text-slate-950" : index === 2 ? "border-[#FF8A1E] text-[#FF8A1E]" : "border-slate-300 dark:border-white/20"}`}>
+                    {index + 1}
+                  </span>
+                  <span className={index === 2 ? "text-[#FF8A1E]" : ""}>{step.label}</span>
+                </li>
+              ))}
+            </ol>
           </div>
 
           <Link href="/cart" className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition duration-200 hover:-translate-y-0.5 hover:border-[#FF8A1E]/70 hover:text-[#FF8A1E] dark:border-white/10 dark:bg-[#141414] dark:text-white">

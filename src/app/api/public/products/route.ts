@@ -121,6 +121,24 @@ function serializeProduct(product: PublicProductShape) {
 
 type ProductReviewSummary = { averageRating: number; reviewCount: number; latestReview: string | null; latestReviewAt: Date | null };
 
+async function getSoldCounts(productIds: string[]) {
+  const uniqueIds = [...new Set(productIds)];
+  if (!uniqueIds.length) return new Map<string, number>();
+
+  const rows = await prisma.orderItem.groupBy({
+    by: ["productId"],
+    where: {
+      productId: { in: uniqueIds },
+      order: {
+        status: { in: ["CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "COMPLETED"] },
+      },
+    },
+    _sum: { quantity: true },
+  });
+
+  return new Map(rows.map((row) => [row.productId, Number(row._sum.quantity ?? 0)]));
+}
+
 async function getReviewSummaries(productIds: string[]) {
   const uniqueIds = [...new Set(productIds)];
   if (!uniqueIds.length) return new Map<string, ProductReviewSummary>();
@@ -412,12 +430,16 @@ async function buildPublicProductsPayload({
     ...publishedProducts.map((product) => product.id),
     ...publishedGroups.flatMap((group) => group.items.map((item) => item.inventoryProduct.id)),
   ];
-  const reviewSummaries = await getReviewSummaries(reviewProductIds);
+  const [reviewSummaries, soldCounts] = await Promise.all([
+    getReviewSummaries(reviewProductIds),
+    getSoldCounts(reviewProductIds),
+  ]);
 
   const directProducts = publishedProducts.map((product) => {
     return {
       ...serializeProduct(product as unknown as PublicProductShape),
       ...combineReviewSummaries([product.id], reviewSummaries),
+      soldCount: soldCounts.get(product.id) ?? 0,
     };
   });
 
@@ -441,6 +463,10 @@ async function buildPublicProductsPayload({
       items.map((item) => item.inventoryProduct.id),
       reviewSummaries,
     );
+    const soldCount = items.reduce(
+      (total, item) => total + (soldCounts.get(item.inventoryProduct.id) ?? 0),
+      0,
+    );
 
     return {
       id: group.id,
@@ -457,6 +483,7 @@ async function buildPublicProductsPayload({
       updatedAt: group.updatedAt,
       category: items[0]?.inventoryProduct.category ?? null,
       ...reviewSummary,
+      soldCount,
       productGroup: {
         id: group.id,
         name: group.name,
