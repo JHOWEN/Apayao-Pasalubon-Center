@@ -31,12 +31,3 @@
   justify-content: center;
   background: rgb(2 6 23 / 80%);
 }
-
-.statusScroller {
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-}
-
-.statusScroller::-webkit-scrollbar {
-  display: none;
-}

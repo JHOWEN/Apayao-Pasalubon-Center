@@ -115,7 +115,7 @@ export default function AdminOrdersPage() {
     () => true,
     () => false,
   );
-  const [, setIsUpdatingStatus] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [manageModal, setManageModal] = useState<{
     orderId: string;
     orderNumber: string;
@@ -411,45 +411,53 @@ export default function AdminOrdersPage() {
   async function handleStatusChange(orderId: string, nextStatus: string) {
     setIsUpdatingStatus(true);
 
-    const targetOrder = orders.find((order) => order.id === orderId);
-    if (targetOrder?.status === "CANCELLED") {
-      setIsUpdatingStatus(false);
-      return false;
-    }
+    try {
+      const targetOrder = orders.find((order) => order.id === orderId);
+      if (targetOrder?.status === "CANCELLED") {
+        return false;
+      }
 
-    const response = await fetch("/api/admin/orders", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: orderId, status: nextStatus }),
-    });
+      const response = await fetch("/api/admin/orders", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: orderId, status: nextStatus }),
+      });
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setIsUpdatingStatus(false);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setStatusUpdateFeedback({
+          title: "Status not updated",
+          message: data.message ?? "Unable to update order status.",
+          type: "error",
+        });
+        return false;
+      }
+
+      setOrders((prev) =>
+        prev.map((order) =>
+          order.id === orderId
+            ? {
+                ...order,
+                status: data.order?.status ?? nextStatus,
+                paymentStatus: data.order?.paymentStatus ?? order.paymentStatus,
+              }
+            : order
+        )
+      );
+      setIsLoadingOrderHistory(true);
+      setOrderHistoryError("");
+      setOrderHistoryRefresh((refresh) => refresh + 1);
+      return true;
+    } catch {
       setStatusUpdateFeedback({
         title: "Status not updated",
-        message: data.message ?? "Unable to update order status.",
+        message: "Check your connection and try again.",
         type: "error",
       });
       return false;
+    } finally {
+      setIsUpdatingStatus(false);
     }
-
-    setOrders((prev) =>
-      prev.map((order) =>
-        order.id === orderId
-          ? {
-              ...order,
-              status: data.order?.status ?? nextStatus,
-              paymentStatus: data.order?.paymentStatus ?? order.paymentStatus,
-            }
-          : order
-      )
-    );
-    setIsLoadingOrderHistory(true);
-    setOrderHistoryError("");
-    setOrderHistoryRefresh((refresh) => refresh + 1);
-    setIsUpdatingStatus(false);
-    return true;
   }
 
   function openManageModal(orderId: string) {
@@ -562,6 +570,39 @@ export default function AdminOrdersPage() {
     return targetStatus !== "PENDING";
   }
 
+  function getStatusActionLabel(status: OrderStatus) {
+    const labels: Partial<Record<OrderStatus, string>> = {
+      CONFIRMED: "Confirm order",
+      PREPARING: "Start preparing",
+      READY_FOR_PICKUP: "Mark ready for pickup",
+      COMPLETED: "Complete pickup",
+    };
+
+    return labels[status] ?? `Move to ${getStatusLabel(status)}`;
+  }
+
+  async function submitOrderStatus(nextStatus: OrderStatus) {
+    if (!manageModal || isUpdatingStatus) return;
+
+    const { orderId, orderNumber } = manageModal;
+    if (
+      nextStatus === "CANCELLED" &&
+      !window.confirm(`Cancel order ${orderNumber}? This will release its stock reservation.`)
+    ) {
+      return;
+    }
+
+    const didUpdate = await handleStatusChange(orderId, nextStatus);
+    if (!didUpdate) return;
+
+    setManageModal(null);
+    setStatusUpdateFeedback({
+      title: nextStatus === "CANCELLED" ? "Order cancelled" : "Order updated",
+      message: `${orderNumber} status changed to ${getStatusLabel(nextStatus)}.`,
+      type: "success",
+    });
+  }
+
   function renderOrderStepper(status: string) {
     if (status === "CANCELLED") {
       return (
@@ -593,7 +634,7 @@ export default function AdminOrdersPage() {
         <div className="flex items-center justify-between">
           {steps.map((step, idx, arr) => {
             const stepIdx = statusSeq.indexOf(step.key);
-            const isDone = currentIdx >= stepIdx && currentIdx !== -1;
+            const isDone = currentIdx > stepIdx;
             const isCurrent = status === step.key;
 
             return (
@@ -1651,47 +1692,79 @@ export default function AdminOrdersPage() {
                 );
               })()}
 
-              {/* Status Transition Controls */}
-              {manageModal.status === "COMPLETED" || manageModal.status === "CANCELLED" ? (
-                <div className="rounded-lg bg-slate-50 p-3 text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-                  This order has reached its final state ({getStatusLabel(manageModal.status)}) and cannot be modified.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <label htmlFor="manage-status-select" className="block font-bold text-slate-700 dark:text-slate-300">
-                    Change Status To
-                  </label>
+              {/* Status Transition Actions */}
+              {(() => {
+                if (manageModal.status === "CANCELLED") return null;
 
-                  {isStatusBlockedByPayment(manageModal.paymentMethod, manageModal.paymentStatus, manageModal.status) && (
-                    <div className="flex items-center gap-2 rounded-md bg-amber-50 p-2.5 text-[11px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-                      <span>Payment must be approved before advancing this order to production.</span>
+                if (manageModal.status === "COMPLETED") {
+                  return (
+                    <div className="flex items-center gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/25 dark:text-emerald-300">
+                      <CheckCircle className="h-4 w-4 shrink-0" />
+                      <span>Pickup is complete. This order is now closed.</span>
                     </div>
-                  )}
+                  );
+                }
 
-                  <select
-                    id="manage-status-select"
-                    value={manageModal.status}
-                    onChange={(e) =>
-                      setManageModal((current) => (current ? { ...current, status: e.target.value } : current))
-                    }
-                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 outline-hidden focus:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                  >
-                    {[
-                      manageModal.status,
-                      getNextOrderStatus(manageModal.status as OrderStatus),
-                      "CANCELLED",
-                    ]
-                      .filter((status): status is string => Boolean(status))
-                      .filter((status, index, statuses) => statuses.indexOf(status) === index)
-                      .map((status) => (
-                        <option key={status} value={status}>
-                          {getStatusLabel(status)}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              )}
+                const nextStatus = getNextOrderStatus(manageModal.status as OrderStatus);
+                if (!nextStatus) return null;
+
+                const paymentBlocksNextStatus = isStatusBlockedByPayment(
+                  manageModal.paymentMethod,
+                  manageModal.paymentStatus,
+                  nextStatus,
+                );
+
+                return (
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/60">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                        <CheckCircle className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Next action
+                        </p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">
+                          {getStatusActionLabel(nextStatus)}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+                          Move this order from {getStatusLabel(manageModal.status)} to {getStatusLabel(nextStatus)}.
+                        </p>
+                      </div>
+                    </div>
+
+                    {paymentBlocksNextStatus && (
+                      <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-[11px] leading-5 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                        <span>
+                          Approve payment before moving this order to {getStatusLabel(nextStatus)}.
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+                      <button
+                        type="button"
+                        onClick={() => void submitOrderStatus(nextStatus)}
+                        disabled={paymentBlocksNextStatus || isUpdatingStatus}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-slate-900"
+                      >
+                        <CheckCircle className="h-4 w-4" />
+                        <span>{isUpdatingStatus ? "Updating order…" : getStatusActionLabel(nextStatus)}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void submitOrderStatus("CANCELLED")}
+                        disabled={isUpdatingStatus}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900/60 dark:text-rose-300 dark:hover:bg-rose-950/30 dark:focus-visible:ring-offset-slate-900"
+                      >
+                        <CircleX className="h-3.5 w-3.5" />
+                        <span>Cancel order</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Modal Footer */}
@@ -1701,32 +1774,7 @@ export default function AdminOrdersPage() {
                 onClick={() => setManageModal(null)}
                 className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (
-                    manageModal.status === "CANCELLED" &&
-                    !window.confirm(`Cancel order ${manageModal.orderNumber}? This will release its stock reservation.`)
-                  ) {
-                    return;
-                  }
-                  const didUpdate = await handleStatusChange(manageModal.orderId, manageModal.status);
-                  if (didUpdate) {
-                    setManageModal(null);
-                    setStatusUpdateFeedback({
-                      title: "Order Updated",
-                      message: `${manageModal.orderNumber} status changed to ${getStatusLabel(manageModal.status)}.`,
-                      type: "success",
-                    });
-                  }
-                }}
-                disabled={isStatusBlockedByPayment(manageModal.paymentMethod, manageModal.paymentStatus, manageModal.status)}
-                className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <CheckCircle className="h-3.5 w-3.5" />
-                <span>Save Status</span>
+                Close
               </button>
             </div>
           </div>
