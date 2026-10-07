@@ -6,6 +6,7 @@ import { applyOrderInventoryMovement } from "@/features/inventory/lib/inventory"
 import { getRequestId, logError } from "@/lib/logger";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { recordOrderEvent } from "@/lib/order-history";
+import { emitOrderUpdatedEvent } from "@/lib/realtime";
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -51,14 +52,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Cash orders do not require payment approval." }, { status: 400 });
     }
 
-    const canDecline = order.paymentStatus === "PAID" || order.paymentStatus === "PENDING";
-
-    if (!canDecline) {
+    if (order.paymentStatus !== "PROOF_SUBMITTED") {
       return NextResponse.json({ success: false, message: "This order cannot be declined at this stage." }, { status: 400 });
     }
 
-    if (order.status === "CANCELLED") {
-      return NextResponse.json({ success: false, message: "This order is already cancelled." }, { status: 400 });
+    if (order.status !== "PENDING") {
+      return NextResponse.json({ success: false, message: "Only pending orders can have payment declined." }, { status: 400 });
     }
 
     const actor = await prisma.user.findUnique({ where: { id: authCheck.payload.sub }, select: { name: true, role: true } });
@@ -68,10 +67,16 @@ export async function POST(request: Request) {
       const updated = await tx.order.updateMany({
         where: {
           id: order.id,
-          status: { not: "CANCELLED" },
-          paymentStatus: { in: ["PENDING", "PAID"] },
+          status: order.status,
+          paymentStatus: order.paymentStatus,
+          stateVersion: order.stateVersion,
         },
-        data: { status: "CANCELLED", paymentStatus: "FAILED" },
+        data: {
+          status: "CANCELLED",
+          paymentStatus: "FAILED",
+          reservationExpiresAt: null,
+          stateVersion: { increment: 1 },
+        },
       });
 
       if (updated.count === 0) {
@@ -128,6 +133,13 @@ export async function POST(request: Request) {
     if (!wasDeclined) {
       return NextResponse.json({ success: true, message: "Payment was already processed." }, { status: 200 });
     }
+
+    emitOrderUpdatedEvent({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: "CANCELLED",
+      userId: order.userId,
+    });
 
     return NextResponse.json({ success: true, message: "Payment declined." }, { status: 200 });
   } catch (error) {

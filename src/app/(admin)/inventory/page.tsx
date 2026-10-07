@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
@@ -227,30 +227,22 @@ export default function InventoryPage() {
       setActiveInventorySection(window.location.hash.replace("#", ""));
     };
 
-    const handleSseEvent = (event: MessageEvent) => {
-      try {
-        const message = JSON.parse(event.data) as { type?: string };
-        if (message?.type === "inventory-updated" || message?.type === "order-created" || message?.type === "order-updated") {
-          setRefreshKey((value) => value + 1);
-        }
-      } catch {
-        // Ignore invalid SSE payloads.
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (message?.type === "inventory-updated" || message?.type === "order-created" || message?.type === "order-updated") {
+        setRefreshKey((value) => value + 1);
       }
     };
-
-    const eventSource = new EventSource("/api/admin/live");
-    eventSource.addEventListener("inventory-updated", handleSseEvent);
-    eventSource.addEventListener("order-created", handleSseEvent);
-    eventSource.addEventListener("order-updated", handleSseEvent);
 
     void loadUserRole();
     syncActiveInventorySection();
     window.addEventListener("hashchange", syncActiveInventorySection);
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
 
     return () => {
       isMounted = false;
       window.removeEventListener("hashchange", syncActiveInventorySection);
-      eventSource.close();
+      window.removeEventListener("apc-admin-live-event", handleLiveEvent);
     };
   }, []);
 

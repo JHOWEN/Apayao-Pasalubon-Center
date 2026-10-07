@@ -5,6 +5,7 @@ import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { getRequestId, logError } from "@/lib/logger";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { recordOrderEvent } from "@/lib/order-history";
+import { emitOrderUpdatedEvent } from "@/lib/realtime";
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -50,28 +51,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Cash orders do not require payment approval." }, { status: 400 });
     }
 
-    const canApproveForOnline = order.paymentStatus === "PAID" || order.paymentStatus === "PENDING";
+    if (order.paymentStatus === "PAID") {
+      return NextResponse.json({ success: true, message: "Payment was already approved." }, { status: 200 });
+    }
 
-    if (!canApproveForOnline) {
+    if (order.paymentStatus !== "PROOF_SUBMITTED") {
       return NextResponse.json({ success: false, message: "This order is not ready for approval yet." }, { status: 400 });
     }
 
-    if (order.status === "COMPLETED" || order.status === "CANCELLED") {
-      return NextResponse.json({ success: false, message: "This order is already approved." }, { status: 400 });
+    if (order.status !== "PENDING") {
+      return NextResponse.json({ success: false, message: "Only pending orders can have payment approved." }, { status: 400 });
     }
 
-    const nextStatus = order.status === "PENDING_PAYMENT" ? "CONFIRMED" : order.status;
+    const nextStatus = "CONFIRMED";
     const updated = await prisma.$transaction(async (tx) => {
       const claim = await tx.order.updateMany({
         where: {
           id: order.id,
           status: order.status,
           paymentStatus: order.paymentStatus,
+          stateVersion: order.stateVersion,
         },
         data: {
           status: nextStatus,
           paymentStatus: "PAID",
           paidAt: order.paidAt ?? new Date(),
+          reservationExpiresAt: null,
+          stateVersion: { increment: 1 },
         },
       });
 
@@ -96,6 +102,13 @@ export async function POST(request: Request) {
     if (!updated) {
       return NextResponse.json({ success: true, message: "Payment was already processed." }, { status: 200 });
     }
+
+    emitOrderUpdatedEvent({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: nextStatus,
+      userId: order.userId,
+    });
 
     return NextResponse.json({ success: true, message: "Payment approved." }, { status: 200 });
   } catch (error) {

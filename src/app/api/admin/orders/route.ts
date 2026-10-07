@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { applyOrderInventoryMovement, recordInventoryLifecycleEvent } from "@/features/inventory/lib/inventory";
-import { canCancelOrder, isOrderStatus, normalizePickupDateInput, OrderStatus, resolveInitialOrderStatus } from "@/lib/order";
+import { canTransitionOrderStatus, isOrderStatus, normalizePickupDateInput, OrderStatus, resolveInitialOrderStatus } from "@/lib/order";
 import { resolvePaymentProofUrl } from "@/lib/storage";
 import { getRequestId, logError } from "@/lib/logger";
 import { apiError, getUserFacingErrorMessage } from "@/lib/api-response";
@@ -94,7 +94,7 @@ export async function GET(request: Request) {
       ? { gte: new Date(`${customPickupDate}T00:00:00`), lt: new Date(`${customPickupDate}T23:59:59.999`) }
       : undefined;
 
-    const requestedStatus = ["PENDING_PAYMENT", "PENDING", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "COMPLETED", "CANCELLED"].includes(status)
+    const requestedStatus = ["PENDING", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "COMPLETED", "CANCELLED"].includes(status)
       ? (status as OrderStatus)
       : undefined;
     const where: Prisma.OrderWhereInput = {
@@ -104,9 +104,9 @@ export async function GET(request: Request) {
         ? { status: { notIn: ["COMPLETED", "CANCELLED"] } }
         : status === "AWAITING_PAYMENT_APPROVAL"
         ? {
-            status: { notIn: ["COMPLETED", "CONFIRMED", "CANCELLED"] },
+            status: "PENDING",
             paymentMethod: { not: "CASH" },
-            paymentStatus: { notIn: ["PAID", "FAILED"] },
+            paymentStatus: "PROOF_SUBMITTED",
           }
         : status !== "ALL"
         ? { status: requestedStatus }
@@ -159,9 +159,9 @@ export async function GET(request: Request) {
       prisma.order.count({
         where: {
           ...(customerId ? { userId: customerId } : {}),
-          status: { notIn: ["COMPLETED", "CONFIRMED", "CANCELLED"] },
+          status: "PENDING",
           paymentMethod: { not: "CASH" },
-          paymentStatus: { notIn: ["PAID", "FAILED"] },
+          paymentStatus: "PROOF_SUBMITTED",
         },
       }),
     ]);
@@ -296,7 +296,7 @@ export async function POST(request: Request) {
       0
     );
     const isWalkIn = body.isWalkIn === true;
-    const initialStatus = resolveInitialOrderStatus(isWalkIn, body.status, true);
+    const initialStatus = resolveInitialOrderStatus(isWalkIn);
     const paymentMethod = (body.paymentMethod ?? "CASH").toUpperCase() as "CASH" | "GCASH" | "PAYMAYA";
     const effectiveStatus = isWalkIn ? "COMPLETED" : initialStatus;
     const effectivePaymentStatus = isWalkIn ? "PAID" : "PENDING";
@@ -494,6 +494,13 @@ export async function PUT(request: Request) {
       );
     }
 
+    if (!canTransitionOrderStatus(existingOrder.status, status as OrderStatus)) {
+      return NextResponse.json(
+        { success: false, message: `Order cannot move from ${existingOrder.status} to ${status}.` },
+        { status: 409 },
+      );
+    }
+
     if (status === "COMPLETED" && !existingOrder.isWalkIn && existingOrder.status !== "READY_FOR_PICKUP") {
       return NextResponse.json(
         { success: false, message: "An ecommerce order can only be completed after it is ready for pickup." },
@@ -502,22 +509,14 @@ export async function PUT(request: Request) {
     }
 
     const isOnlinePayment = existingOrder.paymentMethod === "GCASH" || existingOrder.paymentMethod === "PAYMAYA";
-    const approvalStatuses = ["PREPARING", "READY_FOR_PICKUP", "COMPLETED"];
-    if (isOnlinePayment && existingOrder.paymentStatus !== "PAID" && approvalStatuses.includes(status)) {
+    if (
+      isOnlinePayment &&
+      existingOrder.paymentStatus !== "PAID" &&
+      status !== existingOrder.status &&
+      status !== "CANCELLED"
+    ) {
       return NextResponse.json(
-        { success: false, message: "Approve the payment first before moving this order forward." },
-        { status: 400 }
-      );
-    }
-    if (isOnlinePayment && existingOrder.paymentStatus !== "PAID" && status !== "PENDING_PAYMENT" && status !== "CANCELLED") {
-      return NextResponse.json(
-        { success: false, message: "Approve or reject the online payment before changing the order status." },
-        { status: 400 }
-      );
-    }
-    if (!canCancelOrder(existingOrder.status) && status === "CANCELLED") {
-      return NextResponse.json(
-        { success: false, message: "Only pending orders can be canceled." },
+        { success: false, message: "Approve the online payment before moving this order forward." },
         { status: 400 }
       );
     }
@@ -525,15 +524,25 @@ export async function PUT(request: Request) {
     const order = await prisma.$transaction(async (tx) => {
       const movementSource = existingOrder.isWalkIn ? "POS" : "ECOMMERCE";
       const nextPaymentStatus =
-        status === "CANCELLED" && existingOrder.paymentMethod !== "CASH" && existingOrder.paymentStatus === "PENDING"
+        status === "CANCELLED" && ["PENDING", "PROOF_SUBMITTED"].includes(existingOrder.paymentStatus)
           ? "CANCELLED"
           : status === "COMPLETED" && existingOrder.paymentMethod === "CASH"
           ? "PAID"
           : existingOrder.paymentStatus;
       if (status === "CANCELLED") {
         const claim = await tx.order.updateMany({
-          where: { id, status: existingOrder.status, paymentStatus: existingOrder.paymentStatus },
-          data: { status: "CANCELLED", paymentStatus: nextPaymentStatus },
+          where: {
+            id,
+            status: existingOrder.status,
+            paymentStatus: existingOrder.paymentStatus,
+            stateVersion: existingOrder.stateVersion,
+          },
+          data: {
+            status: "CANCELLED",
+            paymentStatus: nextPaymentStatus,
+            reservationExpiresAt: null,
+            stateVersion: { increment: 1 },
+          },
         });
         if (claim.count !== 1) throw new OrderStateConflictError("Order status changed before cancellation completed.");
       }
@@ -630,10 +639,17 @@ export async function PUT(request: Request) {
 
       if (status !== "CANCELLED") {
         const claim = await tx.order.updateMany({
-          where: { id, status: existingOrder.status, paymentStatus: existingOrder.paymentStatus },
+          where: {
+            id,
+            status: existingOrder.status,
+            paymentStatus: existingOrder.paymentStatus,
+            stateVersion: existingOrder.stateVersion,
+          },
           data: {
             status: status as OrderStatus,
             paymentStatus: nextPaymentStatus,
+            ...(status === "COMPLETED" ? { reservationExpiresAt: null } : {}),
+            stateVersion: { increment: 1 },
             ...(nextPaymentStatus === "PAID" && !existingOrder.paidAt ? { paidAt: new Date() } : {}),
           },
         });

@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import { useState } from "react";
 import type { Attribute } from "./AttributeManager";
 import {

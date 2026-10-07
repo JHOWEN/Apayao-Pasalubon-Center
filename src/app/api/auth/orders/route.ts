@@ -8,7 +8,7 @@ import { expireWalletReservations } from "@/features/inventory/lib/reservation-e
 import { resolvePaymentProofUrl } from "@/lib/storage";
 import { getRequestId, logError } from "@/lib/logger";
 import { apiError } from "@/lib/api-response";
-import { emitOrderCreatedEvent } from "@/lib/realtime";
+import { emitOrderCreatedEvent, emitOrderUpdatedEvent } from "@/lib/realtime";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { getOrderItemSnapshot, getOrderStatusEventType, recordOrderEvent } from "@/lib/order-history";
 import {
@@ -59,6 +59,7 @@ function serializeOrder(order: {
   pickupDate: Date | null;
   pickupTime: string | null;
   createdAt: Date;
+  reservationExpiresAt: Date | null;
   status: string;
   totalAmount: unknown;
   paymentMethod: string;
@@ -96,10 +97,7 @@ function serializeOrder(order: {
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     proofOfPaymentUrl: order.proofOfPaymentUrl,
-    reservationExpiresAt:
-      order.paymentMethod !== "CASH" && !order.proofOfPaymentUrl && order.status === "PENDING_PAYMENT"
-        ? new Date(order.createdAt.getTime() + ONLINE_PAYMENT_RESERVATION_TTL_MS).toISOString()
-        : null,
+    reservationExpiresAt: order.reservationExpiresAt?.toISOString() ?? null,
     isWalkIn: order.isWalkIn,
     items: order.items.map((item) => ({
       ...item,
@@ -170,7 +168,7 @@ export async function POST(request: Request) {
     const { payload, user } = authCheck;
     await expireWalletReservations(new Date(), 10);
     const parsedBody = await request.json();
-    const validation = validateOrderPayload(parsedBody, { allowCancelled: false, allowWalkIn: false });
+    const validation = validateOrderPayload(parsedBody, { allowWalkIn: false });
 
     if (!validation.success) {
       return NextResponse.json({ success: false, message: validation.message }, { status: 400 });
@@ -227,12 +225,12 @@ export async function POST(request: Request) {
     }
     const totalAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const isWalkIn = body.isWalkIn ?? false;
-    const initialStatus = resolveInitialOrderStatus(isWalkIn, body.status, false);
+    const initialStatus = resolveInitialOrderStatus(isWalkIn);
     const paymentMethod = (body.paymentMethod ?? "CASH") as "CASH" | "GCASH" | "PAYMAYA";
-    const proofOfPaymentUrl = body.proofOfPaymentUrl?.trim() || null;
+    const proofOfPaymentUrl = null;
     const paymentStatus: PaymentStatus = resolveInitialPaymentStatus(paymentMethod);
 
-    const effectiveInitialStatus = paymentMethod === "CASH" ? initialStatus : "PENDING_PAYMENT";
+    const effectiveInitialStatus = initialStatus;
 
     const productIds = [...new Set(items.map((item) => item.productId))];
     const existingProducts = await prisma.product.findMany({
@@ -290,6 +288,8 @@ export async function POST(request: Request) {
           paymentMethod,
           paymentStatus,
           proofOfPaymentUrl,
+          reservationExpiresAt:
+            paymentMethod === "CASH" ? null : new Date(Date.now() + ONLINE_PAYMENT_RESERVATION_TTL_MS),
           status: effectiveInitialStatus,
           paidAt: paymentStatus === PaymentStatus.PAID ? new Date() : null,
           isWalkIn,
@@ -396,6 +396,13 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, message: "Invalid order status." }, { status: 400 });
     }
 
+    if (status !== "CANCELLED" && status !== "COMPLETED") {
+      return NextResponse.json(
+        { success: false, message: "Customers can only cancel pending orders or confirm pickup of ready orders." },
+        { status: 400 },
+      );
+    }
+
     const existingOrder = await prisma.order.findUnique({
       where: { id },
       include: { items: true },
@@ -417,13 +424,17 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, message: "An order can only be marked received after it is ready for pickup." }, { status: 400 });
     }
 
+    if (status === "COMPLETED" && existingOrder.paymentMethod !== "CASH" && existingOrder.paymentStatus !== "PAID") {
+      return NextResponse.json({ success: false, message: "Payment must be approved before pickup can be confirmed." }, { status: 400 });
+    }
+
     if (!canCancelOrder(existingOrder.status) && status === "CANCELLED") {
       return NextResponse.json({ success: false, message: "Only pending orders can be canceled." }, { status: 400 });
     }
 
     const shouldRestoreStock = status === "CANCELLED";
     const nextPaymentStatus =
-      status === "CANCELLED" && existingOrder.paymentMethod !== "CASH" && existingOrder.paymentStatus === "PENDING"
+      status === "CANCELLED" && ["PENDING", "PROOF_SUBMITTED"].includes(existingOrder.paymentStatus)
         ? PaymentStatus.CANCELLED
         : existingOrder.paymentMethod === "CASH" && status === "COMPLETED"
         ? "PAID"
@@ -432,8 +443,19 @@ export async function PUT(request: Request) {
     const order = await prisma.$transaction(async (tx) => {
       if (shouldRestoreStock) {
         const claim = await tx.order.updateMany({
-          where: { id, userId: payload.sub, status: existingOrder.status, paymentStatus: existingOrder.paymentStatus },
-          data: { status: "CANCELLED", paymentStatus: nextPaymentStatus },
+          where: {
+            id,
+            userId: payload.sub,
+            status: existingOrder.status,
+            paymentStatus: existingOrder.paymentStatus,
+            stateVersion: existingOrder.stateVersion,
+          },
+          data: {
+            status: "CANCELLED",
+            paymentStatus: nextPaymentStatus,
+            reservationExpiresAt: null,
+            stateVersion: { increment: 1 },
+          },
         });
         if (claim.count !== 1) throw new OrderStateConflictError("Order status changed before cancellation completed.");
       }
@@ -485,10 +507,18 @@ export async function PUT(request: Request) {
 
       if (!shouldRestoreStock) {
         const claim = await tx.order.updateMany({
-          where: { id, userId: payload.sub, status: existingOrder.status, paymentStatus: existingOrder.paymentStatus },
+          where: {
+            id,
+            userId: payload.sub,
+            status: existingOrder.status,
+            paymentStatus: existingOrder.paymentStatus,
+            stateVersion: existingOrder.stateVersion,
+          },
           data: {
             status: status as OrderStatus,
             paymentStatus: nextPaymentStatus,
+            ...(status === "COMPLETED" ? { reservationExpiresAt: null } : {}),
+            stateVersion: { increment: 1 },
             ...(nextPaymentStatus === "PAID" && !existingOrder.paidAt ? { paidAt: new Date() } : {}),
           },
         });
@@ -510,6 +540,13 @@ export async function PUT(request: Request) {
       }
 
       return updatedOrder;
+    });
+
+    emitOrderUpdatedEvent({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      userId: order.userId,
     });
 
     return NextResponse.json({ success: true, order }, { status: 200 });

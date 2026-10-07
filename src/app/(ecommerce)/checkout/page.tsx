@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { clearCart, getCartItems, getStoredUser, saveRecentOrder, saveStoredUser } from "@/features/cart/lib/cart";
@@ -187,7 +187,6 @@ export default function CheckoutPage() {
       pickupTime: form.pickupTime || undefined,
       paymentMethod: form.paymentMethod,
       proofOfPaymentUrl: null,
-      status: form.paymentMethod === "CASH" ? "PENDING" : "PENDING_PAYMENT",
       isWalkIn: false,
       items: items.map((item) => ({
         productId: item.productId,

@@ -28,7 +28,7 @@ import {
   ADMIN_MODAL_BACKDROP_CLASS,
   ADMIN_MODAL_PANEL_CLASS,
 } from "@/utils/admin-modal";
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import { useEffect, useMemo, useState } from "react";
 
 export type CustomerRow = {

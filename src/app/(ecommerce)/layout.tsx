@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -21,8 +21,7 @@ type OrderStatusNotification = {
 };
 
 const orderStatusLabels: Record<string, string> = {
-  PENDING_PAYMENT: "Awaiting payment",
-  PENDING: "Pending",
+  PENDING: "Order received",
   CONFIRMED: "Confirmed",
   PREPARING: "Preparing",
   READY_FOR_PICKUP: "Ready for pickup",

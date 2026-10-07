@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
@@ -9,6 +9,7 @@ import {
   Bell,
   ChevronRight,
   ExternalLink,
+  Menu,
   Moon,
   Sun,
 } from "lucide-react";
@@ -20,16 +21,16 @@ const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-log
 type ThemeMode = "light" | "dark" | "system";
 
 function getRouteInfo(pathname: string) {
-  if (pathname.startsWith("/pos")) return { category: "Sales Channels", title: "Point of Sale" };
-  if (pathname.startsWith("/admin-orders")) return { category: "Sales Channels", title: "Orders" };
-  if (pathname.startsWith("/products")) return { category: "Inventory", title: "Storefront Products" };
-  if (pathname.startsWith("/categories")) return { category: "Inventory", title: "Categories" };
-  if (pathname.startsWith("/inventory/transactions")) return { category: "Inventory", title: "Stock Transactions" };
-  if (pathname.startsWith("/inventory")) return { category: "Inventory", title: "Inventory" };
-  if (pathname.startsWith("/customers")) return { category: "Customer", title: "User Management" };
-  if (pathname.startsWith("/analytics")) return { category: "System", title: "Analytics" };
-  if (pathname.startsWith("/reports")) return { category: "System", title: "Reports" };
-  if (pathname.startsWith("/admin-settings")) return { category: "System", title: "Settings" };
+  if (pathname.startsWith("/pos")) return { category: "Sales", title: "Point of Sale" };
+  if (pathname.startsWith("/admin-orders")) return { category: "Sales", title: "Orders" };
+  if (pathname.startsWith("/products")) return { category: "Catalog", title: "Products" };
+  if (pathname.startsWith("/categories")) return { category: "Catalog", title: "Categories" };
+  if (pathname.startsWith("/inventory/transactions")) return { category: "Stock", title: "Transactions" };
+  if (pathname.startsWith("/inventory")) return { category: "Stock", title: "Inventory" };
+  if (pathname.startsWith("/customers")) return { category: "Customers", title: "Accounts" };
+  if (pathname.startsWith("/analytics")) return { category: "Insights", title: "Analytics" };
+  if (pathname.startsWith("/reports")) return { category: "Insights", title: "Reports" };
+  if (pathname.startsWith("/admin-settings")) return { category: "Workspace", title: "Settings" };
   if (pathname.startsWith("/dashboard")) return { category: "Dashboard", title: "Dashboard" };
   return { category: "Admin", title: "Console" };
 }
@@ -43,14 +44,9 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
   const [sessionStatus, setSessionStatus] = useState<"checking" | "verified" | "unavailable">("checking");
   const [sessionRetryVersion, setSessionRetryVersion] = useState(0);
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    if (typeof window === "undefined") return "system";
-
-    const storedTheme = window.localStorage.getItem("apc-theme") as ThemeMode | null;
-    return storedTheme === "light" || storedTheme === "dark" || storedTheme === "system"
-      ? storedTheme
-      : "system";
-  });
+  const [theme, setTheme] = useState<ThemeMode>("system");
+  const [isThemeInitialized, setIsThemeInitialized] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<
     Array<{ id: string; orderNumber: string; customerName: string; pickupDate: string; status: string }>
@@ -58,6 +54,16 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   const notificationMenuRef = useRef<HTMLDivElement>(null);
   const orderChannelRef = useRef<BroadcastChannel | null>(null);
+
+  useEffect(() => {
+    if (!isMobileNavOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsMobileNavOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileNavOpen]);
 
   useEffect(() => {
     let isActive = true;
@@ -166,6 +172,24 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }, [sessionStatus]);
 
   useEffect(() => {
+    const themeTimeout = window.setTimeout(() => {
+      let storedTheme: string | null = null;
+      try {
+        storedTheme = window.localStorage.getItem("apc-theme");
+      } catch {
+        // Keep the system theme when browser storage is unavailable.
+      }
+
+      setTheme(storedTheme === "light" || storedTheme === "dark" || storedTheme === "system"
+        ? storedTheme
+        : "system");
+      setIsThemeInitialized(true);
+    }, 0);
+
+    return () => window.clearTimeout(themeTimeout);
+  }, []);
+
+  useEffect(() => {
     if (userRole !== "STAFF") return;
 
     const staffRestrictedPaths = ["/dashboard", "/admin-orders", "/categories", "/inventory", "/customers"];
@@ -175,14 +199,20 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }, [pathname, router, userRole]);
 
   useEffect(() => {
+    if (!isThemeInitialized) return;
+
     const root = document.documentElement;
     const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const resolvedTheme = theme === "system" ? (systemPrefersDark ? "dark" : "light") : theme;
 
     root.classList.toggle("dark", resolvedTheme === "dark");
     root.style.colorScheme = resolvedTheme;
-    window.localStorage.setItem("apc-theme", theme);
-  }, [theme]);
+    try {
+      window.localStorage.setItem("apc-theme", theme);
+    } catch {
+      // Theme still applies when browser storage is unavailable.
+    }
+  }, [isThemeInitialized, theme]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -269,6 +299,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       try {
         const message = JSON.parse(event.data) as { type?: string };
         if (message?.type === "order-created" || message?.type === "order-updated" || message?.type === "inventory-updated") {
+          window.dispatchEvent(new CustomEvent("apc-admin-live-event", { detail: message }));
           void loadPickupNotifications();
         }
       } catch {
@@ -338,52 +369,64 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="fixed inset-0 h-dvh overflow-hidden bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+    <div className="fixed inset-0 h-dvh overflow-hidden bg-[#f5f6f4] text-slate-800 dark:bg-slate-950 dark:text-slate-100">
       <div className="flex h-dvh overflow-visible">
-        {/* Desktop Collapsible Sidebar */}
-        <AdminSidebar />
+        {isMobileNavOpen ? (
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => setIsMobileNavOpen(false)}
+            className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-[2px] lg:hidden"
+          />
+        ) : null}
+        <AdminSidebar isMobile={isMobileNavOpen} onCloseMobile={() => setIsMobileNavOpen(false)} />
 
         {/* Main Application Area */}
         <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-visible">
           {/* Top Panel Header */}
-          <header className="relative z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 shadow-xs transition-colors duration-200 sm:px-5 lg:px-7 dark:border-slate-800 dark:bg-slate-900">
-            {/* Header Left: Route breadcrumb and page title */}
-            <div className="flex items-center gap-3">
-              <div className="flex min-w-0 items-center gap-2.5 rounded-lg px-1 py-1 text-slate-900 transition-all duration-200 dark:text-white">
-                <div className="hidden sm:flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  <span className="rounded-md bg-slate-100 dark:bg-slate-800/90 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/60">
-                    {routeInfo.category}
-                  </span>
+          <header className="relative z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-3 sm:px-5 lg:px-7 dark:border-slate-800 dark:bg-slate-900">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <button
+                type="button"
+                onClick={() => setIsMobileNavOpen(true)}
+                aria-label="Open navigation"
+                aria-expanded={isMobileNavOpen}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f08b32] lg:hidden dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <Menu className="h-4.5 w-4.5" />
+              </button>
+              <div className="flex min-w-0 items-center gap-2.5 text-slate-900 dark:text-white">
+                <div className="hidden items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 sm:flex dark:text-slate-500">
+                  <span>{routeInfo.category}</span>
                   <ChevronRight className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600" />
                 </div>
-                <h1 className="truncate text-sm font-semibold text-slate-900 dark:text-white sm:text-base">
+                <span className="truncate text-sm font-semibold sm:text-[15px]">
                   {routeInfo.title}
-                </h1>
+                </span>
               </div>
             </div>
 
-            {/* Header Right: Store link, Notifications, Theme toggle, Profile menu */}
-            <div className="flex items-center gap-2 sm:gap-2.5">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
               {/* Storefront preview shortcut */}
               <Link
                 href="/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hidden sm:inline-flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition-all duration-150 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-white active:scale-[0.98]"
+                className="hidden sm:inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
                 title="Open customer storefront in a new tab"
               >
                 <ExternalLink className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
                 <span>View Store</span>
               </Link>
 
-              <div className="hidden sm:block h-4 w-px bg-slate-200 dark:bg-slate-800 mx-0.5" />
+              <div className="hidden sm:block h-5 w-px bg-slate-200 dark:bg-slate-800 mx-0.5" />
 
               {/* Pickup Notifications Popover */}
               <div className="relative z-40" ref={notificationMenuRef}>
                 <button
                   type="button"
                   onClick={() => setIsNotificationsOpen((value) => !value)}
-                  className="relative flex h-9.5 w-9.5 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-slate-600 shadow-xs transition-all duration-150 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-white active:scale-95"
+                  className="relative flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f08b32] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                   aria-label="Pickup alerts"
                   title="Pickup alerts"
                 >
@@ -464,55 +507,48 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 )}
               </div>
 
-              {/* Theme Toggle Button */}
+              {/* Theme toggle */}
               <button
                 type="button"
                 onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
                 aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
                 title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-                className={`relative inline-flex h-8 w-14 items-center rounded-full border p-0.5 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
-                  theme === "dark"
-                    ? "border-emerald-500/50 bg-emerald-500/15"
-                    : "border-slate-200/90 bg-slate-100 hover:border-slate-300"
-                }`}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f08b32] dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
               >
-                <span
-                  className={`flex h-6.5 w-6.5 items-center justify-center rounded-full bg-white text-slate-700 shadow-sm transition-transform duration-200 ease-out dark:bg-slate-900 dark:text-amber-400 ${
-                    theme === "dark" ? "translate-x-6" : "translate-x-0"
-                  }`}
-                >
-                  {theme === "dark" ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
-                </span>
+                {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
               </button>
 
-              {/* Profile Icon */}
-              <div className="relative">
-                <button
-                  type="button"
-                  className="relative flex h-9.5 w-9.5 items-center justify-center rounded-full border border-transparent bg-transparent shadow-none transition-all duration-150 hover:border-transparent hover:bg-transparent hover:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 active:scale-95"
-                  aria-label="Profile"
-                  title="Profile"
+              <div className="ml-1 flex items-center gap-2 border-l border-slate-200 pl-2.5 sm:ml-1.5 sm:pl-3 dark:border-slate-800">
+                <div className="hidden text-right md:block">
+                  <p className="text-xs font-semibold leading-4 text-slate-800 dark:text-slate-100">
+                    {userRole === "STAFF" ? "Staff workspace" : "Admin workspace"}
+                  </p>
+                  <p className="text-[10px] leading-4 text-slate-400 dark:text-slate-500">APC Inventory</p>
+                </div>
+                <div
+                  role="img"
+                  className="relative flex h-9 w-9 items-center justify-center rounded-full bg-slate-100 ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
+                  aria-label={userRole === "STAFF" ? "Staff account" : "Admin account"}
+                  title={userRole === "STAFF" ? "Staff account" : "Admin account"}
                 >
-                  <div className="relative h-7.5 w-7.5 overflow-hidden rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 ring-1 ring-emerald-500/20">
+                  <div className="relative h-7 w-7 overflow-hidden rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                     <Image
                       src={avatarSrc}
-                      alt="Admin profile"
+                      alt=""
                       fill
                       sizes="30px"
                       className="object-cover"
                     />
                   </div>
 
-                  <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900">
-                    <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                  </span>
-                </button>
+                  <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" />
+                </div>
               </div>
             </div>
           </header>
 
           {/* Main scrollable page content */}
-          <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-50 p-4 text-slate-800 sm:p-5 lg:p-7 dark:bg-slate-950 dark:text-slate-100">
+          <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#f5f6f4] p-4 text-slate-800 sm:p-5 lg:p-7 dark:bg-slate-950 dark:text-slate-100">
             <div key={pathname} className="admin-page-enter">
               {children}
             </div>

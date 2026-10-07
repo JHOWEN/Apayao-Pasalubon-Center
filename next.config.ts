@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { SUPABASE_STORAGE_HOST } from "./src/lib/storage/public-image-host";
 
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
@@ -6,7 +7,7 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "aitlwnyerhzliyekormo.supabase.co",
+        hostname: SUPABASE_STORAGE_HOST,
         pathname: "/storage/v1/object/public/**",
       },
     ],

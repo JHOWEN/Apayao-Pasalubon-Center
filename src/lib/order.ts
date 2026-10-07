@@ -1,5 +1,4 @@
 export const orderStatuses = [
-  "PENDING_PAYMENT",
   "PENDING",
   "CONFIRMED",
   "PREPARING",
@@ -14,6 +13,7 @@ export type OrderStatus = (typeof orderStatuses)[number];
 
 export const orderStatusProgression = [
   "PENDING",
+  "CONFIRMED",
   "PREPARING",
   "READY_FOR_PICKUP",
   "COMPLETED",
@@ -21,10 +21,7 @@ export const orderStatusProgression = [
 
 export type OrderProgressionStatus = (typeof orderStatusProgression)[number];
 
-export const orderStatusesCreatable = orderStatusProgression;
-
 export const orderStatusSteps = [
-  { key: "PENDING_PAYMENT", label: "Pending payment" },
   { key: "PENDING", label: "Pending" },
   { key: "CONFIRMED", label: "Confirmed" },
   { key: "PREPARING", label: "Preparing" },
@@ -54,8 +51,6 @@ export type OrderPayload = {
   pickupDate?: string;
   pickupTime?: string;
   paymentMethod?: string;
-  proofOfPaymentUrl?: string;
-  status?: unknown;
   isWalkIn?: boolean;
 };
 
@@ -71,16 +66,12 @@ export type ValidatedOrderItem = {
   unitLabel?: string;
 };
 
-export type ValidatedOrderPayload = Omit<OrderPayload, "items" | "status"> & {
+export type ValidatedOrderPayload = Omit<OrderPayload, "items"> & {
   items: ValidatedOrderItem[];
-  status?: OrderStatus;
 };
 
 export const isOrderStatus = (value: unknown): value is OrderStatus =>
   typeof value === "string" && orderStatuses.includes(value as OrderStatus);
-
-export const isCreatableOrderStatus = (value: unknown): value is OrderProgressionStatus =>
-  typeof value === "string" && orderStatusesCreatable.includes(value as OrderProgressionStatus);
 
 export const getNextOrderStatus = (status: OrderStatus): OrderStatus | null => {
   const index = orderStatusProgression.indexOf(status as OrderProgressionStatus);
@@ -89,7 +80,19 @@ export const getNextOrderStatus = (status: OrderStatus): OrderStatus | null => {
     : orderStatusProgression[index + 1];
 };
 
-export const canCancelOrder = (status: OrderStatus) => !["COMPLETED", "CANCELLED"].includes(status);
+const allowedOrderTransitions: Record<OrderStatus, readonly OrderStatus[]> = {
+  PENDING: ["CONFIRMED", "CANCELLED"],
+  CONFIRMED: ["PREPARING", "CANCELLED"],
+  PREPARING: ["READY_FOR_PICKUP", "CANCELLED"],
+  READY_FOR_PICKUP: ["COMPLETED", "CANCELLED"],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+export const canTransitionOrderStatus = (current: OrderStatus, next: OrderStatus) =>
+  current === next || allowedOrderTransitions[current].includes(next);
+
+export const canCancelOrder = (status: OrderStatus) => status === "PENDING";
 
 export const getPickupDateKey = (value: string | Date | null | undefined) => {
   if (value === null || value === undefined || value === "") {
@@ -171,45 +174,38 @@ export const getEffectivePaymentStatus = ({
 }): PaymentStatus => {
   const normalizedMethod = typeof paymentMethod === "string" ? paymentMethod.trim().toUpperCase() : "";
 
-  if (normalizedMethod === "CASH") {
-    return status === "COMPLETED" || paymentStatus === "PAID" ? PaymentStatus.PAID : PaymentStatus.PENDING;
+  if (paymentStatus === "FAILED") {
+    return PaymentStatus.FAILED;
+  }
+
+  if (paymentStatus === "PAID") {
+    return PaymentStatus.PAID;
   }
 
   if (status === "CANCELLED" || paymentStatus === "CANCELLED") {
     return PaymentStatus.CANCELLED;
   }
 
-  if (paymentStatus === "FAILED") {
-    return PaymentStatus.FAILED;
+  if (normalizedMethod === "CASH") {
+    return status === "COMPLETED" || paymentStatus === "PAID" ? PaymentStatus.PAID : PaymentStatus.PENDING;
   }
 
-  return paymentStatus === "PAID" ? PaymentStatus.PAID : PaymentStatus.PENDING;
+  if (paymentStatus === "PROOF_SUBMITTED") {
+    return PaymentStatus.PROOF_SUBMITTED;
+  }
+
+  return PaymentStatus.PENDING;
 };
 
 export const resolveInitialOrderStatus = (
-  isWalkIn: boolean,
-  requestedStatus?: unknown,
-  allowCancelled = false
+  isWalkIn: boolean
 ): OrderStatus => {
-  if (isWalkIn) {
-    return "COMPLETED";
-  }
-
-  if (allowCancelled && isOrderStatus(requestedStatus)) {
-    return requestedStatus;
-  }
-
-  if (isCreatableOrderStatus(requestedStatus)) {
-    return requestedStatus;
-  }
-
-  return "PENDING_PAYMENT";
+  return isWalkIn ? "COMPLETED" : "PENDING";
 };
 
 export const validateOrderPayload = (
   payload: unknown,
   options?: {
-    allowCancelled?: boolean;
     allowWalkIn?: boolean;
   }
 ): { success: true; payload: ValidatedOrderPayload } | { success: false; message: string } => {
@@ -253,17 +249,6 @@ export const validateOrderPayload = (
     items.push({ productId, variantId, quantity, price, sku, unitLabel });
   }
 
-  const statusValue = body.status;
-  if (statusValue !== undefined && statusValue !== null) {
-    if (!isOrderStatus(statusValue)) {
-      return { success: false, message: "Invalid order status." };
-    }
-
-    if (statusValue === "CANCELLED" && !options?.allowCancelled) {
-      return { success: false, message: "Cancelled orders cannot be created." };
-    }
-  }
-
   const pickupDate = typeof body.pickupDate === "string" ? body.pickupDate.trim() : undefined;
   const pickupTime = typeof body.pickupTime === "string" ? body.pickupTime.trim() : undefined;
 
@@ -297,8 +282,6 @@ export const validateOrderPayload = (
     pickupDate,
     pickupTime,
     paymentMethod: rawPaymentMethod as SupportedPaymentMethod | undefined,
-    proofOfPaymentUrl: typeof body.proofOfPaymentUrl === "string" ? body.proofOfPaymentUrl.trim() : undefined,
-    status: isOrderStatus(statusValue) ? statusValue : undefined,
     isWalkIn: Boolean(body.isWalkIn) && options?.allowWalkIn,
   };
 
@@ -307,8 +290,6 @@ export const validateOrderPayload = (
 
 export const getOrderActionLabel = (currentStatus: OrderStatus) => {
   switch (currentStatus) {
-    case "PENDING_PAYMENT":
-      return "Confirm payment";
     case "PENDING":
       return "Confirm order";
     case "CONFIRMED":

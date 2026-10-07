@@ -1,6 +1,6 @@
 "use client";
 
-import NextImage from "next/image";
+import NextImage from "@/components/safe-image";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
 import {

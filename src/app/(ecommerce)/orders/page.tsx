@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -328,14 +328,6 @@ export default function OrdersPage() {
 
   const statusTabs = ["ALL", ...orderStatusSteps.map((step) => step.key)];
 
-  const getDisplayOrderStatus = (status: string) => {
-    if (status === "PENDING_PAYMENT") {
-      return "PENDING";
-    }
-
-    return status;
-  };
-
   const sortedOrders = [...orders].sort((a, b) => {
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
@@ -343,7 +335,7 @@ export default function OrdersPage() {
   const filteredOrders =
     selectedStatus === "ALL"
       ? sortedOrders
-      : sortedOrders.filter((order) => getDisplayOrderStatus(order.status) === selectedStatus);
+      : sortedOrders.filter((order) => order.status === selectedStatus);
 
   const statusColors: Record<string, { badge: string; text: string }> = {
     PENDING: { badge: "border-amber-400/30 bg-amber-500/10 text-amber-300", text: "text-amber-400" },
@@ -409,7 +401,7 @@ export default function OrdersPage() {
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar border-b border-white/10">
           {statusTabs.map((status) => {
             const active = selectedStatus === status;
-            const normalizedStatus = status === "ALL" ? status : getDisplayOrderStatus(status);
+            const normalizedStatus = status;
             const statusLabel =
               status === "ALL"
                 ? "All Orders"
@@ -463,8 +455,13 @@ export default function OrdersPage() {
         ) : (
           <div className="space-y-4">
             {filteredOrders.map((order) => {
-              const normalizedStatus = getDisplayOrderStatus(order.status);
+              const normalizedStatus = order.status;
               const colors = statusColors[normalizedStatus] || statusColors.PENDING;
+              const paymentStatusLabel = getEffectivePaymentStatus({
+                paymentMethod: order.paymentMethod,
+                paymentStatus: order.paymentStatus,
+                status: order.status,
+              });
               const isPickupDateAhead = isPickupDateAheadOfOrderDate(order.pickupDate, order.createdAt);
               const isTrackingOpen = trackingOrderId === order.id;
 
@@ -579,11 +576,7 @@ export default function OrdersPage() {
                         </div>
                         {order.paymentStatus && (
                           <span className="inline-block text-[10px] text-[#ffb36f] font-bold uppercase">
-                            {getEffectivePaymentStatus({
-                              paymentMethod: order.paymentMethod,
-                              paymentStatus: order.paymentStatus,
-                              status: order.status,
-                            })}
+                            {paymentStatusLabel === "PROOF_SUBMITTED" ? "AWAITING REVIEW" : paymentStatusLabel}
                           </span>
                         )}
                       </div>
@@ -600,7 +593,7 @@ export default function OrdersPage() {
 
                   {/* Actions Row */}
                   <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-white/5">
-                    {order.status === "PENDING_PAYMENT" && order.paymentMethod !== "CASH" && (
+                    {order.status === "PENDING" && order.paymentMethod !== "CASH" && (
                       <div className="w-full rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-xs text-amber-100">
                         {order.proofOfPaymentUrl
                           ? "Receipt submitted. Your reservation remains held during admin review."

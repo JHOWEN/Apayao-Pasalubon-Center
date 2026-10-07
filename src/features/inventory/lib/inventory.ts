@@ -34,7 +34,7 @@ type InventoryAuditContext = {
 };
 
 type InventoryPaymentMethod = "CASH" | "GCASH" | "PAYMAYA";
-type InventoryPaymentStatus = "PENDING" | "PAID" | "FAILED" | "CANCELLED";
+type InventoryPaymentStatus = "PENDING" | "PROOF_SUBMITTED" | "PAID" | "FAILED" | "CANCELLED";
 
 export function buildInventoryAuditPaymentData(input: Pick<InventoryAuditContext, "paymentMethod" | "paymentStatus" | "paymentReference"> = {}): {
   paymentMethod: InventoryPaymentMethod | null;
@@ -46,7 +46,7 @@ export function buildInventoryAuditPaymentData(input: Pick<InventoryAuditContext
   const paymentReference = typeof input.paymentReference === "string" ? input.paymentReference.trim() || null : null;
 
   const paymentMethod = rawMethod === "CASH" || rawMethod === "GCASH" || rawMethod === "PAYMAYA" ? rawMethod : null;
-  const paymentStatus = rawStatus === "PENDING" || rawStatus === "PAID" || rawStatus === "FAILED" || rawStatus === "CANCELLED"
+  const paymentStatus = rawStatus === "PENDING" || rawStatus === "PROOF_SUBMITTED" || rawStatus === "PAID" || rawStatus === "FAILED" || rawStatus === "CANCELLED"
     ? rawStatus
     : null;
 

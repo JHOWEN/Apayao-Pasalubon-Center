@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowCounterClockwise as RotateCcw,

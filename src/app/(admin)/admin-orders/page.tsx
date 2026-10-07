@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import { AdminToast } from "@/components/admin/admin-toast";
 import styles from "./admin-orders.module.css";
 import {
@@ -29,7 +29,7 @@ import {
   User,
   X,
 } from "lucide-react";
-import { orderStatuses } from "@/lib/order";
+import { getNextOrderStatus, OrderStatus } from "@/lib/order";
 import {
   ADMIN_MODAL_ACTION_ROW_CLASS,
   ADMIN_MODAL_HEADER_CLASS,
@@ -195,7 +195,6 @@ export default function AdminOrdersPage() {
 
   function getStatusLabel(status: string) {
     const labels: Record<string, string> = {
-      PENDING_PAYMENT: "Payment Review",
       PENDING: "Pending",
       CONFIRMED: "Confirmed",
       PREPARING: "Preparing",
@@ -216,14 +215,23 @@ export default function AdminOrdersPage() {
         return "Declined";
       }
 
+      if (paymentStatus === "CANCELLED") {
+        return "Cancelled";
+      }
+
       return "Pending";
+    }
+
+    if (paymentStatus === "FAILED") {
+      return "Declined";
     }
 
     if (paymentStatus === "CANCELLED" || (orderStatus === "CANCELLED" && paymentStatus !== "PAID")) {
       return "Cancelled";
     }
 
-    return paymentStatus === "PAID" ? "Paid" : paymentStatus === "FAILED" ? "Declined" : "Awaiting Review";
+    if (paymentStatus === "PAID") return "Paid";
+    return paymentStatus === "PROOF_SUBMITTED" ? "Awaiting Review" : "Awaiting Payment";
   }
 
   function formatPickupTimeLabel(timeValue?: string | null) {
@@ -415,9 +423,9 @@ export default function AdminOrdersPage() {
       body: JSON.stringify({ id: orderId, status: nextStatus }),
     });
 
+    const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       setIsUpdatingStatus(false);
-      const data = await response.json().catch(() => ({}));
       setStatusUpdateFeedback({
         title: "Status not updated",
         message: data.message ?? "Unable to update order status.",
@@ -426,7 +434,17 @@ export default function AdminOrdersPage() {
       return false;
     }
 
-    setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, status: nextStatus } : order)));
+    setOrders((prev) =>
+      prev.map((order) =>
+        order.id === orderId
+          ? {
+              ...order,
+              status: data.order?.status ?? nextStatus,
+              paymentStatus: data.order?.paymentStatus ?? order.paymentStatus,
+            }
+          : order
+      )
+    );
     setIsLoadingOrderHistory(true);
     setOrderHistoryError("");
     setOrderHistoryRefresh((refresh) => refresh + 1);
@@ -472,7 +490,9 @@ export default function AdminOrdersPage() {
 
     setOrders((prev) =>
       prev.map((order) =>
-        order.id === orderId ? { ...order, paymentStatus: "PAID", status: "CONFIRMED" } : order
+        order.id === orderId
+          ? { ...order, paymentStatus: "PAID", status: order.status === "PENDING" ? "CONFIRMED" : order.status }
+          : order
       )
     );
     setIsLoadingOrderHistory(true);
@@ -529,15 +549,7 @@ export default function AdminOrdersPage() {
       return false;
     }
 
-    if (order.status === "COMPLETED" || order.status === "CONFIRMED" || order.status === "CANCELLED") {
-      return false;
-    }
-
-    if (!order.paymentStatus || order.paymentStatus === "PAID" || order.paymentStatus === "FAILED") {
-      return false;
-    }
-
-    return true;
+    return order.status === "PENDING" && order.paymentStatus === "PROOF_SUBMITTED";
   }
 
   function isStatusBlockedByPayment(
@@ -547,7 +559,7 @@ export default function AdminOrdersPage() {
   ) {
     if (targetStatus === "CANCELLED" || paymentStatus === "PAID") return false;
     if (paymentMethod === "CASH") return false;
-    return targetStatus !== "PENDING_PAYMENT";
+    return targetStatus !== "PENDING";
   }
 
   function renderOrderStepper(status: string) {
@@ -570,7 +582,7 @@ export default function AdminOrdersPage() {
       { key: "COMPLETED", label: "Completed" },
     ];
 
-    const statusSeq = ["PENDING_PAYMENT", "PENDING", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "COMPLETED"];
+    const statusSeq = ["PENDING", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "COMPLETED"];
     const currentIdx = statusSeq.indexOf(status);
 
     return (
@@ -582,7 +594,7 @@ export default function AdminOrdersPage() {
           {steps.map((step, idx, arr) => {
             const stepIdx = statusSeq.indexOf(step.key);
             const isDone = currentIdx >= stepIdx && currentIdx !== -1;
-            const isCurrent = status === step.key || (status === "PENDING_PAYMENT" && step.key === "PENDING");
+            const isCurrent = status === step.key;
 
             return (
               <div key={step.key} className="flex flex-1 items-center last:flex-none">
@@ -1665,8 +1677,13 @@ export default function AdminOrdersPage() {
                     }
                     className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 outline-hidden focus:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
                   >
-                    {orderStatuses
-                      .filter((status) => status !== "CONFIRMED" || status === manageModal.status)
+                    {[
+                      manageModal.status,
+                      getNextOrderStatus(manageModal.status as OrderStatus),
+                      "CANCELLED",
+                    ]
+                      .filter((status): status is string => Boolean(status))
+                      .filter((status, index, statuses) => statuses.indexOf(status) === index)
                       .map((status) => (
                         <option key={status} value={status}>
                           {getStatusLabel(status)}
@@ -1689,6 +1706,12 @@ export default function AdminOrdersPage() {
               <button
                 type="button"
                 onClick={async () => {
+                  if (
+                    manageModal.status === "CANCELLED" &&
+                    !window.confirm(`Cancel order ${manageModal.orderNumber}? This will release its stock reservation.`)
+                  ) {
+                    return;
+                  }
                   const didUpdate = await handleStatusChange(manageModal.orderId, manageModal.status);
                   if (didUpdate) {
                     setManageModal(null);
@@ -1699,10 +1722,7 @@ export default function AdminOrdersPage() {
                     });
                   }
                 }}
-                disabled={
-                  manageModal.status === "CANCELLED" ||
-                  isStatusBlockedByPayment(manageModal.paymentMethod, manageModal.paymentStatus, manageModal.status)
-                }
+                disabled={isStatusBlockedByPayment(manageModal.paymentMethod, manageModal.paymentStatus, manageModal.status)}
                 className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <CheckCircle className="h-3.5 w-3.5" />

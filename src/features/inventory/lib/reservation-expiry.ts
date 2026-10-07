@@ -1,22 +1,20 @@
 import { prisma } from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { emitOrderUpdatedEvent } from "@/lib/realtime";
-import { ONLINE_PAYMENT_RESERVATION_TTL_MS } from "@/lib/order";
 import { applyOrderInventoryMovement } from "./inventory";
 import { recordOrderEvent } from "@/lib/order-history";
 
 export async function expireWalletReservations(now = new Date(), limit = 50) {
-  const expirationCutoff = new Date(now.getTime() - ONLINE_PAYMENT_RESERVATION_TTL_MS);
   const candidates = await prisma.order.findMany({
     where: {
-      status: "PENDING_PAYMENT",
+      status: "PENDING",
       paymentStatus: "PENDING",
       paymentMethod: { in: ["GCASH", "PAYMAYA"] },
       proofOfPaymentUrl: null,
-      createdAt: { lte: expirationCutoff },
+      reservationExpiresAt: { lte: now },
     },
-    select: { id: true, userId: true, orderNumber: true },
-    orderBy: { createdAt: "asc" },
+    select: { id: true, userId: true, orderNumber: true, stateVersion: true },
+    orderBy: { reservationExpiresAt: "asc" },
     take: Math.max(1, Math.min(100, limit)),
   });
 
@@ -39,13 +37,19 @@ export async function expireWalletReservations(now = new Date(), limit = 50) {
         const claim = await tx.order.updateMany({
           where: {
             id: candidate.id,
-            status: "PENDING_PAYMENT",
+            status: "PENDING",
             paymentStatus: "PENDING",
             paymentMethod: { in: ["GCASH", "PAYMAYA"] },
             proofOfPaymentUrl: null,
-            createdAt: { lte: expirationCutoff },
+            reservationExpiresAt: { lte: now },
+            stateVersion: candidate.stateVersion,
           },
-          data: { status: "CANCELLED", paymentStatus: "CANCELLED" },
+          data: {
+            status: "CANCELLED",
+            paymentStatus: "CANCELLED",
+            reservationExpiresAt: null,
+            stateVersion: { increment: 1 },
+          },
         });
 
         if (claim.count !== 1) return false;
@@ -53,7 +57,7 @@ export async function expireWalletReservations(now = new Date(), limit = 50) {
         await recordOrderEvent(tx, {
           orderId: candidate.id,
           eventType: "RESERVATION_EXPIRED",
-          previousStatus: "PENDING_PAYMENT",
+          previousStatus: "PENDING",
           newStatus: "CANCELLED",
           previousPaymentStatus: "PENDING",
           newPaymentStatus: "CANCELLED",
