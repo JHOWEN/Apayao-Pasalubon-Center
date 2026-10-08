@@ -442,7 +442,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     };
   }, [sessionStatus]);
 
-  if (sessionStatus !== "verified") {
+  if (sessionStatus !== "verified" || userRole === null) {
     const sessionUnavailable = sessionStatus === "unavailable";
 
     return (
@@ -536,7 +536,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-[2px] lg:hidden"
           />
         ) : null}
-        <AdminSidebar isMobile={isMobileNavOpen} onCloseMobile={() => setIsMobileNavOpen(false)} />
+        <AdminSidebar
+          isMobile={isMobileNavOpen}
+          onCloseMobile={() => setIsMobileNavOpen(false)}
+          userRole={userRole}
+        />
 
         {/* Main Application Area */}
         <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-visible">

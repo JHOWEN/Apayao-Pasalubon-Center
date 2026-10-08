@@ -63,16 +63,17 @@ const sections = [
 export function AdminSidebar({
   isMobile = false,
   onCloseMobile,
+  userRole,
 }: {
   isMobile?: boolean;
   onCloseMobile?: () => void;
-} = {}) {
+  userRole: "ADMIN" | "STAFF";
+}) {
   const pathname = usePathname();
   const normalizedPathname = normalizeSidebarPathname(pathname);
   const router = useRouter();
   const [notificationCount, setNotificationCount] = useState(0);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
   const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [avatarSrc, setAvatarSrc] = useState(fallbackAvatarSrc);
@@ -96,7 +97,7 @@ export function AdminSidebar({
   ];
 
   useEffect(() => {
-    async function loadUserRole() {
+    async function loadSidebarProfile() {
       try {
         const response = await fetch("/api/auth/profile");
         if (!response.ok) return;
@@ -111,15 +112,12 @@ export function AdminSidebar({
         setAdminName(typeof data?.user?.name === "string" ? data.user.name : "");
         setAdminEmail(typeof data?.user?.email === "string" ? data.user.email : "");
 
-        if (data?.user?.role === "ADMIN" || data?.user?.role === "STAFF") {
-          setUserRole(data.user.role);
-        }
       } catch {
-        // Keep navigation hidden until the authenticated role is known.
+        // The parent layout already verified the role; profile details are optional.
       }
     }
 
-    void loadUserRole();
+    void loadSidebarProfile();
 
     const syncCount = () => setNotificationCount(getAdminNotificationCount());
     syncCount();
