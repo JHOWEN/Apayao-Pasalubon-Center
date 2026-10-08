@@ -96,6 +96,7 @@ export default function POSPage() {
   const [completedSubtotal, setCompletedSubtotal] = useState<number | null>(null);
   const [completedTender, setCompletedTender] = useState<number | null>(null);
   const [completedItems, setCompletedItems] = useState<CartItem[]>([]);
+  const [completedAt, setCompletedAt] = useState<Date | null>(null);
   const [currentDate, setCurrentDate] = useState("");
   const [productView, setProductView] = useState<"grid" | "list">("list");
   const [cashierName, setCashierName] = useState("");
@@ -386,12 +387,13 @@ export default function POSPage() {
 
   const printReceipt = (receiptOrderNumber = orderNumber) => {
     const receiptWindow = window.open("", "_blank", "width=400,height=600");
-    if (!receiptWindow) return;
+    if (!receiptWindow) return false;
 
     const receiptItems = completedItems.length > 0 ? completedItems : cart;
     const receiptSubtotal = completedSubtotal ?? subtotal;
     const receiptTender = completedTender ?? tender;
     const receiptChange = receiptTender > receiptSubtotal ? receiptTender - receiptSubtotal : 0;
+    const receiptDate = completedAt ?? new Date();
     const separator = "-".repeat(42);
     const registeredBusinessName = receiptHeader.registeredBusinessName.trim() || defaultReceiptHeader.registeredBusinessName;
     const businessAddress = receiptHeader.businessAddress.trim() || defaultReceiptHeader.businessAddress;
@@ -498,8 +500,8 @@ export default function POSPage() {
         </div>
 
         <div class="rule">${separator}</div>
-        <div class="meta-row"><strong>DATE:</strong><span>${new Date().toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</span></div>
-        <div class="meta-row"><strong>TIME:</strong><span>${new Date().toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</span></div>
+        <div class="meta-row"><strong>DATE:</strong><span>${receiptDate.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</span></div>
+        <div class="meta-row"><strong>TIME:</strong><span>${receiptDate.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</span></div>
         <div class="meta-row"><strong>ORDER NO.:</strong><span>${escapeReceiptHtml(receiptOrderNumber)}</span></div>
         <div class="meta-row"><strong>CASHIER:</strong><span>${escapeReceiptHtml(cashierName || "Unknown user")}</span></div>
         <div class="meta-row"><strong>TERMINAL:</strong><span>${escapeReceiptHtml(terminalNumber || "POS-LOCAL")}</span></div>
@@ -546,6 +548,17 @@ export default function POSPage() {
     setTimeout(() => {
       receiptWindow.print();
     }, 250);
+    return true;
+  };
+
+  const handleBrowserReceiptPrint = () => {
+    setUsbPrintError("");
+    if (printReceipt()) {
+      setUsbPrintMessage("The browser print dialog is ready. Select your receipt printer to continue.");
+    } else {
+      setUsbPrintMessage("");
+      setUsbPrintError("The browser blocked the print window. Allow pop-ups for this site, then try browser printing again.");
+    }
   };
 
   const handleUsbReceiptPrint = async () => {
@@ -559,6 +572,7 @@ export default function POSPage() {
 
     try {
       const printerName = await printEscPosReceipt({
+        createdAt: completedAt ?? new Date(),
         orderNumber,
         registeredBusinessName: receiptHeader.registeredBusinessName || defaultReceiptHeader.registeredBusinessName,
         businessAddress: receiptHeader.businessAddress || defaultReceiptHeader.businessAddress,
@@ -578,7 +592,11 @@ export default function POSPage() {
       });
       setUsbPrintMessage(`Receipt sent to ${printerName}.`);
     } catch (error) {
-      setUsbPrintError(error instanceof Error ? error.message : "USB printing failed. Use Print Receipt as a fallback.");
+      const reason = error instanceof Error ? error.message : "The browser could not communicate with the printer.";
+      const guidance = /browser printing/i.test(reason)
+        ? ""
+        : " Check that the printer is connected, then choose it in the browser prompt. You can also use browser printing.";
+      setUsbPrintError(`${reason}${guidance}`);
     } finally {
       setIsUsbPrinting(false);
     }
@@ -648,6 +666,7 @@ export default function POSPage() {
       setCompletedSubtotal(subtotal);
       setCompletedTender(tender);
       setCompletedItems(cart);
+      setCompletedAt(new Date());
 
       // Decrement local product/variant stocks immediately
       setProducts((current) =>
@@ -722,7 +741,16 @@ export default function POSPage() {
     setCompletedSubtotal(null);
     setCompletedTender(null);
     setCompletedItems([]);
+    setCompletedAt(null);
+    setUsbPrintMessage("");
+    setUsbPrintError("");
   }
+
+  const receiptItemsToShow = completedItems.length > 0 ? completedItems : cart;
+  const receiptSubtotalToShow = completedSubtotal ?? subtotal;
+  const receiptTenderToShow = completedTender ?? tender;
+  const receiptDateToShow = completedAt ?? new Date();
+  const receiptSeparator = "-".repeat(42);
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-5 text-slate-800 dark:text-slate-100">
@@ -848,103 +876,132 @@ export default function POSPage() {
       {showReceipt && (
         <AdminModalPortal>
         <div
-          className={`${ADMIN_MODAL_BACKDROP_CLASS} p-4`}
+          className={`${ADMIN_MODAL_BACKDROP_CLASS} overflow-y-auto`}
           data-admin-modal="true"
           role="dialog"
           aria-modal="true"
+          aria-labelledby="pos-receipt-title"
         >
-          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
+          <div className="my-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-800 dark:bg-slate-900 sm:p-5">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
               <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">Order Confirmation</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Transaction summary and receipt</p>
+                <h2 id="pos-receipt-title" className="text-base font-bold text-slate-900 dark:text-white">Order Confirmation</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Receipt preview - 80 mm</p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowReceipt(false)}
+                aria-label="Close receipt preview"
                 className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="space-y-3 py-3">
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/60">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Order Number</span>
-                  <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">{orderNumber}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between border-t border-slate-200 pt-1 text-xs dark:border-slate-700">
-                  <span className="text-slate-500 dark:text-slate-400">Total Amount</span>
-                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                    ₱{(completedSubtotal ?? subtotal).toFixed(2)}
-                  </span>
-                </div>
-              </div>
+            <div className="min-h-0 flex-1 overflow-y-auto py-3">
+              <div
+                role="region"
+                aria-label="Scrollable 80 millimeter receipt preview"
+                tabIndex={0}
+                className="mx-auto max-h-[min(56dvh,34rem)] w-full max-w-[80mm] overflow-y-auto overscroll-contain border border-slate-200 bg-white p-[3mm] font-mono text-[10px] leading-[1.4] text-slate-900 shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+              >
+                <header className="mb-2 text-center">
+                  <h3 className="break-words text-[12px] font-bold leading-tight">
+                    {receiptHeader.registeredBusinessName.trim() || defaultReceiptHeader.registeredBusinessName}
+                  </h3>
+                  <p className="mt-1 whitespace-pre-line break-words">
+                    {receiptHeader.businessAddress.trim() || defaultReceiptHeader.businessAddress}
+                  </p>
+                  {receiptHeader.tinNumber.trim() && <p className="mt-1">TIN: {receiptHeader.tinNumber.trim()}</p>}
+                </header>
 
-              <div className="max-h-44 space-y-2 overflow-y-auto divide-y divide-slate-100 pr-1 text-xs dark:divide-slate-800">
-                {completedItems.map((item) => (
-                  <div key={item.id} className="flex items-start justify-between pt-2 first:pt-0">
-                    <div className="min-w-0 pr-2">
-                      <span className="block truncate font-semibold text-slate-900 dark:text-white">{item.name}</span>
-                      <span className="block text-[11px] text-slate-400">
-                        {item.quantity} × ₱{item.price.toFixed(2)} {item.variantValueLabel ? `(${item.variantValueLabel})` : ""}
+                <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
+                <dl className="space-y-0.5">
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>DATE:</dt><dd className="break-words">{receiptDateToShow.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TIME:</dt><dd>{receiptDateToShow.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>ORDER NO.:</dt><dd className="break-all">{orderNumber}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>CASHIER:</dt><dd className="break-words">{cashierName || "Unknown user"}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TERMINAL:</dt><dd className="break-words">{terminalNumber || "POS-LOCAL"}</dd></div>
+                </dl>
+
+                <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
+                <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-1 font-bold">
+                  <span>QTY</span><span>ITEM</span><span className="text-right">AMOUNT</span>
+                </div>
+                <div className="mt-1 space-y-2">
+                  {receiptItemsToShow.map((item) => (
+                    <div key={item.id} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-x-1">
+                      <span>{item.quantity}</span>
+                      <span className="break-words font-semibold">
+                        {item.name}{item.variantValueLabel ? ` (${item.variantValueLabel})` : ""}
                       </span>
+                      <span className="text-right">PHP {(item.price * item.quantity).toFixed(2)}</span>
+                      <span className="col-start-2 col-end-4 text-[9px] text-slate-600">PHP {item.price.toFixed(2)} each</span>
                     </div>
-                    <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
-                      ₱{(item.price * item.quantity).toFixed(2)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {paymentMethod === "CASH" && (completedTender ?? tender) > 0 && (
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5 text-xs dark:border-slate-800 dark:bg-slate-800/60">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Tender Amount:</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">₱{(completedTender ?? tender).toFixed(2)}</span>
-                  </div>
-                  <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 font-bold text-emerald-600 dark:border-slate-700 dark:text-emerald-400">
-                    <span>Change Due:</span>
-                    <span>₱{Math.max((completedTender ?? tender) - (completedSubtotal ?? subtotal), 0).toFixed(2)}</span>
-                  </div>
+                  ))}
                 </div>
-              )}
+
+                <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
+                <div className="space-y-0.5">
+                  <div className="flex justify-between gap-2"><span>SUBTOTAL</span><span>PHP {receiptSubtotalToShow.toFixed(2)}</span></div>
+                  <div className="flex justify-between gap-2 border-t border-dashed border-slate-500 pt-1 text-[11px] font-bold"><span>TOTAL</span><span>PHP {receiptSubtotalToShow.toFixed(2)}</span></div>
+                </div>
+                <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
+                <dl className="space-y-0.5">
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>PAYMENT:</dt><dd>{paymentMethod}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TENDERED:</dt><dd>PHP {receiptTenderToShow.toFixed(2)}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>CHANGE:</dt><dd>PHP {Math.max(receiptTenderToShow - receiptSubtotalToShow, 0).toFixed(2)}</dd></div>
+                </dl>
+                <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
+                <footer className="text-center">
+                  <strong className="block text-[11px]">THANK YOU!</strong>
+                  <span>This serves as your official receipt.</span>
+                </footer>
+              </div>
             </div>
 
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => printReceipt()}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
-              >
-                <Printer className="h-3.5 w-3.5" />
-                <span>Print Receipt</span>
-              </button>
+            <p className="mb-2 shrink-0 text-center text-[11px] text-slate-600 dark:text-slate-300">
+              USB printing requires Chrome or Edge on HTTPS. Choose your compatible ESC/POS printer when the browser prompts you.
+            </p>
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
               <button
                 type="button"
                 onClick={() => void handleUsbReceiptPrint()}
                 disabled={isUsbPrinting}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-slate-900 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60 dark:bg-slate-700 dark:hover:bg-slate-600"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-slate-900 py-2.5 text-xs font-semibold text-white shadow-xs transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60 dark:bg-slate-700 dark:hover:bg-slate-600"
               >
                 {isUsbPrinting ? <CircleNotch className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
-                <span>{isUsbPrinting ? "Connecting..." : "Connect & Print USB"}</span>
+                <span>{isUsbPrinting ? "Printing..." : "Print"}</span>
               </button>
               <button
                 type="button"
                 onClick={resetCart}
                 disabled={isUsbPrinting}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-600 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-700 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-800 shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Start New Sale</span>
               </button>
             </div>
-            <p className="mt-2 text-center text-[11px] text-slate-500 dark:text-slate-400">
-              Formatted for an 80 mm thermal roll. For browser printing, choose 80 mm paper in printer settings; use Print Receipt if USB is unavailable.
-            </p>
             {usbPrintMessage && <p className="mt-2 text-center text-xs font-medium text-emerald-700 dark:text-emerald-300" role="status" aria-live="polite">{usbPrintMessage}</p>}
-            {usbPrintError && <p className="mt-2 text-center text-xs font-medium text-rose-700 dark:text-rose-300" role="alert">{usbPrintError}</p>}
+            {usbPrintError && (
+              <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-left text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100" role="alert">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <p className="font-semibold">USB printing failed</p>
+                    <p className="mt-1 break-words">{usbPrintError}</p>
+                    <button
+                      type="button"
+                      onClick={handleBrowserReceiptPrint}
+                      className="mt-2 rounded border border-amber-700 px-2.5 py-1.5 font-semibold text-amber-950 underline underline-offset-2 hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800 dark:border-amber-300 dark:text-amber-100 dark:hover:bg-amber-900/50"
+                    >
+                      Print from browser
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         </AdminModalPortal>

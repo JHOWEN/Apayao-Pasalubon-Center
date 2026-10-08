@@ -22,6 +22,15 @@ type UsbConfigurationInfo = {
 
 type UsbTransferResult = { status: string };
 
+type UsbDeviceFilter = {
+  vendorId?: number;
+  productId?: number;
+  classCode?: number;
+  subclassCode?: number;
+  protocolCode?: number;
+  serialNumber?: string;
+};
+
 type UsbDeviceInfo = {
   productName?: string;
   configuration: UsbConfigurationInfo | null;
@@ -36,10 +45,11 @@ type UsbDeviceInfo = {
 };
 
 type WebUsbApi = {
-  requestDevice(options: { acceptAllDevices: boolean }): Promise<UsbDeviceInfo>;
+  requestDevice(options: { filters: UsbDeviceFilter[] }): Promise<UsbDeviceInfo>;
 };
 
 export type EscPosReceipt = {
+  createdAt?: Date;
   orderNumber: string;
   registeredBusinessName: string;
   businessAddress: string;
@@ -99,7 +109,7 @@ function totalLine(label: string, amount: number) {
 }
 
 function buildReceiptText(receipt: EscPosReceipt) {
-  const now = new Date();
+  const createdAt = receipt.createdAt ?? new Date();
   const headerLines = [
     ...wrapText(receipt.registeredBusinessName || "APAYAO PASALUBONG CENTER"),
     ...wrapText(receipt.businessAddress || "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region"),
@@ -107,8 +117,8 @@ function buildReceiptText(receipt: EscPosReceipt) {
   ];
   const lines = [
     SEPARATOR,
-    `DATE: ${now.toLocaleDateString("en-PH")}`,
-    `TIME: ${now.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}`,
+    `DATE: ${createdAt.toLocaleDateString("en-PH")}`,
+    `TIME: ${createdAt.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}`,
     `ORDER: ${printerSafeText(receipt.orderNumber)}`,
     `CASHIER: ${printerSafeText(receipt.cashier || "Unknown user")}`,
     `TERMINAL: ${printerSafeText(receipt.terminal || "POS-LOCAL")}`,
@@ -172,12 +182,12 @@ function findPrinterInterface(device: UsbDeviceInfo) {
 
 export async function printEscPosReceipt(receipt: EscPosReceipt) {
   if (typeof window === "undefined" || !window.isSecureContext) {
-    throw new Error("USB printing needs a secure page (HTTPS). Use Print Receipt for browser printing.");
+    throw new Error("USB printing requires a secure HTTPS page. Use browser printing instead.");
   }
 
   const usb = (navigator as Navigator & { usb?: WebUsbApi }).usb;
   if (!usb) {
-    throw new Error("This browser does not support WebUSB. Use Print Receipt for browser printing.");
+    throw new Error("This browser does not support USB printing. Use browser printing instead.");
   }
 
   let device: UsbDeviceInfo | null = null;
@@ -186,10 +196,12 @@ export async function printEscPosReceipt(receipt: EscPosReceipt) {
 
   try {
     // The browser requires this chooser to be opened directly by a user action.
-    device = await usb.requestDevice({ acceptAllDevices: true });
+    // WebUSB requires a `filters` member. An empty list lets the browser's
+    // chooser list available devices; the user still has to select one.
+    device = await usb.requestDevice({ filters: [] });
     const printerInterface = findPrinterInterface(device);
     if (!printerInterface) {
-      throw new Error("This device does not expose a compatible USB printer interface. Use Print Receipt instead.");
+      throw new Error("This device does not expose a compatible USB printer interface. Use browser printing instead.");
     }
 
     await device.open();
@@ -222,16 +234,16 @@ export async function printEscPosReceipt(receipt: EscPosReceipt) {
 
     const result = await device.transferOut(printerInterface.outputEndpoint.endpointNumber, payload);
     if (result.status !== "ok") {
-      throw new Error("The printer did not accept the receipt data. Use Print Receipt or check the printer connection.");
+      throw new Error("The printer did not accept the receipt data. Check its connection or use browser printing instead.");
     }
 
     return device.productName || "USB printer";
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error("Printer selection was canceled.");
+    if (error instanceof Error && (error.name === "AbortError" || error.name === "NotFoundError")) {
+      throw new Error("Printer selection was canceled. Click Print again and choose a printer, or use browser printing.");
     }
     if (error instanceof Error && (error.name === "NotAllowedError" || error.name === "SecurityError")) {
-      throw new Error("The browser could not access this printer's USB interface. Check the printer connection or use Print Receipt.");
+      throw new Error("The browser could not access this printer. Check the site’s USB permission or use browser printing.");
     }
     throw error;
   } finally {

@@ -1,6 +1,13 @@
 -- Run in the Supabase SQL Editor as the project administrator (postgres).
 -- This creates a dedicated server-side role. Set its password separately;
 -- do not put a real password in this file or commit it to Git.
+-- This script does not delete data, tables, or schemas. It changes privileges,
+-- enables RLS on the listed app tables, and replaces only its own named policy.
+-- It intentionally removes direct Supabase Data API access
+-- (anon/authenticated/service_role) to those tables; it also prevents those API
+-- roles from inheriting grants on future public tables created by postgres.
+-- Do not run it if another client or integration depends on Supabase Data API
+-- access in the public schema.
 
 DO $$
 BEGIN
@@ -15,13 +22,11 @@ $$;
 ALTER ROLE apc_runtime
   WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;
 
--- Prevent per-schema default grants to Supabase's REST API roles on new public
--- tables created by postgres. Re-run this file after migrations to grant the
--- runtime role and add RLS policies for any new application tables.
+-- Prevent future public tables created by postgres from automatically
+-- granting Supabase Data API access. This applies to all such tables in
+-- public; explicitly grant access later if a separate integration needs it.
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
   REVOKE ALL PRIVILEGES ON TABLES FROM PUBLIC, anon, authenticated, service_role;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-  REVOKE ALL PRIVILEGES ON SEQUENCES FROM PUBLIC, anon, authenticated, service_role;
 
 REVOKE ALL PRIVILEGES ON DATABASE postgres FROM apc_runtime;
 GRANT CONNECT ON DATABASE postgres TO apc_runtime;
@@ -68,8 +73,6 @@ REVOKE ALL PRIVILEGES ON TABLE
   public."RateLimitEntry",
   public."ProductReview"
 FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public
-  FROM PUBLIC, anon, authenticated, service_role, apc_runtime;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public."User",
