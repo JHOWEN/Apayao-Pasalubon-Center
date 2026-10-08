@@ -393,171 +393,175 @@ export default function ReportsPage() {
       minute: "2-digit",
     });
 
-    const logoUrl = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
     const safeTitle = escapeHtml(title);
     const safeSubCategory = escapeHtml(subCategory);
     const safePeriodLabel = escapeHtml(scope.periodLabel);
     const safeCategoryLabel = escapeHtml(scope.categoryLabel);
-    const safeLogoUrl = escapeHtml(logoUrl);
 
     const header = `
       <header class="report-header">
-        <div class="brand-lockup">
-          <img class="brand-logo" src="${safeLogoUrl}" alt="Apayao Pasalubong Center logo">
-          <div>
-            <div class="brand-name">Apayao Pasalubong Center</div>
-            <div class="brand-contact">San Isidro Sur, Luna, Apayao, Philippines | apcstore@example.com | +63 912 345 6789</div>
-          </div>
+        <div class="business-block">
+          <div class="brand-name">Apayao Pasalubong Center</div>
+          <div class="brand-location">San Isidro Sur, Luna, Apayao, Philippines</div>
         </div>
         <div class="report-meta">
           <span class="meta-badge">${safeSubCategory}</span>
-          <div class="report-title">${safeTitle}</div>
-          <div class="report-date">Generated: ${generatedDate} ${generatedTime}</div>
+          <h1 class="report-title">${safeTitle}</h1>
         </div>
       </header>
 
       <div class="meta-strip">
-        <div><strong>Reporting Period:</strong> ${safePeriodLabel}</div>
-        <div><strong>Category Scope:</strong> ${safeCategoryLabel}</div>
-        <div><strong>Report Format:</strong> Generated from current records</div>
+        <div><strong>Period</strong><span>${safePeriodLabel}</span></div>
+        <div><strong>Category</strong><span>${safeCategoryLabel}</span></div>
+        <div><strong>Generated</strong><span>${generatedDate} at ${generatedTime}</span></div>
       </div>
     `;
 
     const styles = `
       @page {
-        margin: 12mm;
+        size: A4 portrait;
+        margin: 14mm 15mm;
       }
       * { box-sizing: border-box; }
+      html, body { width: auto; min-width: 0; }
       body {
         margin: 0;
         background: #ffffff;
-        color: #0f172a;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        font-size: 11px;
-        line-height: 1.45;
+        color: #1f2937;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 10pt;
+        line-height: 1.4;
       }
       .report-header {
-        display: block;
-        padding-bottom: 10px;
-        border-bottom: 1px solid #cbd5e1;
-        margin-bottom: 10px;
-      }
-      .brand-lockup {
         display: flex;
-        align-items: center;
-        gap: 12px;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 20px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #047857;
+        margin-bottom: 14px;
       }
-      .brand-logo {
-        width: 38px;
-        height: 38px;
-        flex: 0 0 auto;
-        object-fit: contain;
-      }
+      .business-block { min-width: 0; }
       .brand-name {
-        color: #0f172a;
-        font-size: 14px;
+        color: #111827;
+        font-size: 15pt;
         font-weight: 700;
       }
-      .brand-contact {
+      .brand-location {
         margin-top: 3px;
-        color: #475569;
-        font-size: 9px;
+        color: #4b5563;
+        font-size: 8.5pt;
       }
       .report-meta {
-        margin-top: 10px;
-        text-align: left;
+        flex: 0 0 auto;
+        text-align: right;
       }
       .meta-badge {
-        display: inline-block;
-        color: #475569;
-        padding: 0;
-        font-size: 9px;
-        font-weight: 600;
-        letter-spacing: 0.1em;
+        color: #047857;
+        font-size: 8pt;
+        font-weight: 700;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
       }
       .report-title {
-        margin-top: 4px;
-        color: #0f172a;
-        font-size: 14px;
+        margin: 3px 0 0;
+        color: #111827;
+        font-size: 16pt;
         font-weight: 700;
       }
-      .report-date {
-        margin-top: 2px;
-        color: #475569;
-        font-size: 9px;
-      }
       .meta-strip {
-        display: flex;
-        gap: 16px;
-        flex-wrap: wrap;
-        margin: 0 0 12px;
-        padding: 0 0 8px;
-        border-bottom: 1px solid #e2e8f0;
+        display: grid;
+        grid-template-columns: 1.2fr 1fr 1fr;
+        gap: 12px;
+        margin: 0 0 16px;
+        padding: 0 0 10px;
+        border-bottom: 1px solid #cbd5e1;
         background: #ffffff;
-        font-size: 10px;
-        color: #334155;
+        color: #374151;
+        font-size: 9pt;
+      }
+      .meta-strip div { display: grid; gap: 3px; }
+      .meta-strip strong {
+        color: #4b5563;
+        font-size: 8pt;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
       }
       .kpi-grid {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 0;
-        margin: 0 0 12px;
+        margin: 0 0 16px;
+        border-top: 1px solid #cbd5e1;
         border-bottom: 1px solid #cbd5e1;
       }
       .kpi-card {
-        padding: 6px 9px;
+        padding: 9px 10px;
         border: 0;
-        border-right: 1px solid #e2e8f0;
+        border-right: 1px solid #d1d5db;
         background: #ffffff;
       }
+      .kpi-card:last-child { border-right: 0; }
       .kpi-label {
-        color: #475569;
-        font-size: 8px;
-        font-weight: 600;
+        color: #4b5563;
+        font-size: 8pt;
+        font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.04em;
       }
       .kpi-val {
-        margin-top: 3px;
-        color: #0f172a;
-        font-size: 11px;
+        margin-top: 4px;
+        color: #111827;
+        font-size: 12pt;
         font-weight: 700;
       }
       .section-title {
-        margin: 14px 0 6px;
-        padding-bottom: 4px;
-        border-bottom: 1px solid #cbd5e1;
-        color: #0f172a;
-        font-size: 11px;
+        margin: 18px 0 7px;
+        padding-bottom: 5px;
+        border-bottom: 1px solid #047857;
+        color: #111827;
+        font-size: 11pt;
         font-weight: 700;
       }
       table {
         width: 100%;
         border-collapse: collapse;
-        margin-top: 5px;
+        margin-top: 6px;
       }
       th, td {
-        padding: 5px 7px;
-        border-bottom: 1px solid #e2e8f0;
+        padding: 6px 7px;
+        border-bottom: 1px solid #d1d5db;
         text-align: left;
         vertical-align: top;
         overflow-wrap: anywhere;
       }
       th {
-        background: #f1f5f9;
-        color: #1e293b;
-        font-size: 9px;
+        background: #f3f4f6;
+        color: #374151;
+        font-size: 8pt;
         font-weight: 700;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
       }
-      tbody tr:nth-child(even) { background: #fafafa; }
+      td { font-size: 9pt; }
+      code { font-family: "Courier New", monospace; font-size: 8.5pt; }
       td.right, th.right { text-align: right; }
+      .report-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 24px;
+        padding-top: 7px;
+        border-top: 1px solid #cbd5e1;
+        color: #4b5563;
+        font-size: 8pt;
+      }
+      @media screen {
+        body { visibility: hidden; }
+      }
       @media print {
-        html, body { width: auto; min-width: 0; }
-        body { margin: 0; }
-        .report-header, .kpi-card { break-inside: avoid; page-break-inside: avoid; }
+        body { visibility: visible; }
+        .report-header, .meta-strip, .kpi-grid { break-inside: avoid; page-break-inside: avoid; }
         .section-title { break-after: avoid; page-break-after: avoid; }
         thead { display: table-header-group; }
         tr { break-inside: avoid; page-break-inside: avoid; }
@@ -580,34 +584,21 @@ export default function ReportsPage() {
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
-          <base href="${escapeHtml(window.location.origin)}/">
           <title>${safeTitle} - Apayao Pasalubong Center</title>
           <style>${styles}</style>
         </head>
         <body>
           ${header}
           ${content}
+          <footer class="report-footer">
+            <span>Apayao Pasalubong Center</span>
+            <span>Generated from current system records</span>
+          </footer>
         </body>
       </html>
     `);
     printDocument.close();
 
-    const printLogo = printDocument.querySelector<HTMLImageElement>(".brand-logo");
-    const imageReady = printLogo?.decode
-      ? printLogo.decode().catch(() => undefined)
-      : Promise.resolve();
-    const fontsReady = printDocument.fonts?.ready ?? Promise.resolve();
-    let assetTimeout = 0;
-    const assetsReady = Promise.all([imageReady, fontsReady.catch(() => undefined)]).then(() => {
-      window.clearTimeout(assetTimeout);
-    });
-    await Promise.race([
-      assetsReady,
-      new Promise<void>((resolve) => {
-        assetTimeout = window.setTimeout(resolve, 3500);
-      }),
-    ]);
-    window.clearTimeout(assetTimeout);
     if (printAbortControllerRef.current?.signal.aborted) {
       printFrame.remove();
       if (printFrameRef.current === printFrame) printFrameRef.current = null;
@@ -644,7 +635,7 @@ export default function ReportsPage() {
     const printWindow = printFrame?.contentWindow;
     if (!printFrame || !printWindow) {
       setPrintStatus("error");
-      setPrintError("The print preview was closed. Prepare the report again.");
+      setPrintError("The report preview is no longer available. Prepare the report again.");
       return;
     }
 
@@ -712,7 +703,7 @@ export default function ReportsPage() {
         SALES: "Sales Report",
         LOW_STOCK: "Low Stock Alerts Report",
         TOP_PRODUCTS: "Top Products Report",
-        ALL: "Full Summary Report",
+        ALL: "Business Summary Report",
       }[selectedReportType];
 
       setPrintPreview({ reportTitle, periodLabel, categoryLabel, summary: loadedReport.summary });
@@ -742,7 +733,7 @@ export default function ReportsPage() {
           <div class="kpi-card"><div class="kpi-label">Cataloged Products</div><div class="kpi-val">${data.summary.activeProducts} items</div></div>
           <div class="kpi-card"><div class="kpi-label">Low Stock Urgency</div><div class="kpi-val">${data.lowStock.length} items</div></div>
         </div>
-        <h2 class="section-title">Catalog Inventory Valuation & Stock Ledger</h2>
+        <h2 class="section-title">Inventory and valuation</h2>
         <table>
           <thead>
             <tr>
@@ -758,7 +749,7 @@ export default function ReportsPage() {
         </table>
       `;
 
-      if (!(await printOfficialDocument("Inventory Valuation & Stock Report", "Inventory Audit", content, printScope))) {
+      if (!(await printOfficialDocument("Inventory Report", "Inventory Summary", content, printScope))) {
         throw new Error("The print preview could not be created.");
       }
     } else if (selectedReportType === "SALES") {
@@ -795,13 +786,13 @@ export default function ReportsPage() {
           <div class="kpi-card"><div class="kpi-label">Avg. Order Value</div><div class="kpi-val">₱${data.summary.completedOrders > 0 ? (data.summary.totalRevenue / data.summary.completedOrders).toFixed(2) : "0.00"}</div></div>
         </div>
 
-        <h2 class="section-title">Sales Channel Breakdown</h2>
+        <h2 class="section-title">Sales by channel</h2>
         <table>
           <thead><tr><th>Sales Channel</th><th class="right">Completed Orders</th><th class="right">Gross Sales</th></tr></thead>
           <tbody>${channelRows || `<tr><td colspan="3">No channel sales found.</td></tr>`}</tbody>
         </table>
 
-        <h2 class="section-title">Completed Orders Ledger</h2>
+        <h2 class="section-title">Completed orders</h2>
         <table>
           <thead>
             <tr>
@@ -816,7 +807,7 @@ export default function ReportsPage() {
         </table>
       `;
 
-      if (!(await printOfficialDocument("Sales & Revenue Performance Report", "Sales Audit", content, printScope))) {
+      if (!(await printOfficialDocument("Sales Report", "Sales Summary", content, printScope))) {
         throw new Error("The print preview could not be created.");
       }
     } else if (selectedReportType === "LOW_STOCK") {
@@ -839,9 +830,9 @@ export default function ReportsPage() {
           <div class="kpi-card"><div class="kpi-label">Items at Critical Level</div><div class="kpi-val" style="color:#b91c1c;">${data.lowStock.length} items</div></div>
           <div class="kpi-card"><div class="kpi-label">Catalog Products</div><div class="kpi-val">${data.summary.activeProducts} items</div></div>
           <div class="kpi-card"><div class="kpi-label">Inventory Cost Value</div><div class="kpi-val">₱${Number(data.summary.stockValue).toFixed(2)}</div></div>
-          <div class="kpi-card"><div class="kpi-label">Audit Risk State</div><div class="kpi-val">${data.lowStock.length > 0 ? "Replenishment Required" : "Healthy"}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Stock Status</div><div class="kpi-val">${data.lowStock.length > 0 ? "Reorder needed" : "All items stocked"}</div></div>
         </div>
-        <h2 class="section-title">Critical Low-Stock & Reorder Monitoring</h2>
+        <h2 class="section-title">Low-stock items</h2>
         <table>
           <thead>
             <tr>
@@ -856,7 +847,7 @@ export default function ReportsPage() {
         </table>
       `;
 
-      if (!(await printOfficialDocument("Low Stock & Reorder Alert Report", "Stock Risk Audit", content, printScope))) {
+      if (!(await printOfficialDocument("Low Stock Report", "Stock Monitoring", content, printScope))) {
         throw new Error("The print preview could not be created.");
       }
     } else if (selectedReportType === "TOP_PRODUCTS") {
@@ -881,7 +872,7 @@ export default function ReportsPage() {
           <div class="kpi-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-val">₱${Number(data.summary.totalRevenue).toFixed(2)}</div></div>
           <div class="kpi-card"><div class="kpi-label">Average Order Value</div><div class="kpi-val">₱${data.summary.completedOrders > 0 ? (data.summary.totalRevenue / data.summary.completedOrders).toFixed(2) : "0.00"}</div></div>
         </div>
-        <h2 class="section-title">Top Performing Products Leaderboard</h2>
+        <h2 class="section-title">Top products</h2>
         <table>
           <thead>
             <tr>
@@ -896,7 +887,7 @@ export default function ReportsPage() {
         </table>
       `;
 
-      if (!(await printOfficialDocument("Top Performing Products Report", "Product Intelligence", content, printScope))) {
+      if (!(await printOfficialDocument("Top Products Report", "Product Summary", content, printScope))) {
         throw new Error("The print preview could not be created.");
       }
     } else {
@@ -946,7 +937,7 @@ export default function ReportsPage() {
           <div class="kpi-card"><div class="kpi-label">Cost Valuation</div><div class="kpi-val">₱${Number(data.summary.stockValue).toFixed(2)}</div></div>
         </div>
 
-        <h2 class="section-title">1. Sales Channels & Payment Breakdown</h2>
+        <h2 class="section-title">Sales and payments</h2>
         <table>
           <thead><tr><th>Channel</th><th class="right">Orders</th><th class="right">Revenue</th></tr></thead>
           <tbody>${channelRows || `<tr><td colspan="3">No channel records.</td></tr>`}</tbody>
@@ -956,32 +947,32 @@ export default function ReportsPage() {
           <tbody>${paymentRows || `<tr><td colspan="3">No payment records.</td></tr>`}</tbody>
         </table>
 
-        <h2 class="section-title">2. Completed Sales Orders</h2>
+        <h2 class="section-title">Completed orders</h2>
         <table>
           <thead><tr><th>Order #</th><th>Date</th><th>Items</th><th class="right">Units</th><th class="right">Total</th></tr></thead>
           <tbody>${salesRows || `<tr><td colspan="5">No completed sales.</td></tr>`}</tbody>
         </table>
 
-        <h2 class="section-title">3. Inventory Snapshot</h2>
+        <h2 class="section-title">Inventory</h2>
         <table>
           <thead><tr><th>Product / Variant</th><th>SKU</th><th class="right">Stock</th><th class="right">Stock Value</th></tr></thead>
           <tbody>${inventoryRows || `<tr><td colspan="4">No inventory records.</td></tr>`}</tbody>
         </table>
 
-        <h2 class="section-title">4. Critical Low Stock Snapshot</h2>
+        <h2 class="section-title">Low stock</h2>
         <table>
           <thead><tr><th>Product / Variant</th><th>SKU</th><th class="right">Current Stock</th><th class="right">Minimum Threshold</th></tr></thead>
           <tbody>${lowStockRows || `<tr><td colspan="4">No low stock items.</td></tr>`}</tbody>
         </table>
 
-        <h2 class="section-title">5. Top Selling Products</h2>
+        <h2 class="section-title">Top products</h2>
         <table>
           <thead><tr><th>Rank</th><th>Product / Variant</th><th>SKU</th><th class="right">Units Sold</th><th class="right">Revenue</th></tr></thead>
           <tbody>${topProductRows || `<tr><td colspan="5">No product sales recorded.</td></tr>`}</tbody>
         </table>
       `;
 
-      if (!(await printOfficialDocument("Complete Business Summary Audit", "Comprehensive Audit", content, printScope))) {
+      if (!(await printOfficialDocument("Business Summary Report", "Business Summary", content, printScope))) {
         throw new Error("The print preview could not be created.");
       }
     }
