@@ -10,6 +10,7 @@ import { AuthSuccessState } from "@/components/auth/AuthSuccessState";
 import { AuthCardLayout } from "@/components/auth/AuthCardLayout";
 import { AuthInput } from "@/components/auth/AuthInput";
 import { PasswordStrengthIndicator } from "@/components/auth/PasswordStrengthIndicator";
+import { getNewPasswordPolicyError } from "@/lib/password-policy";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -33,8 +34,9 @@ export default function RegisterPage() {
       return;
     }
 
-    if (form.password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    const passwordError = getNewPasswordPolicyError(form.password);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
 

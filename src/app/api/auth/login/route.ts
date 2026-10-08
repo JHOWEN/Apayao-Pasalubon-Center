@@ -93,6 +93,16 @@ export async function POST(request: Request) {
       );
     }
 
+    // Upgrade hashes created by older code after a successful sign-in, without
+    // overwriting a concurrent password change.
+    if (bcrypt.getRounds(user.password) < 12) {
+      const upgradedHash = await bcrypt.hash(password, 12);
+      await prisma.user.updateMany({
+        where: { id: user.id, password: user.password },
+        data: { password: upgradedHash },
+      });
+    }
+
     await resetLoginRateLimit(request, email);
 
     const session = await createAuthSession(user.id, user.sessionVersion, rememberMe, user.role);

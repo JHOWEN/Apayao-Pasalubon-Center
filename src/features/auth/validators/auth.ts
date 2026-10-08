@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { getNewPasswordPolicyError } from "@/lib/password-policy";
 
 export const registerSchema = z.object({
   name: z
@@ -24,9 +25,10 @@ export const registerSchema = z.object({
     .optional()
     .default(""),
 
-  password: z
-    .string()
-    .min(8, "Password must be at least 8 characters"),
+  password: z.string().superRefine((value, context) => {
+    const message = getNewPasswordPolicyError(value);
+    if (message) context.addIssue({ code: "custom", message });
+  }),
 
   confirmPassword: z.string(),
 

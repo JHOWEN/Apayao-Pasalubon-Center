@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "node ./scripts/dev-safe.js",
-    "build": "next build",
-    "vercel-build": "prisma generate && prisma migrate deploy && next build",
-    "postinstall": "prisma generate",
+    "build": "node ./scripts/prisma-generate.mjs && next build",
+    "vercel-build": "node ./scripts/prisma-generate.mjs && next build",
+    "postinstall": "node ./scripts/prisma-generate.mjs",
     "db:migrate:deploy": "prisma migrate deploy",
     "start": "next start",
     "lint": "eslint",

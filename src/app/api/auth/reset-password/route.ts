@@ -5,6 +5,7 @@ import { clearAuthCookies } from "@/lib/cookies";
 import { enforceRateLimit, resetLoginRateLimit } from "@/lib/rate-limit";
 import { verifyPasswordResetToken } from "@/lib/password-reset";
 import { getRequestId, logError } from "@/lib/logger";
+import { getNewPasswordPolicyError } from "@/lib/password-policy";
 
 export async function POST(request: Request) {
   try {
@@ -28,8 +29,9 @@ export async function POST(request: Request) {
       return rateLimitResponse;
     }
 
-    if (password.length < 8) {
-      return NextResponse.json({ success: false, message: "Password must be at least 8 characters." }, { status: 400 });
+    const passwordError = getNewPasswordPolicyError(password);
+    if (passwordError) {
+      return NextResponse.json({ success: false, message: passwordError }, { status: 400 });
     }
 
     if (password !== confirmPassword) {

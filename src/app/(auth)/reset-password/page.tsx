@@ -8,6 +8,7 @@ import { Lock, KeyRound, AlertCircle, CheckCircle2, Loader2, ArrowRight } from "
 import { AuthCardLayout } from "@/components/auth/AuthCardLayout";
 import { AuthInput } from "@/components/auth/AuthInput";
 import { PasswordStrengthIndicator } from "@/components/auth/PasswordStrengthIndicator";
+import { getNewPasswordPolicyError } from "@/lib/password-policy";
 
 function ResetPasswordContent() {
   const searchParams = useSearchParams();
@@ -33,10 +34,11 @@ function ResetPasswordContent() {
       return;
     }
 
-    if (password.length < 8) {
+    const passwordError = getNewPasswordPolicyError(password);
+    if (passwordError) {
       setFeedback({
         type: "error",
-        message: "Password must be at least 8 characters.",
+        message: passwordError,
       });
       return;
     }

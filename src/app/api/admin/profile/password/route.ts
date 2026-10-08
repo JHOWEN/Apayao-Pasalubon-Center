@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { clearAuthCookies } from "@/lib/cookies";
+import { getNewPasswordPolicyError } from "@/lib/password-policy";
 
 export async function POST(request: Request) {
   try {
@@ -14,14 +15,17 @@ export async function POST(request: Request) {
     const rateLimitResponse = await enforceRateLimit(request, "admin:profile:password", { group: "admin", accountId: userId });
     if (rateLimitResponse) return rateLimitResponse;
 
-    const { currentPassword, newPassword } = await request.json();
+    const body = await request.json();
+    const currentPassword = typeof body?.currentPassword === "string" ? body.currentPassword : "";
+    const newPassword = typeof body?.newPassword === "string" ? body.newPassword : "";
 
     if (!currentPassword || !newPassword) {
       return NextResponse.json({ success: false, message: "Current and new password are required." }, { status: 400 });
     }
 
-    if (newPassword.length < 8) {
-      return NextResponse.json({ success: false, message: "New password must be at least 8 characters long." }, { status: 400 });
+    const passwordError = getNewPasswordPolicyError(newPassword);
+    if (passwordError) {
+      return NextResponse.json({ success: false, message: passwordError }, { status: 400 });
     }
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -36,7 +40,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Current password is incorrect." }, { status: 401 });
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
     await prisma.$transaction([
       prisma.user.update({
         where: { id: userId },

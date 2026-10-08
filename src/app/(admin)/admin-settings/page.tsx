@@ -27,6 +27,7 @@ import {
   ADMIN_MODAL_PANEL_CLASS,
 } from "@/utils/admin-modal";
 import { useEffect, useState } from "react";
+import { getNewPasswordPolicyError, MIN_NEW_PASSWORD_CHARACTERS } from "@/lib/password-policy";
 
 const fallbackAvatarSrc =
   process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
@@ -422,8 +423,9 @@ export default function AdminSettingsPage() {
       return;
     }
 
-    if (passwordForm.newPassword.length < 8) {
-      showToast("error", "Password must be at least 8 characters.");
+    const passwordError = getNewPasswordPolicyError(passwordForm.newPassword);
+    if (passwordError) {
+      showToast("error", passwordError);
       return;
     }
 
@@ -1300,7 +1302,7 @@ export default function AdminSettingsPage() {
                 id="new-password"
                 type="password"
                 required
-                minLength={8}
+                minLength={MIN_NEW_PASSWORD_CHARACTERS}
                 value={passwordForm.newPassword}
                 onChange={(e) =>
                   setPasswordForm((curr) => ({
@@ -1311,7 +1313,7 @@ export default function AdminSettingsPage() {
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
               <p className="mt-1 text-[11px] text-slate-500">
-                Minimum 8 characters with letters, numbers, and symbols recommended.
+                Use at least {MIN_NEW_PASSWORD_CHARACTERS} characters and no more than 72 UTF-8 bytes. Passphrases and spaces are allowed.
               </p>
             </div>
 

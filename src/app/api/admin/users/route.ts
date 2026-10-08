@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "That email is already registered." }, { status: 409 });
     }
 
-    const temporaryPassword = randomBytes(9).toString("base64url");
+    const temporaryPassword = randomBytes(15).toString("base64url");
     const user = await prisma.user.create({
       data: {
         name,
