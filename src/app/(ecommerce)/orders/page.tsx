@@ -429,6 +429,7 @@ export default function OrdersPage() {
               <button
                 key={status}
                 type="button"
+                aria-pressed={active}
                 onClick={() => setSelectedStatus(status)}
                 className={`shrink-0 rounded-xl px-4 py-2 text-xs font-semibold transition ${
                   active

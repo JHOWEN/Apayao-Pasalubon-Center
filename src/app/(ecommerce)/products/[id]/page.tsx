@@ -1273,7 +1273,7 @@ export default function ProductDetailPage() {
                               <button
                                 type="button"
                                 onClick={() => setReviewImages((imgs) => imgs.filter((_, i) => i !== idx))}
-                                className="absolute right-0.5 top-0.5 rounded-full bg-black/70 p-0.5 text-white hover:bg-rose-500"
+                                className="storefront-dark-overlay-control absolute right-0.5 top-0.5 rounded-full bg-black/70 p-0.5 text-white hover:bg-rose-500"
                               >
                                 <X className="h-3 w-3" />
                               </button>
@@ -1501,7 +1501,7 @@ export default function ProductDetailPage() {
             <button
               type="button"
               onClick={() => setLightboxImage(null)}
-              className="absolute right-4 top-4 z-10 rounded-full bg-black/70 p-2 text-white hover:bg-white/20 transition"
+              className="storefront-dark-overlay-control absolute right-4 top-4 z-10 rounded-full bg-black/70 p-2 text-white hover:bg-white/20 transition"
               aria-label="Close image preview"
             >
               <X className="h-4 w-4" />

@@ -405,7 +405,7 @@ export default function ProfilePage() {
                 {/* Upload Action Overlay */}
                 <label
                   htmlFor="profile-photo-upload"
-                  className="absolute inset-0 flex flex-col items-center justify-center rounded-full bg-black/70 text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition cursor-pointer backdrop-blur-[2px]"
+                  className="storefront-dark-overlay-control absolute inset-0 flex flex-col items-center justify-center rounded-full bg-black/70 text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition cursor-pointer backdrop-blur-[2px]"
                 >
                   <Camera className="h-4 w-4 mb-0.5" />
                   <span>{isUploadingImage ? "..." : "Change"}</span>

@@ -344,11 +344,12 @@ export default function CheckoutPage() {
                 { label: "Payment", done: false },
                 { label: "Done", done: false },
               ].map((step, index) => (
-                <li key={step.label} className="flex items-center gap-1.5">
+                <li key={step.label} aria-current={index === 2 ? "step" : undefined} className="flex items-center gap-1.5">
                   <span className={`flex h-6 w-6 items-center justify-center rounded-full border text-[10px] ${step.done ? "border-[#FF8A1E] bg-[#FF8A1E] text-slate-950" : index === 2 ? "border-[#FF8A1E] text-[#FF8A1E]" : "border-slate-300 dark:border-white/20"}`}>
                     {index + 1}
                   </span>
                   <span className={index === 2 ? "text-[#FF8A1E]" : ""}>{step.label}</span>
+                  <span className="sr-only">{step.done ? "Completed" : index === 2 ? "Current step" : "Upcoming step"}</span>
                 </li>
               ))}
             </ol>

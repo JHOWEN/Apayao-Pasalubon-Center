@@ -501,6 +501,7 @@ function EcommerceHomeContent() {
                   <div className="absolute right-0 top-full z-30 mt-2 w-56 rounded-xl border border-white/10 bg-[#12141c] p-1.5 shadow-2xl">
                     <button
                       type="button"
+                      aria-pressed={!categoryQuery}
                       onClick={() => applyCategorySelection("")}
                       className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium transition ${
                         !categoryQuery ? "bg-[#ff8a1e]/15 text-[#ff8a1e] font-semibold" : "text-slate-200 hover:bg-white/5"
@@ -512,6 +513,7 @@ function EcommerceHomeContent() {
                       <button
                         key={cat.id}
                         type="button"
+                        aria-pressed={categoryQuery === cat.id}
                         onClick={() => applyCategorySelection(cat.id)}
                         className={`flex w-full items-center rounded-lg px-3 py-2 text-left text-xs font-medium transition ${
                           categoryQuery === cat.id ? "bg-[#ff8a1e]/15 text-[#ff8a1e] font-semibold" : "text-slate-200 hover:bg-white/5"
@@ -547,6 +549,7 @@ function EcommerceHomeContent() {
             <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar md:hidden">
               <button
                 type="button"
+                aria-pressed={!categoryQuery}
                 onClick={() => applyCategorySelection("")}
                 className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold transition ${
                   !categoryQuery
@@ -562,6 +565,7 @@ function EcommerceHomeContent() {
                   <button
                     key={cat.id}
                     type="button"
+                    aria-pressed={isSelected}
                     onClick={() => applyCategorySelection(cat.id)}
                     className={`shrink-0 rounded-full px-4 py-2 text-xs font-semibold transition ${
                       isSelected

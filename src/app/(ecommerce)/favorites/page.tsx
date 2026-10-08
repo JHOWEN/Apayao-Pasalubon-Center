@@ -35,7 +35,7 @@ function SavedProductCard({
         type="button"
         onClick={() => onRemove(product)}
         aria-label={`Remove ${product.name} from favorites`}
-        className="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border bg-black/45 text-white backdrop-blur-md transition hover:scale-105"
+        className="storefront-dark-overlay-control absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border bg-black/45 text-white backdrop-blur-md transition hover:scale-105"
       >
         <X className="h-4 w-4" />
       </button>

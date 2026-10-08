@@ -242,7 +242,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
       <div className={isMobileDrawer ? "relative w-full" : "relative"}>
         <button
           type="button"
-          aria-label="View order status notifications"
+          aria-label={`View order status notifications${notificationCount > 0 ? `, ${notificationCount} unread` : ""}`}
           aria-expanded={isNotificationsOpen}
           onClick={() => setIsNotificationsOpen((open) => !open)}
           className={`relative flex items-center rounded-xl border border-white/10 bg-transparent text-white shadow-xs transition-all duration-150 hover:border-white/20 hover:bg-transparent hover:text-amber-200 active:scale-95 ${
@@ -252,7 +252,9 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
           <Bell className="h-4 w-4" />
           {isMobileDrawer && <span className="flex-1 text-left text-xs font-semibold">Order status updates</span>}
           {notificationCount > 0 && (
-            <span aria-label="Unread order updates" className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            <span className={`storefront-notification-count ${isMobileDrawer ? "static" : "absolute -right-1 -top-1"}`} aria-hidden="true">
+              {notificationCount > 99 ? "99+" : notificationCount}
+            </span>
           )}
         </button>
 
@@ -491,7 +493,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
             </div>
 
             {/* Desktop Center Pill Navigation */}
-            <nav className="storefront-nav hidden items-center justify-center gap-1 rounded-full border border-white/8 bg-white/3 p-1 shadow-inner backdrop-blur-md lg:flex" aria-label="Main navigation">
+            <nav className="storefront-nav hidden items-center justify-center gap-1 rounded-full border border-white/8 bg-white/3 p-1 shadow-inner backdrop-blur-md xl:flex" aria-label="Main navigation">
               {links.map((link) => {
                 const isActive = activeSection === link.section;
 
@@ -499,6 +501,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                   <Link
                     key={link.href}
                     href={link.href}
+                    aria-current={isActive ? (link.href.includes("#") ? "location" : "page") : undefined}
                     onClick={(event) => {
                       event.preventDefault();
                       handleNavClick(link.href, link.section);
@@ -519,7 +522,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
             </nav>
 
             {/* Desktop Right Action Controls */}
-            <div className="hidden items-center gap-2.5 sm:gap-3 lg:flex">
+            <div className="hidden items-center gap-2.5 sm:gap-3 xl:flex">
               {/* Product Search */}
               {searchOpen ? (
                 <form
@@ -580,7 +583,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
               {/* Shopping Cart Button */}
               <Link
                 href="/cart"
-                aria-label="View cart"
+                aria-label={`View cart${cartCount > 0 ? `, ${cartCount} item${cartCount === 1 ? "" : "s"}` : ""}`}
                 className={`relative flex h-9.5 w-9.5 items-center justify-center rounded-xl border border-white/10 bg-transparent text-white shadow-xs transition-all duration-150 hover:border-amber-400/40 hover:bg-transparent hover:text-amber-200 active:scale-95 ${
                   cartToss ? "animate-[cartToss_0.7s_ease-in-out]" : ""
                 }`}
@@ -677,10 +680,10 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
             </div>
 
             {/* Mobile View Controls */}
-            <div className="relative ml-auto flex shrink-0 items-center gap-1 sm:gap-2 lg:hidden">
+            <div className="relative ml-auto flex shrink-0 items-center gap-1 sm:gap-2 xl:hidden">
               <Link
                 href="/cart"
-                aria-label="View cart"
+                aria-label={`View cart${cartCount > 0 ? `, ${cartCount} item${cartCount === 1 ? "" : "s"}` : ""}`}
                 className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-transparent text-white shadow-xs transition-all duration-150 hover:bg-transparent active:scale-95 sm:h-9.5 sm:w-9.5 sm:rounded-xl ${
                   cartToss ? "animate-[cartToss_0.7s_ease-in-out]" : ""
                 }`}
@@ -692,45 +695,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                   </span>
                 )}
               </Link>
-
-              <button
-                type="button"
-                onClick={toggleTheme}
-                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-transparent text-white transition-all duration-150 hover:text-amber-200 active:scale-95 sm:h-9.5 sm:w-9.5 sm:rounded-xl"
-              >
-                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              </button>
-
-              <Link
-                href="/favorites"
-                aria-label="View saved favorites"
-                className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-transparent text-white transition-all duration-150 hover:text-amber-200 active:scale-95 sm:flex sm:h-9.5 sm:w-9.5 sm:rounded-xl"
-              >
-                <Heart className="h-4 w-4" />
-              </Link>
-
-              {user && <div className="hidden sm:block">{renderNotificationButton()}</div>}
-
-              {user && (
-                <Link
-                  href="/profile"
-                  aria-label="View your profile"
-                  className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-slate-800 text-white transition hover:border-[#ff8a1e]/60 active:scale-95 sm:h-9 sm:w-9"
-                >
-                  {user.imageUrl ? (
-                    <Image
-                      src={user.imageUrl}
-                      alt=""
-                      width={36}
-                      height={36}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <User className="h-4 w-4" />
-                  )}
-                </Link>
-              )}
 
               {/* Mobile Menu Hamburger / Close Toggle */}
               <button
@@ -753,7 +717,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
 
           {/* Mobile Drawer */}
           {mobileMenuOpen && (
-            <div id="storefront-mobile-menu" className="relative z-50 mt-3 overflow-hidden rounded-3xl border border-white/15 bg-[#0b101c]/98 p-4 backdrop-blur-2xl shadow-[0_25px_60px_rgba(0,0,0,0.6)] ring-1 ring-white/10 animate-in fade-in-0 slide-in-from-top-3 duration-200 lg:hidden">
+            <div id="storefront-mobile-menu" className="relative z-50 mt-3 overflow-hidden rounded-3xl border border-white/15 bg-[#0b101c]/98 p-4 backdrop-blur-2xl shadow-[0_25px_60px_rgba(0,0,0,0.6)] ring-1 ring-white/10 animate-in fade-in-0 slide-in-from-top-3 duration-200 xl:hidden">
               <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 focus-within:border-white/20 focus-within:bg-white/8">
                 <input
                   value={navSearch}
@@ -786,7 +750,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                 {theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               </button>
 
-              {user && <div className="mt-3 sm:hidden">{renderNotificationButton(true)}</div>}
+              {user && <div className="mt-3">{renderNotificationButton(true)}</div>}
 
               <nav aria-label="Mobile navigation" className="mt-3 space-y-1">
                 {links.map((link) => {
@@ -796,6 +760,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                     <Link
                       key={link.href}
                       href={link.href}
+                      aria-current={isActive ? (link.href.includes("#") ? "location" : "page") : undefined}
                       onClick={(event) => {
                         event.preventDefault();
                         setMobileMenuOpen(false);
@@ -886,7 +851,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
         <div
           role="alert"
           aria-live="assertive"
-          className="fixed inset-x-4 bottom-4 z-100 mx-auto flex max-w-lg items-start gap-3 rounded-xl border border-amber-400/30 bg-[#12141c] p-4 text-sm text-amber-100 shadow-xl sm:bottom-6"
+          className="storefront-stock-warning fixed inset-x-4 bottom-4 z-100 mx-auto flex max-w-lg items-start gap-3 rounded-xl border border-amber-400/30 bg-[#12141c] p-4 text-sm text-amber-100 shadow-xl sm:bottom-6"
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
           <p className="min-w-0 flex-1">{cartStockWarning}</p>

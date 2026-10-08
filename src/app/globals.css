@@ -1356,3 +1356,209 @@ html {
     ),
     linear-gradient(180deg, var(--storefront-canvas) 0%, var(--storefront-canvas) 100%) !important;
 }
+
+@layer components {
+/* WCAG AA storefront tokens and compact-navigation refinements. */
+.storefront-shell {
+  --storefront-line: #747c70 !important;
+  --storefront-focus: #893101;
+  --storefront-status-success-bg: #e3f3e9;
+  --storefront-status-success-fg: #24583b;
+  --storefront-status-warning-bg: #fbf1d7;
+  --storefront-status-warning-fg: #70510b;
+  --storefront-status-danger-bg: #fbe7e8;
+  --storefront-status-danger-fg: #8c343a;
+  --storefront-status-info-bg: #e5f1fa;
+  --storefront-status-info-fg: #174e78;
+  --storefront-status-preparing-bg: #f0e9f7;
+  --storefront-status-preparing-fg: #593c77;
+}
+
+.storefront-shell[data-theme="dark"] {
+  --storefront-line: #7d897d !important;
+  --storefront-focus: #efb18c;
+  --storefront-status-success-bg: #173d2b;
+  --storefront-status-success-fg: #91d8a9;
+  --storefront-status-warning-bg: #3f2c1c;
+  --storefront-status-warning-fg: #efb18c;
+  --storefront-status-danger-bg: #4a2024;
+  --storefront-status-danger-fg: #ff9fa6;
+  --storefront-status-info-bg: #1b3042;
+  --storefront-status-info-fg: #9bc7e8;
+  --storefront-status-preparing-bg: #342443;
+  --storefront-status-preparing-fg: #d7b8f0;
+}
+
+/* Keep secondary text readable on both the paper and forest surfaces. */
+.storefront-shell [class~="text-slate-500"],
+.storefront-shell [class~="text-slate-600"],
+.storefront-shell [class~="text-slate-700"] {
+  color: var(--storefront-muted) !important;
+}
+
+.storefront-shell [class*="text-[var(--storefront-accent)]"] {
+  color: var(--storefront-accent-readable) !important;
+}
+
+.storefront-shell .storefront-home .storefront-hero-badge,
+.storefront-shell .storefront-home .storefront-product-card [class*="text-[#ff8a1e]"],
+.storefront-shell .storefront-home .storefront-product-card [class*="text-[#ffb36f]"],
+.storefront-shell .storefront-home [class*="text-[#ff8a1e]"],
+.storefront-shell .storefront-home [class*="text-[#ffb36f]"],
+.storefront-shell main:not(.storefront-home) [class*="text-[#ff8a1e]"],
+.storefront-shell main:not(.storefront-home) [class*="text-[#ffb36f]"],
+.storefront-shell .storefront-variant-modal-panel [class*="text-[#ffb36f]"],
+.storefront-shell .storefront-variant-modal-options button[aria-pressed="true"],
+.storefront-shell main:not(.storefront-home) .storefront-product-card.group:hover h3,
+.storefront-shell .storefront-cart-nudge span:last-child {
+  color: var(--storefront-accent-readable) !important;
+}
+
+.storefront-shell .storefront-nav a:hover:not(:has(span.absolute)):not([aria-current]) {
+  color: var(--storefront-accent-readable) !important;
+}
+
+.storefront-shell :is(input, select, textarea)::placeholder {
+  color: var(--storefront-muted) !important;
+  opacity: 1;
+}
+
+.storefront-shell :focus-visible {
+  outline: 2px solid var(--storefront-focus) !important;
+  outline-offset: 2px;
+}
+
+.storefront-shell :is(input, select, textarea):focus {
+  border-color: var(--storefront-focus) !important;
+}
+
+.storefront-shell [class*="border-[#ff8a1e]"],
+.storefront-shell [class*="border-[#FF8A1E]"],
+.storefront-shell [class*="border-orange-"],
+.storefront-shell [class*="border-amber-"] {
+  border-color: var(--storefront-accent-readable) !important;
+}
+
+.storefront-shell [class*="text-slate-950"]:is(
+  [class*="bg-[#ff8a1e]"],
+  [class*="bg-[#FF8A1E]"],
+  [class*="bg-orange-500"],
+  [class*="from-[#ff8a1e]"],
+  [class*="from-orange-500"]
+) {
+  color: var(--storefront-accent-contrast) !important;
+}
+
+.storefront-shell .storefront-header :is(input, select, textarea)::placeholder {
+  color: var(--storefront-muted) !important;
+}
+
+/* Active navigation has an explicit page marker as well as a distinct style. */
+.storefront-shell .storefront-nav a[aria-current],
+.storefront-shell nav[aria-label="Mobile navigation"] a[aria-current] {
+  color: var(--storefront-accent-contrast) !important;
+  background: var(--storefront-accent) !important;
+  background-image: none !important;
+  border-color: var(--storefront-accent) !important;
+}
+
+.storefront-shell .storefront-nav a:hover:not([aria-current]),
+.storefront-shell nav[aria-label="Mobile navigation"] a:hover:not([aria-current]) {
+  color: var(--storefront-accent-readable) !important;
+}
+
+/* Statuses pair readable text and boundaries with a distinct tinted surface. */
+.storefront-shell .storefront-status-badge[class*="bg-emerald"],
+.storefront-shell .storefront-home .storefront-status-badge[class*="bg-emerald"],
+.storefront-shell .storefront-order-status[data-order-status="COMPLETED"],
+.storefront-shell .storefront-tracking-summary[data-order-status="COMPLETED"] {
+  border-color: var(--storefront-status-success-fg) !important;
+  background: var(--storefront-status-success-bg) !important;
+  color: var(--storefront-status-success-fg) !important;
+}
+
+.storefront-shell .storefront-status-badge[class*="bg-amber"],
+.storefront-shell .storefront-home .storefront-status-badge[class*="bg-amber"],
+.storefront-shell .storefront-order-status[data-order-status="PENDING"] {
+  border-color: var(--storefront-status-warning-fg) !important;
+  background: var(--storefront-status-warning-bg) !important;
+  color: var(--storefront-status-warning-fg) !important;
+}
+
+.storefront-shell .storefront-status-badge[class*="bg-rose"],
+.storefront-shell .storefront-home .storefront-status-badge[class*="bg-rose"],
+.storefront-shell .storefront-order-status[data-order-status="CANCELLED"] {
+  border-color: var(--storefront-status-danger-fg) !important;
+  background: var(--storefront-status-danger-bg) !important;
+  color: var(--storefront-status-danger-fg) !important;
+}
+
+.storefront-shell .storefront-order-status[data-order-status="CONFIRMED"] {
+  border-color: var(--storefront-status-info-fg) !important;
+  background: var(--storefront-status-info-bg) !important;
+  color: var(--storefront-status-info-fg) !important;
+}
+
+.storefront-shell .storefront-order-status[data-order-status="PREPARING"] {
+  border-color: var(--storefront-status-preparing-fg) !important;
+  background: var(--storefront-status-preparing-bg) !important;
+  color: var(--storefront-status-preparing-fg) !important;
+}
+
+.storefront-shell .storefront-order-status[data-order-status="READY_FOR_PICKUP"],
+.storefront-shell .storefront-tracking-summary:not([data-order-status="COMPLETED"]) {
+  border-color: var(--storefront-accent-readable) !important;
+  background: var(--storefront-accent-soft) !important;
+  color: var(--storefront-accent-readable) !important;
+}
+
+.storefront-shell .storefront-favorite[aria-pressed="true"] {
+  border-color: var(--storefront-accent-readable) !important;
+  background: var(--storefront-accent) !important;
+  color: var(--storefront-accent-contrast) !important;
+}
+
+.storefront-shell .storefront-variant-modal-options button[aria-pressed="true"] {
+  border-color: var(--storefront-accent-readable) !important;
+  background-color: var(--storefront-accent-soft) !important;
+  color: var(--storefront-accent-readable) !important;
+}
+
+.storefront-shell .storefront-cart-nudge {
+  border-color: var(--storefront-accent-readable) !important;
+}
+
+.storefront-shell .storefront-stock-warning {
+  border-color: var(--storefront-status-warning-fg) !important;
+  background: var(--storefront-status-warning-bg) !important;
+  color: var(--storefront-status-warning-fg) !important;
+}
+
+.storefront-shell .storefront-stock-warning :is(svg, button) {
+  color: var(--storefront-status-warning-fg) !important;
+}
+
+.storefront-shell .storefront-notification-count {
+  display: inline-flex;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--storefront-status-success-fg);
+  border-radius: 9999px;
+  background: var(--storefront-status-success-bg);
+  color: var(--storefront-status-success-fg);
+  padding: 0 0.25rem;
+  font-size: 0.625rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.storefront-shell .storefront-dark-overlay-control,
+.storefront-shell .storefront-subpage .storefront-dark-overlay-control[class~="text-white"] {
+  border-color: #fffdf8 !important;
+  background-color: #111111 !important;
+  color: #fffdf8 !important;
+}
+
+}

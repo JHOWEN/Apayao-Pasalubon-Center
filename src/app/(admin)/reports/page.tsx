@@ -190,8 +190,9 @@ const initialState: ReportState = {
 export default function ReportsPage() {
   const [report, setReport] = useState<ReportState>(initialState);
   const [hasLoadedReport, setHasLoadedReport] = useState(false);
-  const [isReportLoading, setIsReportLoading] = useState(true);
-  const [reportLoadError, setReportLoadError] = useState("");
+  const [settledReportRequestKey, setSettledReportRequestKey] = useState<string | null>(null);
+  const [reportLoadFailure, setReportLoadFailure] = useState<{ requestKey: string; message: string } | null>(null);
+  const [reportRequestVersion, setReportRequestVersion] = useState(0);
   const [reportType, setReportType] = useState<ReportType>("ALL");
   const [startDate, setStartDate] = useState(() => formatInputDate(new Date()));
   const [endDate, setEndDate] = useState(() => formatInputDate(new Date()));
@@ -203,6 +204,11 @@ export default function ReportsPage() {
   const [printPreview, setPrintPreview] = useState<PrintPreview | null>(null);
   const printAbortControllerRef = useRef<AbortController | null>(null);
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const reportRequestKey = JSON.stringify([startDate, endDate, category, reportRequestVersion]);
+  const isReportLoading = settledReportRequestKey !== reportRequestKey;
+  const reportLoadError = reportLoadFailure?.requestKey === reportRequestKey
+    ? reportLoadFailure.message
+    : "";
 
   const fetchReportData = useCallback(
     async (
@@ -251,36 +257,33 @@ export default function ReportsPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    setIsReportLoading(true);
-    setReportLoadError("");
+    const requestKey = reportRequestKey;
 
     void fetchReportData(startDate, endDate, category, controller.signal)
       .then((data) => {
+        if (controller.signal.aborted) return;
         setReport(data);
         setHasLoadedReport(true);
+        setReportLoadFailure(null);
+        setSettledReportRequestKey(requestKey);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         console.error("Failed to fetch report", error);
-        setReportLoadError("We couldn't load this report. Check your connection and try again.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIsReportLoading(false);
+        setReportLoadFailure({
+          requestKey,
+          message: "We couldn't load this report. Check your connection and try again.",
+        });
+        setSettledReportRequestKey(requestKey);
       });
 
     return () => {
       controller.abort();
     };
-  }, [category, endDate, fetchReportData, startDate]);
+  }, [category, endDate, fetchReportData, reportRequestKey, startDate]);
 
-  const handleRetryReportLoad = async () => {
-    setIsReportLoading(true);
-    setReportLoadError("");
-    const data = await loadReport(startDate, endDate, category);
-    if (!data) {
-      setReportLoadError("We couldn't load this report. Check your connection and try again.");
-    }
-    setIsReportLoading(false);
+  const handleRetryReportLoad = () => {
+    setReportRequestVersion((version) => version + 1);
   };
 
   // Preset handlers
@@ -1952,7 +1955,7 @@ export default function ReportsPage() {
       {printStatus ? (
         <AdminModalPortal>
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-950/55 p-3 backdrop-blur-sm sm:p-6"
+            className="fixed inset-0 z-100 flex items-center justify-center overflow-y-auto bg-slate-950/55 p-3 backdrop-blur-sm sm:p-6"
             onMouseDown={(event) => {
               if (event.target === event.currentTarget && printStatus !== "preparing") closePrintModal();
             }}
@@ -2010,11 +2013,11 @@ export default function ReportsPage() {
                     <dl className="mt-5 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-950/50 sm:grid-cols-2">
                       <div>
                         <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Period</dt>
-                        <dd className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">{printPreview.periodLabel}</dd>
+                        <dd className="mt-1 wrap-break-word font-medium text-slate-900 dark:text-slate-100">{printPreview.periodLabel}</dd>
                       </div>
                       <div>
                         <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Category</dt>
-                        <dd className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">{printPreview.categoryLabel}</dd>
+                        <dd className="mt-1 wrap-break-word font-medium text-slate-900 dark:text-slate-100">{printPreview.categoryLabel}</dd>
                       </div>
                       <div>
                         <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Completed sales</dt>
