@@ -7,6 +7,8 @@ export const ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const REMEMBERED_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const REVOKED_JTI_KEY_PREFIX = "auth:revoked:jti:";
+export const ADMIN_IDLE_TIMEOUT_SECONDS = 15 * 60 + 45;
+const ADMIN_IDLE_SESSION_KEY_PREFIX = "auth:admin:idle:";
 
 type AccessTokenClaims = jwt.JwtPayload & {
   sub: string;
@@ -41,6 +43,26 @@ function hashRefreshToken(refreshToken: string) {
 
 function createRefreshToken() {
   return randomBytes(32).toString("base64url");
+}
+
+function isAdminRole(role: string) {
+  return role === "ADMIN" || role === "STAFF";
+}
+
+function getAdminIdleSessionKey(sessionId: string) {
+  return `${ADMIN_IDLE_SESSION_KEY_PREFIX}${sessionId}`;
+}
+
+async function hasActiveAdminIdleSession(sessionId: string) {
+  const redis = requireRedis();
+  if (!redis) return true;
+  return (await redis.exists(getAdminIdleSessionKey(sessionId))) === 1;
+}
+
+export async function touchAdminIdleSession(sessionId: string) {
+  const redis = requireRedis();
+  if (!redis) return process.env.NODE_ENV !== "production";
+  return (await redis.expire(getAdminIdleSessionKey(sessionId), ADMIN_IDLE_TIMEOUT_SECONDS)) === 1;
 }
 
 function getJwtSecret() {
@@ -82,7 +104,12 @@ export function signAccessToken(userId: string, sessionId: string, sessionVersio
   );
 }
 
-export async function createAuthSession(userId: string, sessionVersion: number, rememberMe = false) {
+export async function createAuthSession(
+  userId: string,
+  sessionVersion: number,
+  rememberMe = false,
+  role?: string,
+) {
   const redis = requireRedis();
   if (redis) await redis.ping();
 
@@ -96,6 +123,15 @@ export async function createAuthSession(userId: string, sessionVersion: number, 
   await prisma.authSession.create({
     data: { id, userId, refreshTokenHash: hashRefreshToken(refreshToken), expiresAt },
   });
+
+  if (role && isAdminRole(role) && redis) {
+    try {
+      await redis.set(getAdminIdleSessionKey(id), "1", { ex: ADMIN_IDLE_TIMEOUT_SECONDS });
+    } catch (error) {
+      await prisma.authSession.deleteMany({ where: { id } });
+      throw error;
+    }
+  }
 
   return { accessToken, refreshToken, refreshExpiresAt: expiresAt };
 }
@@ -111,9 +147,14 @@ export async function rotateAuthSession(refreshToken: string) {
 
   const user = await prisma.user.findUnique({
     where: { id: existing.userId },
-    select: { id: true, sessionVersion: true, isBlocked: true },
+    select: { id: true, sessionVersion: true, isBlocked: true, role: true },
   });
   if (!user || user.isBlocked) {
+    await prisma.authSession.deleteMany({ where: { id: existing.id } });
+    return null;
+  }
+
+  if (isAdminRole(user.role) && !(await hasActiveAdminIdleSession(existing.id))) {
     await prisma.authSession.deleteMany({ where: { id: existing.id } });
     return null;
   }
@@ -165,6 +206,7 @@ export async function validateAccessToken(token: string) {
   ]);
 
   if (!user || !session || user.isBlocked || user.sessionVersion !== claims.ver) return null;
+  if (isAdminRole(user.role) && !(await hasActiveAdminIdleSession(claims.sid))) return null;
   return { ...user, sub: user.id };
 }
 

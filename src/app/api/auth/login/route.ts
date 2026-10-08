@@ -95,7 +95,7 @@ export async function POST(request: Request) {
 
     await resetLoginRateLimit(request, email);
 
-    const session = await createAuthSession(user.id, user.sessionVersion, rememberMe);
+    const session = await createAuthSession(user.id, user.sessionVersion, rememberMe, user.role);
     await setAuthCookies(session.accessToken, session.refreshToken, session.refreshExpiresAt);
 
     return NextResponse.json(

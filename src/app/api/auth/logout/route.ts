@@ -2,13 +2,9 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { clearAuthCookies } from "@/lib/cookies";
 import { revokeAccessTokenId, revokeRefreshSession, verifyAccessToken, revokeUserSessions } from "@/lib/auth-sessions";
-import { enforceRateLimit } from "@/lib/rate-limit";
 import { getRequestId, logError, logWarn } from "@/lib/logger";
 
 export async function POST(request: Request) {
-  const rateLimitResponse = await enforceRateLimit(request, "user:logout", { group: "user" });
-  if (rateLimitResponse) return rateLimitResponse;
-
   try {
     const cookieStore = await cookies();
     const accessToken = cookieStore.get("token")?.value;
@@ -32,7 +28,7 @@ export async function POST(request: Request) {
 
     const response = NextResponse.json(
       { success: true, message: "Logged out successfully." },
-      { status: 200 }
+      { status: 200, headers: { "Cache-Control": "no-store, private" } }
     );
     clearAuthCookies(response);
     return response;
@@ -40,7 +36,7 @@ export async function POST(request: Request) {
     logError("auth.logout_failed", error, { requestId: getRequestId(request) });
     const response = NextResponse.json(
       { success: false, message: "Unable to complete logout. Please try again." },
-      { status: 500 }
+      { status: 500, headers: { "Cache-Control": "no-store, private" } }
     );
     clearAuthCookies(response);
     return response;

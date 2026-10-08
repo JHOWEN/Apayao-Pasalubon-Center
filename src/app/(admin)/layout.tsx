@@ -17,6 +17,8 @@ import { syncAdminPickupAlertCount } from "@/lib/admin-notifications";
 import { getPickupDateKey } from "@/lib/order";
 
 const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const ADMIN_ACTIVITY_STORAGE_KEY = "apc-admin-last-activity";
 type ThemeMode = "light" | "dark" | "system";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -153,6 +155,118 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     };
     const refreshInterval = window.setInterval(() => void refreshSession(), 4 * 60 * 1000);
     return () => window.clearInterval(refreshInterval);
+  }, [sessionStatus]);
+
+  useEffect(() => {
+    if (sessionStatus !== "verified") return;
+
+    let lastActivityAt = Date.now();
+    let lastActivityRequestAt = 0;
+    let lastBroadcastAt = 0;
+    let activityRequestInFlight = false;
+    let idleTimer = 0;
+
+    const leaveDashboard = () => {
+      setSessionStatus("checking");
+      window.location.replace("/login?reason=session-expired");
+    };
+
+    const scheduleIdleTimeout = () => {
+      window.clearTimeout(idleTimer);
+      const remaining = ADMIN_IDLE_TIMEOUT_MS - (Date.now() - lastActivityAt);
+      if (remaining <= 0) {
+        leaveDashboard();
+        return;
+      }
+      idleTimer = window.setTimeout(scheduleIdleTimeout, remaining);
+    };
+
+    const sendActivity = async () => {
+      const now = Date.now();
+      if (activityRequestInFlight || now - lastActivityRequestAt < 30_000) return;
+      lastActivityRequestAt = now;
+      activityRequestInFlight = true;
+
+      try {
+        let response = await fetch("/api/auth/activity", {
+          method: "POST",
+          cache: "no-store",
+        });
+
+        if (response.status === 401) {
+          const refreshResponse = await fetch("/api/auth/refresh", {
+            method: "POST",
+            cache: "no-store",
+          });
+          if (!refreshResponse.ok && refreshResponse.status !== 409) return;
+          response = await fetch("/api/auth/activity", {
+            method: "POST",
+            cache: "no-store",
+          });
+        }
+
+        if (response.status === 401) leaveDashboard();
+        else if (response.status === 403) window.location.replace("/login?reason=access-denied");
+      } catch {
+        // The local idle timer still expires the dashboard if the server cannot be reached.
+      } finally {
+        activityRequestInFlight = false;
+      }
+    };
+
+    const recordActivity = (broadcast: boolean) => {
+      if (document.visibilityState !== "visible") return;
+      lastActivityAt = Date.now();
+      scheduleIdleTimeout();
+
+      if (broadcast && lastActivityAt - lastBroadcastAt >= 10_000) {
+        lastBroadcastAt = lastActivityAt;
+        try {
+          window.localStorage.setItem(ADMIN_ACTIVITY_STORAGE_KEY, String(lastActivityAt));
+        } catch {
+          // The server-side idle timeout remains authoritative if browser storage is unavailable.
+        }
+      }
+
+      void sendActivity();
+    };
+
+    const handleStorageActivity = (event: StorageEvent) => {
+      if (event.key !== ADMIN_ACTIVITY_STORAGE_KEY || !event.newValue) return;
+      const activityAt = Number(event.newValue);
+      if (Number.isFinite(activityAt) && activityAt > lastActivityAt && activityAt <= Date.now() + 5_000) {
+        lastActivityAt = activityAt;
+        scheduleIdleTimeout();
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") recordActivity(true);
+    };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) recordActivity(true);
+    };
+
+    const activityEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart"];
+    const handleUserActivity = () => recordActivity(true);
+    for (const eventName of activityEvents) {
+      window.addEventListener(eventName, handleUserActivity, { passive: true });
+    }
+    window.addEventListener("scroll", handleUserActivity, { passive: true, capture: true });
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("storage", handleStorageActivity);
+    scheduleIdleTimeout();
+
+    return () => {
+      window.clearTimeout(idleTimer);
+      for (const eventName of activityEvents) {
+        window.removeEventListener(eventName, handleUserActivity);
+      }
+      window.removeEventListener("scroll", handleUserActivity, true);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("storage", handleStorageActivity);
+    };
   }, [sessionStatus]);
 
   useEffect(() => {

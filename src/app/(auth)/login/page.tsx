@@ -71,6 +71,22 @@ export default function LoginPage() {
   }, [sessionClearAttempt]);
 
   useEffect(() => {
+    const clearSessionWhenRestored = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      sessionCleanupPromise.current = null;
+      setIsSuccess(false);
+      setIsLoading(false);
+      setPassword("");
+      setError("");
+      setSessionState("clearing");
+      setSessionClearAttempt((attempt) => attempt + 1);
+    };
+
+    window.addEventListener("pageshow", clearSessionWhenRestored);
+    return () => window.removeEventListener("pageshow", clearSessionWhenRestored);
+  }, []);
+
+  useEffect(() => {
     if (lockoutSeconds <= 0) {
       return;
     }
