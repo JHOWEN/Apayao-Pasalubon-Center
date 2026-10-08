@@ -79,19 +79,25 @@ export function AuthCardLayout({
 
           <section className="relative flex flex-col justify-center bg-white px-6 py-8 sm:px-10 sm:py-10 lg:px-12 lg:py-10">
             <div className="mx-auto w-full max-w-125">
-              <div className="mb-7">
-                {badge ? (
-                  <span className="mb-2 inline-block rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-700">
-                    {badge}
-                  </span>
-                ) : null}
-                <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
-                  {title}
-                </h2>
-                <p className="mt-2 text-sm text-slate-500 leading-relaxed">
-                  {subtitle}
-                </p>
-              </div>
+              {badge || title || subtitle ? (
+                <div className="mb-7">
+                  {badge ? (
+                    <span className="mb-2 inline-block rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-700">
+                      {badge}
+                    </span>
+                  ) : null}
+                  {title ? (
+                    <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+                      {title}
+                    </h2>
+                  ) : null}
+                  {subtitle ? (
+                    <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                      {subtitle}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               {children}
 

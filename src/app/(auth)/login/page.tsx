@@ -178,8 +178,8 @@ export default function LoginPage() {
 
   return (
     <AuthCardLayout
-      title="Login"
-      subtitle="Welcome back! Please sign in to continue."
+      title={isSuccess ? "" : "Login"}
+      subtitle={isSuccess ? "" : "Welcome back! Please sign in to continue."}
       heroTitle="Welcome Back!"
       heroSubtitle="To stay connected with us please login with your personal information."
       heroActionLink={undefined}
@@ -200,29 +200,6 @@ export default function LoginPage() {
           aria-label="Sign in form"
           aria-busy={isLoading}
         >
-          <AnimatePresence>
-            {showSessionExpiredNotice && !email.trim() && !password ? (
-              <motion.div
-                initial={{ opacity: 0, y: -6, height: 0 }}
-                animate={{ opacity: 1, y: 0, height: "auto" }}
-                exit={{ opacity: 0, y: -6, height: 0 }}
-                role="alert"
-                className="flex items-center gap-2 overflow-hidden rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800"
-              >
-                <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
-                <span className="flex-1">Your session has expired. Please log in again.</span>
-                <button
-                  type="button"
-                  onClick={() => setShowSessionExpiredNotice(false)}
-                  aria-label="Dismiss session expired notice"
-                  className="rounded-md p-1 text-red-700 transition hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-
           <AuthInput
             id="login-email"
             name="email"
@@ -316,6 +293,29 @@ export default function LoginPage() {
                     </button>
                   ) : null}
                 </div>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+
+          <AnimatePresence>
+            {showSessionExpiredNotice && !email.trim() && !password ? (
+              <motion.div
+                initial={{ opacity: 0, y: -6, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: "auto" }}
+                exit={{ opacity: 0, y: -6, height: 0 }}
+                role="alert"
+                className="flex items-center gap-2 overflow-hidden rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800"
+              >
+                <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+                <span className="flex-1">Your session has expired. Please log in again.</span>
+                <button
+                  type="button"
+                  onClick={() => setShowSessionExpiredNotice(false)}
+                  aria-label="Dismiss session expired notice"
+                  className="rounded-md p-1 text-red-700 transition hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </motion.div>
             ) : null}
           </AnimatePresence>
