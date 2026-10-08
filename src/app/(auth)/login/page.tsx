@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, Lock, AlertCircle, Clock, Loader2, ArrowRight } from "lucide-react";
+import { Mail, Lock, AlertCircle, Clock, Loader2, ArrowRight, X } from "lucide-react";
 import { clearStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
 import { AuthSuccessState } from "@/components/auth/AuthSuccessState";
 import { AuthCardLayout } from "@/components/auth/AuthCardLayout";
@@ -16,6 +16,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
+  const [showSessionExpiredNotice, setShowSessionExpiredNotice] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [lockoutEmail, setLockoutEmail] = useState("");
@@ -27,6 +28,11 @@ export default function LoginPage() {
 
   useEffect(() => {
     const reason = new URLSearchParams(window.location.search).get("reason");
+    if (reason === "session-expired") {
+      const timeout = window.setTimeout(() => setShowSessionExpiredNotice(true), 0);
+      return () => window.clearTimeout(timeout);
+    }
+
     const message = reason === "access-denied"
         ? "Your account does not have access to the admin dashboard."
         : reason === "login-required"
@@ -117,6 +123,7 @@ export default function LoginPage() {
     }
 
     setError("");
+    setShowSessionExpiredNotice(false);
     setIsLoading(true);
 
     try {
@@ -192,10 +199,6 @@ export default function LoginPage() {
           aria-label="Sign in form"
           aria-busy={isLoading}
         >
-          <p className="text-center text-sm text-slate-500" role="status">
-            Your session has expired. Please log in again.
-          </p>
-
           <AuthInput
             id="login-email"
             name="email"
@@ -315,6 +318,29 @@ export default function LoginPage() {
               </>
             )}
           </motion.button>
+
+          <AnimatePresence>
+            {showSessionExpiredNotice ? (
+              <motion.div
+                initial={{ opacity: 0, y: -6, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: "auto" }}
+                exit={{ opacity: 0, y: -6, height: 0 }}
+                role="status"
+                className="flex items-center gap-2 overflow-hidden rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm text-amber-900"
+              >
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span className="flex-1">Your session has expired. Please log in again.</span>
+                <button
+                  type="button"
+                  onClick={() => setShowSessionExpiredNotice(false)}
+                  aria-label="Dismiss session expired notice"
+                  className="rounded-md p-1 text-amber-800 transition hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
 
           <p className="pt-1 text-center text-sm text-slate-600">
             Don&apos;t have an account?{" "}
