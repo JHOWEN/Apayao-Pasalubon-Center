@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertCircle,
   BarChart3,
   CalendarRange,
+  CheckCircle2,
   Download,
+  FileText,
+  Loader2,
   Printer,
   Search,
   ShoppingCart,
@@ -15,7 +19,9 @@ import {
   RotateCcw,
   Store,
   CreditCard,
+  X,
 } from "lucide-react";
+import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
 
 type ReportType = "ALL" | "INVENTORY" | "SALES" | "LOW_STOCK" | "TOP_PRODUCTS";
 
@@ -38,6 +44,19 @@ const formatCurrency = (value: number) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[character];
+  });
+}
 
 type ReportSummary = {
   totalRevenue: number;
@@ -105,6 +124,50 @@ type ReportState = {
   paymentBreakdown: ReportBreakdown;
 };
 
+function escapeReportStrings(report: ReportState): ReportState {
+  return {
+    ...report,
+    recentOrders: report.recentOrders.map((order) => ({
+      ...order,
+      orderNumber: escapeHtml(order.orderNumber),
+      items: order.items.map((item) => ({ ...item, productName: escapeHtml(item.productName) })),
+    })),
+    lowStock: report.lowStock.map((item) => ({
+      ...item,
+      name: escapeHtml(item.name),
+      sku: escapeHtml(item.sku),
+    })),
+    topProducts: report.topProducts.map((item) => ({
+      ...item,
+      name: escapeHtml(item.name),
+      sku: escapeHtml(item.sku),
+    })),
+    inventoryItems: report.inventoryItems.map((item) => ({
+      ...item,
+      name: escapeHtml(item.name),
+      sku: escapeHtml(item.sku),
+    })),
+    channelBreakdown: Object.fromEntries(
+      Object.entries(report.channelBreakdown).map(([name, values]) => [escapeHtml(name), values]),
+    ),
+    paymentBreakdown: Object.fromEntries(
+      Object.entries(report.paymentBreakdown).map(([name, values]) => [escapeHtml(name), values]),
+    ),
+  };
+}
+
+type PrintScope = {
+  periodLabel: string;
+  categoryLabel: string;
+};
+
+type PrintPreview = {
+  reportTitle: string;
+  periodLabel: string;
+  categoryLabel: string;
+  summary: ReportSummary;
+};
+
 const initialState: ReportState = {
   summary: {
     totalRevenue: 0,
@@ -126,25 +189,37 @@ const initialState: ReportState = {
 
 export default function ReportsPage() {
   const [report, setReport] = useState<ReportState>(initialState);
+  const [hasLoadedReport, setHasLoadedReport] = useState(false);
+  const [isReportLoading, setIsReportLoading] = useState(true);
+  const [reportLoadError, setReportLoadError] = useState("");
   const [reportType, setReportType] = useState<ReportType>("ALL");
   const [startDate, setStartDate] = useState(() => formatInputDate(new Date()));
   const [endDate, setEndDate] = useState(() => formatInputDate(new Date()));
   const [category, setCategory] = useState("");
   const [activePreset, setActivePreset] = useState<string>("today");
   const [searchQuery, setSearchQuery] = useState("");
+  const [printStatus, setPrintStatus] = useState<"loading" | "preparing" | "ready" | "error" | null>(null);
+  const [printError, setPrintError] = useState("");
+  const [printPreview, setPrintPreview] = useState<PrintPreview | null>(null);
+  const printAbortControllerRef = useRef<AbortController | null>(null);
+  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   const fetchReportData = useCallback(
     async (
       selectedStartDate = startDate,
       selectedEndDate = endDate,
-      selectedCategory = category
+      selectedCategory = category,
+      signal?: AbortSignal,
     ) => {
       const params = new URLSearchParams();
       if (selectedStartDate) params.set("startDate", selectedStartDate);
       if (selectedEndDate) params.set("endDate", selectedEndDate);
       if (selectedCategory) params.set("category", selectedCategory);
 
-      const response = await fetch(`/api/admin/reports?${params.toString()}`);
+      const response = await fetch(`/api/admin/reports?${params.toString()}`, {
+        cache: "no-store",
+        signal,
+      });
       if (!response.ok) throw new Error("Failed to load report data");
       return (await response.json()) as ReportState;
     },
@@ -164,6 +239,7 @@ export default function ReportsPage() {
           selectedCategory
         );
         setReport(data);
+        setHasLoadedReport(true);
         return data;
       } catch (err) {
         console.error("Reports loading error:", err);
@@ -174,30 +250,38 @@ export default function ReportsPage() {
   );
 
   useEffect(() => {
-    let ignore = false;
-    async function init() {
-      try {
-        const params = new URLSearchParams();
-        if (startDate) params.set("startDate", startDate);
-        if (endDate) params.set("endDate", endDate);
-        if (category) params.set("category", category);
+    const controller = new AbortController();
+    setIsReportLoading(true);
+    setReportLoadError("");
 
-        const res = await fetch(`/api/admin/reports?${params.toString()}`);
-        if (!res.ok) return;
-        const data = (await res.json()) as ReportState;
-        if (!ignore) {
-          setReport(data);
-        }
-      } catch (err) {
-        console.error("Failed to fetch initial report", err);
-      }
-    }
+    void fetchReportData(startDate, endDate, category, controller.signal)
+      .then((data) => {
+        setReport(data);
+        setHasLoadedReport(true);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.error("Failed to fetch report", error);
+        setReportLoadError("We couldn't load this report. Check your connection and try again.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsReportLoading(false);
+      });
 
-    void init();
     return () => {
-      ignore = true;
+      controller.abort();
     };
-  }, [startDate, endDate, category]);
+  }, [category, endDate, fetchReportData, startDate]);
+
+  const handleRetryReportLoad = async () => {
+    setIsReportLoading(true);
+    setReportLoadError("");
+    const data = await loadReport(startDate, endDate, category);
+    if (!data) {
+      setReportLoadError("We couldn't load this report. Check your connection and try again.");
+    }
+    setIsReportLoading(false);
+  };
 
   // Preset handlers
   const handleApplyPreset = (preset: "today" | "7days" | "30days" | "month" | "all") => {
@@ -273,16 +357,26 @@ export default function ReportsPage() {
   }, [report.topProducts, searchQuery]);
 
   // PRINT TEMPLATE
-  const printOfficialDocument = (title: string, subCategory: string, content: string) => {
+  const printOfficialDocument = async (
+    title: string,
+    subCategory: string,
+    content: string,
+    scope: PrintScope,
+  ): Promise<boolean> => {
     const printFrame = document.createElement("iframe");
     printFrame.setAttribute("aria-hidden", "true");
+    printFrame.title = `${title} print preview`;
     printFrame.style.position = "fixed";
-    printFrame.style.inset = "0";
+    printFrame.style.left = "0";
+    printFrame.style.top = "0";
     printFrame.style.width = "100vw";
     printFrame.style.height = "100vh";
     printFrame.style.border = "0";
-    printFrame.style.visibility = "hidden";
+    printFrame.style.opacity = "0";
+    printFrame.style.pointerEvents = "none";
+    printFrame.style.zIndex = "-1";
     document.body.appendChild(printFrame);
+    printFrameRef.current = printFrame;
 
     const generatedDate = new Date().toLocaleDateString("en-PH", {
       year: "numeric",
@@ -294,34 +388,32 @@ export default function ReportsPage() {
       minute: "2-digit",
     });
 
-    const periodLabel = startDate && endDate
-      ? `${startDate} to ${endDate}`
-      : startDate
-      ? `From ${startDate}`
-      : endDate
-      ? `Until ${endDate}`
-      : "All Record History";
     const logoUrl = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+    const safeTitle = escapeHtml(title);
+    const safeSubCategory = escapeHtml(subCategory);
+    const safePeriodLabel = escapeHtml(scope.periodLabel);
+    const safeCategoryLabel = escapeHtml(scope.categoryLabel);
+    const safeLogoUrl = escapeHtml(logoUrl);
 
     const header = `
       <header class="report-header">
         <div class="brand-lockup">
-          <img class="brand-logo" src="${logoUrl}" alt="Apayao Pasalubong Center logo">
+          <img class="brand-logo" src="${safeLogoUrl}" alt="Apayao Pasalubong Center logo">
           <div>
             <div class="brand-name">Apayao Pasalubong Center</div>
             <div class="brand-contact">San Isidro Sur, Luna, Apayao, Philippines | apcstore@example.com | +63 912 345 6789</div>
           </div>
         </div>
         <div class="report-meta">
-          <span class="meta-badge">${subCategory}</span>
-          <div class="report-title">${title}</div>
+          <span class="meta-badge">${safeSubCategory}</span>
+          <div class="report-title">${safeTitle}</div>
           <div class="report-date">Generated: ${generatedDate} ${generatedTime}</div>
         </div>
       </header>
 
       <div class="meta-strip">
-        <div><strong>Reporting Period:</strong> ${periodLabel}</div>
-        <div><strong>Category Scope:</strong> ${category ? (report.categories.find((c) => c.id === category)?.name ?? "Selected") : "All Catalog Categories"}</div>
+        <div><strong>Reporting Period:</strong> ${safePeriodLabel}</div>
+        <div><strong>Category Scope:</strong> ${safeCategoryLabel}</div>
         <div><strong>Document Status:</strong> Certified Official Copy</div>
       </div>
     `;
@@ -348,12 +440,11 @@ export default function ReportsPage() {
 
     const styles = `
       @page {
-        size: A4 portrait;
-        margin: 0;
+        margin: 12mm;
       }
       * { box-sizing: border-box; }
       body {
-        margin: 14mm 12mm;
+        margin: 0;
         background: #ffffff;
         color: #0f172a;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -476,6 +567,7 @@ export default function ReportsPage() {
         border-bottom: 1px solid #f1f5f9;
         text-align: left;
         vertical-align: top;
+        overflow-wrap: anywhere;
       }
       th {
         background: #f1f5f9;
@@ -513,9 +605,17 @@ export default function ReportsPage() {
         text-align: center;
       }
       @media print {
-        .report-header, thead, tr, .audit-footer, .kpi-grid, section {
-          break-inside: avoid;
-        }
+        html, body { width: auto; min-width: 0; }
+        body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .report-header, .audit-footer, .kpi-card { break-inside: avoid; page-break-inside: avoid; }
+        .section-title { break-after: avoid; page-break-after: avoid; }
+        thead { display: table-header-group; }
+        tr { break-inside: avoid; page-break-inside: avoid; }
+        table { break-inside: auto; page-break-inside: auto; }
+        .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+        .report-header { flex-wrap: wrap; }
+        .report-meta { text-align: left; }
+        .audit-footer { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
       }
     `;
 
@@ -523,7 +623,8 @@ export default function ReportsPage() {
     const printWindow = printFrame.contentWindow;
     if (!printDocument || !printWindow) {
       printFrame.remove();
-      return;
+      if (printFrameRef.current === printFrame) printFrameRef.current = null;
+      return false;
     }
 
     printDocument.open();
@@ -532,7 +633,9 @@ export default function ReportsPage() {
       <html>
         <head>
           <meta charset="utf-8">
-          <title>${title} - Apayao Pasalubong Center</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <base href="${escapeHtml(window.location.origin)}/">
+          <title>${safeTitle} - Apayao Pasalubong Center</title>
           <style>${styles}</style>
         </head>
         <body>
@@ -544,19 +647,134 @@ export default function ReportsPage() {
     `);
     printDocument.close();
 
-    setTimeout(() => {
+    const printLogo = printDocument.querySelector<HTMLImageElement>(".brand-logo");
+    const imageReady = printLogo?.decode
+      ? printLogo.decode().catch(() => undefined)
+      : Promise.resolve();
+    const fontsReady = printDocument.fonts?.ready ?? Promise.resolve();
+    let assetTimeout = 0;
+    const assetsReady = Promise.all([imageReady, fontsReady.catch(() => undefined)]).then(() => {
+      window.clearTimeout(assetTimeout);
+    });
+    await Promise.race([
+      assetsReady,
+      new Promise<void>((resolve) => {
+        assetTimeout = window.setTimeout(resolve, 3500);
+      }),
+    ]);
+    window.clearTimeout(assetTimeout);
+    if (printAbortControllerRef.current?.signal.aborted) {
+      printFrame.remove();
+      if (printFrameRef.current === printFrame) printFrameRef.current = null;
+      return false;
+    }
+    setPrintStatus("ready");
+    return true;
+  };
+
+  const closePrintModal = useCallback(() => {
+    printAbortControllerRef.current?.abort();
+    printAbortControllerRef.current = null;
+    printFrameRef.current?.remove();
+    printFrameRef.current = null;
+    setPrintPreview(null);
+    setPrintError("");
+    setPrintStatus(null);
+  }, []);
+
+  useEffect(() => {
+    if (!printStatus) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePrintModal();
+      }
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [closePrintModal, printStatus]);
+
+  const handleConfirmPrint = () => {
+    const printFrame = printFrameRef.current;
+    const printWindow = printFrame?.contentWindow;
+    if (!printFrame || !printWindow) {
+      setPrintStatus("error");
+      setPrintError("The print preview was closed. Prepare the report again.");
+      return;
+    }
+
+    const removePrintFrame = () => {
+      printFrame.remove();
+      if (printFrameRef.current === printFrame) printFrameRef.current = null;
+    };
+
+    try {
+      printWindow.addEventListener("afterprint", removePrintFrame, { once: true });
+      window.setTimeout(removePrintFrame, 120_000);
       printWindow.focus();
-      printWindow.addEventListener("afterprint", () => printFrame.remove(), { once: true });
+      setPrintError("");
+      setPrintStatus(null);
+      setPrintPreview(null);
       printWindow.print();
-    }, 250);
+    } catch (error) {
+      console.error("Unable to open the browser print dialog:", error);
+      setPrintStatus("error");
+      setPrintError("Your browser couldn't open printing. Use its menu and choose Print or Save as PDF.");
+      removePrintFrame();
+    }
   };
 
   // PRINT DISPATCHER BASED ON REPORT TYPE
   const handlePrintCurrentReport = async () => {
-    const data = await loadReport(startDate, endDate, category);
-    if (!data) return;
+    const controller = new AbortController();
+    printAbortControllerRef.current?.abort();
+    printAbortControllerRef.current = controller;
+    setPrintStatus("loading");
+    setPrintError("");
+    setPrintPreview(null);
+    printFrameRef.current?.remove();
+    printFrameRef.current = null;
 
-    if (reportType === "INVENTORY") {
+    const selectedStartDate = startDate;
+    const selectedEndDate = endDate;
+    const selectedCategory = category;
+    const selectedReportType = reportType;
+
+    try {
+      const loadedReport = await fetchReportData(
+        selectedStartDate,
+        selectedEndDate,
+        selectedCategory,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      setReport(loadedReport);
+      setHasLoadedReport(true);
+      const data = escapeReportStrings(loadedReport);
+
+      const periodLabel = selectedStartDate && selectedEndDate
+        ? `${selectedStartDate} to ${selectedEndDate}`
+        : selectedStartDate
+          ? `From ${selectedStartDate}`
+          : selectedEndDate
+            ? `Until ${selectedEndDate}`
+            : "All Record History";
+      const categoryLabel = selectedCategory
+        ? loadedReport.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
+        : "All catalog categories";
+      const reportTitle = {
+        INVENTORY: "Inventory Report",
+        SALES: "Sales Report",
+        LOW_STOCK: "Low Stock Alerts Report",
+        TOP_PRODUCTS: "Top Products Report",
+        ALL: "Full Summary Report",
+      }[selectedReportType];
+
+      setPrintPreview({ reportTitle, periodLabel, categoryLabel, summary: loadedReport.summary });
+      setPrintStatus("preparing");
+      const printScope = { periodLabel, categoryLabel };
+
+      if (selectedReportType === "INVENTORY") {
       const rows = data.inventoryItems.length > 0
         ? data.inventoryItems.map(
             (item) => `
@@ -595,8 +813,10 @@ export default function ReportsPage() {
         </table>
       `;
 
-      printOfficialDocument("Inventory Valuation & Stock Report", "Inventory Audit", content);
-    } else if (reportType === "SALES") {
+      if (!(await printOfficialDocument("Inventory Valuation & Stock Report", "Inventory Audit", content, printScope))) {
+        throw new Error("The print preview could not be created.");
+      }
+    } else if (selectedReportType === "SALES") {
       const rows = data.recentOrders.length > 0
         ? data.recentOrders.map((order) => {
             const itemsSummary = order.items
@@ -651,8 +871,10 @@ export default function ReportsPage() {
         </table>
       `;
 
-      printOfficialDocument("Sales & Revenue Performance Report", "Sales Audit", content);
-    } else if (reportType === "LOW_STOCK") {
+      if (!(await printOfficialDocument("Sales & Revenue Performance Report", "Sales Audit", content, printScope))) {
+        throw new Error("The print preview could not be created.");
+      }
+    } else if (selectedReportType === "LOW_STOCK") {
       const rows = data.lowStock.length > 0
         ? data.lowStock.map(
             (item) => `
@@ -689,8 +911,10 @@ export default function ReportsPage() {
         </table>
       `;
 
-      printOfficialDocument("Low Stock & Reorder Alert Report", "Stock Risk Audit", content);
-    } else if (reportType === "TOP_PRODUCTS") {
+      if (!(await printOfficialDocument("Low Stock & Reorder Alert Report", "Stock Risk Audit", content, printScope))) {
+        throw new Error("The print preview could not be created.");
+      }
+    } else if (selectedReportType === "TOP_PRODUCTS") {
       const rows = data.topProducts.length > 0
         ? data.topProducts.map(
             (item, index) => `
@@ -727,7 +951,9 @@ export default function ReportsPage() {
         </table>
       `;
 
-      printOfficialDocument("Top Performing Products Report", "Product Intelligence", content);
+      if (!(await printOfficialDocument("Top Performing Products Report", "Product Intelligence", content, printScope))) {
+        throw new Error("The print preview could not be created.");
+      }
     } else {
       // ALL-IN-ONE SUMMARY
       const salesRows = data.recentOrders.map((order) => {
@@ -810,7 +1036,19 @@ export default function ReportsPage() {
         </table>
       `;
 
-      printOfficialDocument("Complete Business Summary Audit", "Comprehensive Audit", content);
+      if (!(await printOfficialDocument("Complete Business Summary Audit", "Comprehensive Audit", content, printScope))) {
+        throw new Error("The print preview could not be created.");
+      }
+    }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      console.error("Unable to prepare report for printing:", error);
+      setPrintStatus("error");
+      setPrintError("We couldn't prepare this report for printing. Check your connection and try again.");
+    } finally {
+      if (printAbortControllerRef.current === controller) {
+        printAbortControllerRef.current = null;
+      }
     }
   };
 
@@ -956,15 +1194,21 @@ export default function ReportsPage() {
             <button
               type="button"
               onClick={() => void handlePrintCurrentReport()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+              disabled={isReportLoading || printStatus !== null}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60 dark:bg-emerald-500 dark:hover:bg-emerald-600"
             >
-              <Printer className="h-3.5 w-3.5" />
-              <span>Print {currentReportLabel}</span>
+              {printStatus === "loading" || printStatus === "preparing" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Printer className="h-3.5 w-3.5" />
+              )}
+              <span>{printStatus === "loading" || printStatus === "preparing" ? "Preparing..." : `Print ${currentReportLabel}`}</span>
             </button>
             <button
               type="button"
               onClick={() => void handleExportCsv()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              disabled={isReportLoading || printStatus !== null}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               <Download className="h-3.5 w-3.5" />
               <span>Export CSV</span>
@@ -1143,6 +1387,53 @@ export default function ReportsPage() {
         </div>
       </header>
 
+      {hasLoadedReport && isReportLoading ? (
+        <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200" role="status" aria-live="polite">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+          <span>Refreshing report data for the selected dates and category…</span>
+        </div>
+      ) : null}
+
+      {hasLoadedReport && reportLoadError ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200" role="alert">
+          <span>{reportLoadError} The previous report is still shown.</span>
+          <button type="button" onClick={() => void handleRetryReportLoad()} className="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-100 dark:border-rose-800 dark:hover:bg-rose-900/40">
+            Try again
+          </button>
+        </div>
+      ) : null}
+
+      {!hasLoadedReport ? (
+        isReportLoading ? (
+          <section className="space-y-5 rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900" aria-busy="true" aria-live="polite" role="status">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Loading report data</h2>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Fetching the latest figures for your selected report.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />)}
+            </div>
+            <div className="space-y-2">
+              {Array.from({ length: 5 }, (_, index) => <div key={index} className="h-9 animate-pulse rounded-md bg-slate-100 dark:bg-slate-800" />)}
+            </div>
+          </section>
+        ) : reportLoadError ? (
+          <section className="rounded-xl border border-rose-200 bg-white p-8 text-center shadow-sm dark:border-rose-900/60 dark:bg-slate-900" role="alert">
+            <AlertCircle className="mx-auto h-8 w-8 text-rose-500" />
+            <h2 className="mt-3 text-base font-semibold text-slate-900 dark:text-white">Report unavailable</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{reportLoadError}</p>
+            <button type="button" onClick={() => void handleRetryReportLoad()} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+              <RotateCcw className="h-4 w-4" /> Try again
+            </button>
+          </section>
+        ) : null
+      ) : (
+      <>
       {/* 5. Interactive Report Workspace (Changes based on Report Type) */}
 
       {/* VIEW A: ALL-IN-ONE SUMMARY */}
@@ -1655,6 +1946,120 @@ export default function ReportsPage() {
           </div>
         </section>
       )}
+      </>
+      )}
+
+      {printStatus ? (
+        <AdminModalPortal>
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-950/55 p-3 backdrop-blur-sm sm:p-6"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget && printStatus !== "preparing") closePrintModal();
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="report-print-dialog-title"
+              aria-busy={printStatus === "loading" || printStatus === "preparing"}
+              className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            >
+              <header className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 dark:border-slate-800 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                    <FileText className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">Print center</p>
+                    <h2 id="report-print-dialog-title" className="mt-0.5 truncate text-base font-semibold text-slate-950 dark:text-white">
+                      {printPreview?.reportTitle ?? currentReportLabel}
+                    </h2>
+                  </div>
+                </div>
+                <button type="button" onClick={closePrintModal} aria-label="Close print preview" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:hover:bg-slate-800 dark:hover:text-white">
+                  <X className="h-4 w-4" />
+                </button>
+              </header>
+
+              <div className="p-5 sm:p-6">
+                {printStatus === "loading" ? (
+                  <div className="py-4 text-center" role="status" aria-live="polite">
+                    <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                      <Loader2 className="h-7 w-7 animate-spin" />
+                    </span>
+                    <h3 className="mt-4 text-lg font-semibold text-slate-950 dark:text-white">Loading report data</h3>
+                    <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500 dark:text-slate-400">We’re getting the latest figures for your date range and category. You can cancel while it loads.</p>
+                    <div className="mx-auto mt-5 h-1.5 max-w-xs overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div className="h-full w-1/3 animate-pulse rounded-full bg-emerald-500" />
+                    </div>
+                  </div>
+                ) : printStatus === "preparing" ? (
+                  <div className="py-4 text-center" role="status" aria-live="polite">
+                    <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
+                      <Loader2 className="h-7 w-7 animate-spin" />
+                    </span>
+                    <h3 className="mt-4 text-lg font-semibold text-slate-950 dark:text-white">Preparing print preview</h3>
+                    <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500 dark:text-slate-400">The report is ready. We’re finishing the page layout and loading the logo.</p>
+                  </div>
+                ) : printStatus === "ready" && printPreview ? (
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                      <CheckCircle2 className="h-5 w-5" /> Your report is ready
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Choose Print or Save as PDF in your device’s print dialog.</p>
+                    <dl className="mt-5 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-950/50 sm:grid-cols-2">
+                      <div>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Period</dt>
+                        <dd className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">{printPreview.periodLabel}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Category</dt>
+                        <dd className="mt-1 break-words font-medium text-slate-900 dark:text-slate-100">{printPreview.categoryLabel}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Completed sales</dt>
+                        <dd className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{printPreview.summary.completedOrders.toLocaleString()}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Revenue</dt>
+                        <dd className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{formatCurrency(printPreview.summary.totalRevenue)}</dd>
+                      </div>
+                    </dl>
+                  </div>
+                ) : (
+                  <div className="py-3" role="alert">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
+                      <AlertCircle className="h-6 w-6" />
+                    </span>
+                    <h3 className="mt-4 text-lg font-semibold text-slate-950 dark:text-white">Couldn’t prepare the report</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{printError || "Check your connection, then try again."}</p>
+                  </div>
+                )}
+              </div>
+
+              <footer className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40 sm:flex-row sm:justify-end sm:px-6">
+                {printStatus === "error" ? (
+                  <>
+                    <button type="button" onClick={closePrintModal} className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Close</button>
+                    <button type="button" onClick={() => void handlePrintCurrentReport()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">
+                      <RotateCcw className="h-4 w-4" /> Try again
+                    </button>
+                  </>
+                ) : printStatus === "ready" ? (
+                  <>
+                    <button type="button" onClick={closePrintModal} className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Cancel</button>
+                    <button type="button" onClick={handleConfirmPrint} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2">
+                      <Printer className="h-4 w-4" /> Print report
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={closePrintModal} className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 sm:w-auto">Cancel</button>
+                )}
+              </footer>
+            </section>
+          </div>
+        </AdminModalPortal>
+      ) : null}
     </div>
   );
 }
