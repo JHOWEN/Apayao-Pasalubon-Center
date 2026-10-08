@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, AlertCircle, Clock, Loader2, ArrowRight } from "lucide-react";
 import { clearStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
@@ -22,13 +22,12 @@ export default function LoginPage() {
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [sessionState, setSessionState] = useState<"clearing" | "ready" | "error">("clearing");
   const [sessionClearAttempt, setSessionClearAttempt] = useState(0);
+  const sessionCleanupPromise = useRef<Promise<void> | null>(null);
   const isLocked = lockoutSeconds > 0 && email.trim().toLowerCase() === lockoutEmail;
 
   useEffect(() => {
     const reason = new URLSearchParams(window.location.search).get("reason");
-    const message = reason === "session-expired"
-      ? "Your session has expired. Please log in again."
-      : reason === "access-denied"
+    const message = reason === "access-denied"
         ? "Your account does not have access to the admin dashboard."
         : reason === "login-required"
           ? "Please log in to access the admin dashboard."
@@ -43,25 +42,29 @@ export default function LoginPage() {
     let isActive = true;
 
     async function clearPreviousSession() {
-      try {
-        const response = await fetch("/api/auth/logout", {
-          method: "POST",
-          cache: "no-store",
-          signal: AbortSignal.timeout(10000),
-        });
-        if (!response.ok) throw new Error("Unable to end the previous session.");
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        cache: "no-store",
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error("Unable to end the previous session.");
 
-        clearStoredUser();
-        window.localStorage.setItem("apc-auth-session-ended", String(Date.now()));
+      clearStoredUser();
+      window.localStorage.setItem("apc-auth-session-ended", String(Date.now()));
+    }
+
+    const cleanupPromise = sessionCleanupPromise.current ?? clearPreviousSession();
+    sessionCleanupPromise.current = cleanupPromise;
+    void cleanupPromise.then(
+      () => {
         if (isActive) setSessionState("ready");
-      } catch {
+      },
+      () => {
         if (!isActive) return;
         setSessionState("error");
         setError("We couldn't end your previous sessions. Check your connection and retry before signing in.");
-      }
-    }
-
-    void clearPreviousSession();
+      },
+    );
     return () => {
       isActive = false;
     };
@@ -81,7 +84,7 @@ export default function LoginPage() {
 
   function handleEmailChange(value: string) {
     setEmail(value);
-    setError("");
+    if (sessionState !== "error") setError("");
     if (value.trim().toLowerCase() !== lockoutEmail) {
       setLockoutSeconds(0);
     }
@@ -89,8 +92,8 @@ export default function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (sessionState !== "ready") {
-      setError("End your previous sessions before signing in.");
+    if (sessionState === "error") {
+      setError("Retry session cleanup before signing in.");
       return;
     }
     if (isLocked) {
@@ -101,6 +104,17 @@ export default function LoginPage() {
     setIsLoading(true);
 
     try {
+      if (sessionState === "clearing" && sessionCleanupPromise.current) {
+        try {
+          await sessionCleanupPromise.current;
+        } catch {
+          setIsLoading(false);
+          setSessionState("error");
+          setError("We couldn't end your previous sessions. Check your connection and retry before signing in.");
+          return;
+        }
+      }
+
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -160,11 +174,11 @@ export default function LoginPage() {
           className="space-y-4"
           onSubmit={handleSubmit}
           aria-label="Sign in form"
-          aria-busy={isLoading || sessionState === "clearing"}
+          aria-busy={isLoading}
         >
-          {sessionState === "clearing" ? (
-            <p className="text-center text-sm text-slate-500" role="status">Ending previous sessions before sign-in...</p>
-          ) : null}
+          <p className="text-center text-sm text-slate-500" role="status">
+            Your session has expired. Please log in again.
+          </p>
 
           <AuthInput
             id="login-email"
@@ -177,7 +191,7 @@ export default function LoginPage() {
             onChange={(e) => handleEmailChange(e.target.value)}
             placeholder="name@example.com"
             icon={Mail}
-            disabled={isLoading || sessionState !== "ready"}
+            disabled={isLoading}
           />
 
           <AuthInput
@@ -191,11 +205,11 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => {
               setPassword(e.target.value);
-              setError("");
+              if (sessionState !== "error") setError("");
             }}
             placeholder="Enter your password"
             icon={Lock}
-            disabled={isLoading || sessionState !== "ready"}
+            disabled={isLoading}
           />
 
           <div className="flex items-center justify-between gap-4 pt-1 text-xs sm:text-sm">
@@ -204,7 +218,7 @@ export default function LoginPage() {
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                disabled={isLoading || sessionState !== "ready"}
+                disabled={isLoading}
                 className="h-4 w-4 rounded border-slate-300 accent-slate-900"
               />
               <span className="font-medium text-slate-600 group-hover:text-slate-900">
@@ -249,6 +263,7 @@ export default function LoginPage() {
                       onClick={() => {
                         setError("");
                         setSessionState("clearing");
+                        sessionCleanupPromise.current = null;
                         setSessionClearAttempt((attempt) => attempt + 1);
                       }}
                       className="mt-2 block font-semibold underline underline-offset-2"
@@ -263,9 +278,9 @@ export default function LoginPage() {
 
           <motion.button
             type="submit"
-            whileHover={{ scale: isLocked || isLoading ? 1 : 1.005 }}
-            whileTap={{ scale: isLocked || isLoading ? 1 : 0.99 }}
-            disabled={isLoading || isLocked || sessionState !== "ready"}
+            whileHover={{ scale: isLocked || isLoading || sessionState === "error" ? 1 : 1.005 }}
+            whileTap={{ scale: isLocked || isLoading || sessionState === "error" ? 1 : 0.99 }}
+            disabled={isLoading || isLocked || sessionState === "error"}
             className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-6 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
           >
             {isLoading ? (
@@ -273,8 +288,6 @@ export default function LoginPage() {
                 <Loader2 className="h-5 w-5 animate-spin text-white" />
                 <span>Signing in...</span>
               </>
-            ) : sessionState === "clearing" ? (
-              <span>Ending sessions...</span>
             ) : sessionState === "error" ? (
               <span>Retry session cleanup above</span>
             ) : isLocked ? (
