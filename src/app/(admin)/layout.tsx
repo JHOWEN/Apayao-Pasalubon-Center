@@ -443,27 +443,85 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }, [sessionStatus]);
 
   if (sessionStatus !== "verified") {
+    const sessionUnavailable = sessionStatus === "unavailable";
+
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5 text-slate-800 dark:bg-slate-950 dark:text-slate-100">
-        <section className="w-full max-w-sm text-center" aria-live="polite" role="status">
-          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-emerald-500/25 border-t-emerald-500" />
-          <h1 className="text-lg font-semibold">{sessionStatus === "checking" ? "Verifying your session" : "Can’t verify your session"}</h1>
-          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-            {sessionStatus === "checking"
-              ? "Protected dashboard content is hidden while we confirm your access."
-              : "Check your connection and retry to continue to the dashboard."}
-          </p>
-          {sessionStatus === "unavailable" ? (
-            <button
-              type="button"
-              onClick={() => setSessionRetryVersion((version) => version + 1)}
-              className="mt-5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              Retry verification
-            </button>
-          ) : null}
-        </section>
-      </main>
+      <div className="fixed inset-0 h-dvh overflow-hidden bg-[#f5f6f4] text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+        <div className="flex h-dvh">
+          <aside aria-hidden="true" className="hidden w-[250px] shrink-0 flex-col gap-8 bg-[#06262b] p-5 lg:flex">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 animate-pulse rounded-full bg-white/15" />
+              <div className="space-y-2">
+                <div className="h-3 w-28 animate-pulse rounded bg-white/20" />
+                <div className="h-2 w-20 animate-pulse rounded bg-white/10" />
+              </div>
+            </div>
+            <div className="space-y-3">
+              {Array.from({ length: 8 }, (_, index) => (
+                <div key={index} className="flex h-10 items-center gap-3 rounded-md px-3">
+                  <div className="h-4 w-4 animate-pulse rounded bg-white/15" />
+                  <div className="h-3 w-28 animate-pulse rounded bg-white/15" />
+                </div>
+              ))}
+            </div>
+          </aside>
+
+          <div className="flex min-w-0 flex-1 flex-col">
+            <header aria-hidden="true" className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 bg-[#06262b] px-4 sm:px-6">
+              <div className="h-4 w-36 animate-pulse rounded bg-white/15" />
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 animate-pulse rounded-full bg-white/15" />
+                <div className="hidden h-3 w-24 animate-pulse rounded bg-white/15 sm:block" />
+              </div>
+            </header>
+
+            <main className="min-h-0 flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
+              {sessionUnavailable ? (
+                <div role="alert" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+                  <span>Dashboard is temporarily unavailable. Check your connection and try again.</span>
+                  <button
+                    type="button"
+                    onClick={() => setSessionRetryVersion((version) => version + 1)}
+                    className="rounded-lg bg-emerald-700 px-3 py-2 font-semibold text-white transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : null}
+
+              <section aria-label="Loading admin dashboard" aria-live="polite" aria-busy={!sessionUnavailable}>
+                <div className="mb-6 space-y-3" aria-hidden="true">
+                  <div className="h-7 w-52 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+                  <div className="h-4 w-72 max-w-full animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-hidden="true">
+                  {Array.from({ length: 4 }, (_, index) => (
+                    <div key={index} className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
+                      <div className="h-3 w-24 rounded bg-slate-200 dark:bg-slate-800" />
+                      <div className="mt-5 h-7 w-20 rounded bg-slate-200 dark:bg-slate-800" />
+                      <div className="mt-3 h-3 w-32 rounded bg-slate-100 dark:bg-slate-800/70" />
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]" aria-hidden="true">
+                  <div className="h-72 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
+                    <div className="h-4 w-36 rounded bg-slate-200 dark:bg-slate-800" />
+                    <div className="mt-6 h-48 rounded-xl bg-slate-100 dark:bg-slate-800/70" />
+                  </div>
+                  <div className="h-72 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
+                    <div className="h-4 w-32 rounded bg-slate-200 dark:bg-slate-800" />
+                    <div className="mt-6 space-y-4">
+                      {Array.from({ length: 4 }, (_, index) => (
+                        <div key={index} className="h-8 rounded-lg bg-slate-100 dark:bg-slate-800/70" />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </main>
+          </div>
+        </div>
+      </div>
     );
   }
 
