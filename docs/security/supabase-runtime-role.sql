@@ -19,7 +19,9 @@ ALTER ROLE apc_runtime
 -- tables created by postgres. Re-run this file after migrations to grant the
 -- runtime role and add RLS policies for any new application tables.
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-  REVOKE ALL PRIVILEGES ON TABLES FROM anon, authenticated, service_role;
+  REVOKE ALL PRIVILEGES ON TABLES FROM PUBLIC, anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+  REVOKE ALL PRIVILEGES ON SEQUENCES FROM PUBLIC, anon, authenticated, service_role;
 
 REVOKE ALL PRIVILEGES ON DATABASE postgres FROM apc_runtime;
 GRANT CONNECT ON DATABASE postgres TO apc_runtime;
@@ -65,7 +67,9 @@ REVOKE ALL PRIVILEGES ON TABLE
   public."AppSetting",
   public."RateLimitEntry",
   public."ProductReview"
-FROM anon, authenticated, service_role;
+FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public
+  FROM PUBLIC, anon, authenticated, service_role, apc_runtime;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
   public."User",
@@ -144,6 +148,38 @@ WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
     OR has_table_privilege('apc_runtime', relation.oid, 'DELETE')
   )
 ORDER BY namespace.nspname, relation.relname;
+
+-- No rows are expected unless the application schema contains an explicitly
+-- granted sequence. Prisma's current models use string IDs, not sequences.
+SELECT
+  namespace.nspname AS schema_name,
+  sequence.relname AS sequence_name,
+  has_sequence_privilege('apc_runtime', sequence.oid, 'USAGE') AS can_use,
+  has_sequence_privilege('apc_runtime', sequence.oid, 'SELECT') AS can_select,
+  has_sequence_privilege('apc_runtime', sequence.oid, 'UPDATE') AS can_update
+FROM pg_catalog.pg_class AS sequence
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = sequence.relnamespace
+WHERE sequence.relkind = 'S'
+  AND namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND (
+    has_sequence_privilege('apc_runtime', sequence.oid, 'USAGE')
+    OR has_sequence_privilege('apc_runtime', sequence.oid, 'SELECT')
+    OR has_sequence_privilege('apc_runtime', sequence.oid, 'UPDATE')
+  )
+ORDER BY namespace.nspname, sequence.relname;
+
+-- PostgreSQL grants EXECUTE on functions to PUBLIC by default. Review the
+-- functions available to this runtime role. Do not revoke this globally in
+-- Supabase without assessing extension and platform dependencies first.
+SELECT
+  namespace.nspname AS schema_name,
+  procedure.proname AS function_name,
+  pg_catalog.pg_get_function_identity_arguments(procedure.oid) AS arguments
+FROM pg_catalog.pg_proc AS procedure
+JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = procedure.pronamespace
+WHERE namespace.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND has_function_privilege('apc_runtime', procedure.oid, 'EXECUTE')
+ORDER BY namespace.nspname, procedure.proname;
 
 -- Expected: public is usable and not creatable. Review any other schema.
 SELECT
