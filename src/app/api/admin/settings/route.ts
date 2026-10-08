@@ -61,6 +61,9 @@ export async function GET(request: Request) {
       success: true,
       settings: {
         appName: settings.appName,
+        registeredBusinessName: settings.registeredBusinessName ?? "APAYAO PASALUBONG CENTER",
+        businessAddress: settings.businessAddress ?? "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+        tinNumber: settings.tinNumber ?? "",
         currency: settings.currency,
         gcashAccountName: settings.gcashAccountName,
         gcashAccountNumber: settings.gcashAccountNumber,
@@ -91,6 +94,9 @@ export async function PUT(request: Request) {
       where: { id: settings.id },
       data: {
         appName: typeof body.appName === "string" ? body.appName.trim() : settings.appName,
+        registeredBusinessName: typeof body.registeredBusinessName === "string" ? body.registeredBusinessName.trim().slice(0, 120) || null : settings.registeredBusinessName,
+        businessAddress: typeof body.businessAddress === "string" ? body.businessAddress.trim().slice(0, 240) || null : settings.businessAddress,
+        tinNumber: typeof body.tinNumber === "string" ? body.tinNumber.trim().slice(0, 40) || null : settings.tinNumber,
         currency: typeof body.currency === "string" ? body.currency.trim().toUpperCase() : settings.currency,
         gcashAccountName: typeof body.gcashAccountName === "string" ? body.gcashAccountName.trim() || null : settings.gcashAccountName,
         gcashAccountNumber: typeof body.gcashAccountNumber === "string" ? body.gcashAccountNumber.trim() || null : settings.gcashAccountNumber,
@@ -107,6 +113,9 @@ export async function PUT(request: Request) {
       success: true,
       settings: {
         appName: nextSettings.appName,
+        registeredBusinessName: nextSettings.registeredBusinessName,
+        businessAddress: nextSettings.businessAddress,
+        tinNumber: nextSettings.tinNumber,
         currency: nextSettings.currency,
         gcashAccountName: nextSettings.gcashAccountName,
         gcashAccountNumber: nextSettings.gcashAccountNumber,

@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node ./scripts/dev-safe.js",
     "build": "next build",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build",
     "postinstall": "prisma generate",
     "db:migrate:deploy": "prisma migrate deploy",
     "start": "next start",
@@ -19,6 +20,7 @@
     "@next/env": "^16.3.5",
     "@phosphor-icons/react": "^2.1.10",
     "@prisma/client": "^6.19.3",
+    "@react-pdf/renderer": "^4.9.0",
     "@supabase/supabase-js": "^2.116.0",
     "@upstash/redis": "^1.38.4",
     "bcryptjs": "^3.0.3",

@@ -2,7 +2,7 @@
 
 import Image from "@/components/safe-image";
 import Link from "next/link";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
@@ -133,6 +133,8 @@ function EcommerceHomeContent() {
   const searchParams = useSearchParams();
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [categoryLoadError, setCategoryLoadError] = useState<string | null>(null);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
@@ -291,24 +293,37 @@ function EcommerceHomeContent() {
     }
   }
 
-  useEffect(() => {
-    async function loadCategories() {
-      try {
-        const response = await fetchWithTimeout("/api/public/categories", { cache: "no-store" }, 15000);
-        const data = await response.json();
+  const loadCategories = useCallback(async () => {
+    try {
+      const response = await fetchWithTimeout("/api/public/categories", { cache: "no-store" }, 15000);
+      const data = await response.json();
 
-        if (!response.ok) {
-          throw new Error(data?.message || "Unable to load categories.");
-        }
-
-        setCategories(Array.isArray(data) ? data : []);
-      } catch {
-        setCategories([]);
+      if (!response.ok) {
+        throw new Error(getResponseErrorMessage(data, response.status, "Category filters are temporarily unavailable."));
       }
-    }
 
-    void loadCategories();
+      setCategories(Array.isArray(data) ? data : []);
+    } catch (error) {
+      setCategories([]);
+      setCategoryLoadError(getUserFacingErrorMessage(
+        error,
+        "Please check your connection and try again.",
+      ));
+    } finally {
+      setIsLoadingCategories(false);
+    }
   }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadCategories(), 0);
+    return () => window.clearTimeout(timer);
+  }, [loadCategories]);
+
+  function retryCategories() {
+    setIsLoadingCategories(true);
+    setCategoryLoadError(null);
+    void loadCategories();
+  }
 
   useEffect(() => {
     function handleOutsideClick(event: MouseEvent) {
@@ -544,6 +559,22 @@ function EcommerceHomeContent() {
             </div>
           </div>
 
+          {categoryLoadError && (
+            <div className="storefront-error-notice flex flex-col gap-3 rounded-xl border p-3 text-xs sm:flex-row sm:items-center sm:justify-between" role="alert">
+              <p className="leading-relaxed">
+                <span className="font-bold">Category filters couldn&apos;t load.</span> {categoryLoadError} You can still browse all products.
+              </p>
+              <button
+                type="button"
+                onClick={retryCategories}
+                disabled={isLoadingCategories}
+                className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-[#ff8a1e] px-4 font-bold text-slate-950 transition hover:bg-orange-500 disabled:cursor-wait disabled:opacity-60"
+              >
+                {isLoadingCategories ? "Loading filters..." : "Retry filters"}
+              </button>
+            </div>
+          )}
+
           {/* Category filters */}
           {categories.length > 0 && (
             <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar md:hidden">
@@ -590,7 +621,7 @@ function EcommerceHomeContent() {
           {loading ? (
             <ProductGridSkeleton count={12} label="Loading products" />
           ) : products.length === 0 ? (
-            <div className="rounded-2xl border border-white/10 bg-[#12141c] px-6 py-16 text-center">
+            <div className={`rounded-2xl border px-6 py-16 text-center ${catalogError ? "storefront-error-card" : "border-white/10 bg-[#12141c]"}`} role={catalogError ? "alert" : "status"}>
               <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200">
                 {isTimeoutError ? <TimerReset className="h-6 w-6" /> : <SearchX className="h-6 w-6" />}
               </div>
@@ -604,6 +635,11 @@ function EcommerceHomeContent() {
                   ? "We couldn't find any products matching your active filters. Try clearing your search or category."
                   : "No products are currently available in the catalog."}
               </p>
+              {catalogError && (
+                <p className="mx-auto mt-2 max-w-sm text-xs text-slate-300">
+                  Check your connection and try again. If products still don&apos;t load, come back in a little while.
+                </p>
+              )}
               {catalogError && (
                 <button
                   type="button"
@@ -664,14 +700,14 @@ function EcommerceHomeContent() {
           )}
           {!loading && products.length > 0 && hasMoreProducts && (
             <div className="mt-7 flex flex-col items-center gap-2">
-              {loadMoreError && <p className="text-xs text-rose-300" role="status">{loadMoreError}</p>}
+              {loadMoreError && <p className="storefront-error-notice rounded-lg border px-3 py-2 text-xs" role="alert">{loadMoreError} Check your connection and retry.</p>}
               <button
                 type="button"
                 onClick={() => void loadMoreProducts()}
                 disabled={isLoadingMore}
                 className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/5 px-5 text-xs font-semibold text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"
               >
-                {isLoadingMore ? "Loading products..." : "Load more products"}
+                {isLoadingMore ? "Loading products..." : loadMoreError ? "Retry loading products" : "Load more products"}
                 {!isLoadingMore && <ArrowRight className="h-3.5 w-3.5" />}
               </button>
             </div>

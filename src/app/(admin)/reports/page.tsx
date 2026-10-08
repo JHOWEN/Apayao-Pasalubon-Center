@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   BarChart3,
@@ -201,6 +201,8 @@ export default function ReportsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [printStatus, setPrintStatus] = useState<"loading" | "preparing" | "ready" | "error" | null>(null);
   const [printError, setPrintError] = useState("");
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
+  const [pdfExportError, setPdfExportError] = useState("");
   const [printPreview, setPrintPreview] = useState<PrintPreview | null>(null);
   const printAbortControllerRef = useRef<AbortController | null>(null);
   const printFrameRef = useRef<HTMLIFrameElement | null>(null);
@@ -417,28 +419,8 @@ export default function ReportsPage() {
       <div class="meta-strip">
         <div><strong>Reporting Period:</strong> ${safePeriodLabel}</div>
         <div><strong>Category Scope:</strong> ${safeCategoryLabel}</div>
-        <div><strong>Document Status:</strong> Certified Official Copy</div>
+        <div><strong>Report Format:</strong> Generated from current records</div>
       </div>
-    `;
-
-    const auditFooter = `
-      <footer class="audit-footer">
-        <div>
-          <div class="sign-title">Report Prepared By:</div>
-          <div class="sign-line"></div>
-          <div class="sign-label">System Administrator / Inventory Clerk</div>
-        </div>
-        <div>
-          <div class="sign-title">Verified & Audited By:</div>
-          <div class="sign-line"></div>
-          <div class="sign-label">Store Manager / Operations Lead</div>
-        </div>
-        <div>
-          <div class="sign-title">Official Acknowledgement:</div>
-          <div class="sign-line"></div>
-          <div class="sign-label">Signature / Seal & Date</div>
-        </div>
-      </footer>
     `;
 
     const styles = `
@@ -455,13 +437,10 @@ export default function ReportsPage() {
         line-height: 1.45;
       }
       .report-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 20px;
-        padding-bottom: 14px;
-        border-bottom: 3px solid #059669;
-        margin-bottom: 14px;
+        display: block;
+        padding-bottom: 10px;
+        border-bottom: 1px solid #cbd5e1;
+        margin-bottom: 10px;
       }
       .brand-lockup {
         display: flex;
@@ -469,156 +448,120 @@ export default function ReportsPage() {
         gap: 12px;
       }
       .brand-logo {
-        width: 52px;
-        height: 52px;
+        width: 38px;
+        height: 38px;
         flex: 0 0 auto;
         object-fit: contain;
       }
       .brand-name {
         color: #0f172a;
-        font-size: 17px;
-        font-weight: 800;
-        letter-spacing: -0.02em;
+        font-size: 14px;
+        font-weight: 700;
       }
       .brand-contact {
         margin-top: 3px;
-        color: #64748b;
-        font-size: 9.5px;
+        color: #475569;
+        font-size: 9px;
       }
       .report-meta {
-        text-align: right;
+        margin-top: 10px;
+        text-align: left;
       }
       .meta-badge {
         display: inline-block;
-        background: #ecfdf5;
-        color: #065f46;
-        border: 1px solid #a7f3d0;
-        padding: 2px 8px;
-        border-radius: 4px;
+        color: #475569;
+        padding: 0;
         font-size: 9px;
-        font-weight: 700;
+        font-weight: 600;
         letter-spacing: 0.1em;
         text-transform: uppercase;
       }
       .report-title {
         margin-top: 4px;
         color: #0f172a;
-        font-size: 15px;
-        font-weight: 800;
+        font-size: 14px;
+        font-weight: 700;
       }
       .report-date {
         margin-top: 2px;
-        color: #64748b;
-        font-size: 9.5px;
+        color: #475569;
+        font-size: 9px;
       }
       .meta-strip {
         display: flex;
-        gap: 20px;
+        gap: 16px;
         flex-wrap: wrap;
-        margin: 0 0 16px;
-        padding: 8px 12px;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        background: #f8fafc;
+        margin: 0 0 12px;
+        padding: 0 0 8px;
+        border-bottom: 1px solid #e2e8f0;
+        background: #ffffff;
         font-size: 10px;
-        color: #475569;
+        color: #334155;
       }
       .kpi-grid {
         display: grid;
         grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
-        margin: 0 0 16px;
+        gap: 0;
+        margin: 0 0 12px;
+        border-bottom: 1px solid #cbd5e1;
       }
       .kpi-card {
-        padding: 9px 12px;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        background: #f8fafc;
+        padding: 6px 9px;
+        border: 0;
+        border-right: 1px solid #e2e8f0;
+        background: #ffffff;
       }
       .kpi-label {
-        color: #64748b;
-        font-size: 8.5px;
-        font-weight: 700;
+        color: #475569;
+        font-size: 8px;
+        font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.05em;
       }
       .kpi-val {
         margin-top: 3px;
         color: #0f172a;
-        font-size: 14px;
-        font-weight: 800;
+        font-size: 11px;
+        font-weight: 700;
       }
       .section-title {
-        margin: 18px 0 8px;
+        margin: 14px 0 6px;
         padding-bottom: 4px;
-        border-bottom: 2px solid #059669;
+        border-bottom: 1px solid #cbd5e1;
         color: #0f172a;
-        font-size: 13px;
-        font-weight: 800;
+        font-size: 11px;
+        font-weight: 700;
       }
       table {
         width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        margin-top: 8px;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        overflow: hidden;
+        border-collapse: collapse;
+        margin-top: 5px;
       }
       th, td {
-        padding: 7px 10px;
-        border-bottom: 1px solid #f1f5f9;
+        padding: 5px 7px;
+        border-bottom: 1px solid #e2e8f0;
         text-align: left;
         vertical-align: top;
         overflow-wrap: anywhere;
       }
       th {
         background: #f1f5f9;
-        color: #334155;
+        color: #1e293b;
         font-size: 9px;
-        font-weight: 800;
+        font-weight: 700;
         letter-spacing: 0.05em;
         text-transform: uppercase;
       }
-      tr:last-child td { border-bottom: 0; }
-      tbody tr:nth-child(even) { background: #f8fafc; }
+      tbody tr:nth-child(even) { background: #fafafa; }
       td.right, th.right { text-align: right; }
-      .audit-footer {
-        margin-top: 28px;
-        padding-top: 14px;
-        border-top: 1px solid #e2e8f0;
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 20px;
-        page-break-inside: avoid;
-      }
-      .sign-title {
-        font-size: 9.5px;
-        font-weight: 700;
-        color: #334155;
-      }
-      .sign-line {
-        margin-top: 32px;
-        border-bottom: 1px solid #94a3b8;
-      }
-      .sign-label {
-        margin-top: 4px;
-        font-size: 8.5px;
-        color: #64748b;
-        text-align: center;
-      }
       @media print {
         html, body { width: auto; min-width: 0; }
-        body { margin: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        .report-header, .audit-footer, .kpi-card { break-inside: avoid; page-break-inside: avoid; }
+        body { margin: 0; }
+        .report-header, .kpi-card { break-inside: avoid; page-break-inside: avoid; }
         .section-title { break-after: avoid; page-break-after: avoid; }
         thead { display: table-header-group; }
         tr { break-inside: avoid; page-break-inside: avoid; }
         table { break-inside: auto; page-break-inside: auto; }
-        .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
-        .report-header { flex-wrap: wrap; }
-        .report-meta { text-align: left; }
-        .audit-footer { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
       }
     `;
 
@@ -644,7 +587,6 @@ export default function ReportsPage() {
         <body>
           ${header}
           ${content}
-          ${auditFooter}
         </body>
       </html>
     `);
@@ -1159,6 +1101,64 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportPdf = async () => {
+    setIsPdfExporting(true);
+    setPdfExportError("");
+
+    try {
+      const selectedStartDate = startDate;
+      const selectedEndDate = endDate;
+      const selectedCategory = category;
+      const selectedReportType = reportType;
+      const data = await fetchReportData(selectedStartDate, selectedEndDate, selectedCategory);
+      setReport(data);
+      setHasLoadedReport(true);
+
+      const periodLabel = selectedStartDate && selectedEndDate
+        ? `${selectedStartDate} to ${selectedEndDate}`
+        : selectedStartDate
+          ? `From ${selectedStartDate}`
+          : selectedEndDate
+            ? `Until ${selectedEndDate}`
+            : "All Record History";
+      const categoryLabel = selectedCategory
+        ? data.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
+        : "All catalog categories";
+      const reportTitle = {
+        INVENTORY: "Generate Report",
+        SALES: "Generate Report",
+        LOW_STOCK: "Generate Report",
+        TOP_PRODUCTS: "Generate Report",
+        ALL: "Generate Report",
+      }[selectedReportType];
+
+      const [{ pdf }, { default: ReportPdfDocument }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("@/components/admin/report-pdf-document"),
+      ]);
+      const document = createElement(ReportPdfDocument, {
+        report: data,
+        reportType: selectedReportType,
+        reportTitle,
+        periodLabel,
+        categoryLabel,
+        generatedAt: new Date(),
+      }) as unknown as Parameters<typeof pdf>[0];
+      const blob = await pdf(document).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+      link.href = url;
+      link.download = `${reportTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.pdf`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch (error) {
+      console.error("Unable to export PDF report:", error);
+      setPdfExportError("We couldn't create the PDF. Please try again or use Print / Export CSV.");
+    } finally {
+      setIsPdfExporting(false);
+    }
+  };
+
   const currentReportLabel = useMemo(() => {
     switch (reportType) {
       case "INVENTORY":
@@ -1197,7 +1197,7 @@ export default function ReportsPage() {
             <button
               type="button"
               onClick={() => void handlePrintCurrentReport()}
-              disabled={isReportLoading || printStatus !== null}
+              disabled={isReportLoading || printStatus !== null || isPdfExporting}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60 dark:bg-emerald-500 dark:hover:bg-emerald-600"
             >
               {printStatus === "loading" || printStatus === "preparing" ? (
@@ -1210,14 +1210,28 @@ export default function ReportsPage() {
             <button
               type="button"
               onClick={() => void handleExportCsv()}
-              disabled={isReportLoading || printStatus !== null}
+              disabled={isReportLoading || printStatus !== null || isPdfExporting}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               <Download className="h-3.5 w-3.5" />
               <span>Export CSV</span>
             </button>
+            <button
+              type="button"
+              onClick={() => void handleExportPdf()}
+              disabled={isReportLoading || printStatus !== null || isPdfExporting}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-950"
+            >
+              {isPdfExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+              <span>{isPdfExporting ? "Creating PDF..." : "Download PDF"}</span>
+            </button>
           </div>
         </div>
+        {pdfExportError && (
+          <p className="mt-3 text-xs font-medium text-rose-700 dark:text-rose-300" role="alert">
+            {pdfExportError}
+          </p>
+        )}
 
         {/* 2. Report Scope Tabs (Filter by Report) */}
         <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800/80">

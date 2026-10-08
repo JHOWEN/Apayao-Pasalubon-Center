@@ -163,6 +163,7 @@ export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [message, setMessage] = useState("");
+  const [ordersLoadFailed, setOrdersLoadFailed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
   const [uploadingProofOrderId, setUploadingProofOrderId] = useState<string | null>(null);
@@ -176,6 +177,7 @@ export default function OrdersPage() {
       if (!currentUser?.id) {
         setOrders([]);
         setMessage("");
+        setOrdersLoadFailed(false);
         return;
       }
 
@@ -191,10 +193,12 @@ export default function OrdersPage() {
       const userOrders = Array.isArray(data) ? (data as OrderSummary[]) : [];
       setOrders(userOrders);
       setMessage("");
+      setOrdersLoadFailed(false);
     } catch (error) {
       console.error("Error fetching orders:", error);
       setOrders([]);
       setMessage(getUserFacingErrorMessage(error, "We couldn't load your orders. Please try again."));
+      setOrdersLoadFailed(true);
     } finally {
       setIsLoading(false);
     }
@@ -202,6 +206,7 @@ export default function OrdersPage() {
 
   async function handleCancelOrder(orderId: string) {
     setMessage("");
+    setOrdersLoadFailed(false);
     try {
       const response = await fetchWithTimeout("/api/auth/orders", {
         method: "PUT",
@@ -225,6 +230,7 @@ export default function OrdersPage() {
 
   async function handleMarkAsReceived(orderId: string) {
     setMessage("");
+    setOrdersLoadFailed(false);
     try {
       const response = await fetchWithTimeout("/api/auth/orders", {
         method: "PUT",
@@ -249,6 +255,7 @@ export default function OrdersPage() {
   async function handleProofUpload(orderId: string, file: File | undefined) {
     if (!file) return;
     setMessage("");
+    setOrdersLoadFailed(false);
     setUploadingProofOrderId(orderId);
 
     const formData = new FormData();
@@ -354,6 +361,7 @@ export default function OrdersPage() {
     selectedStatus === "ALL"
       ? sortedOrders
       : sortedOrders.filter((order) => order.status === selectedStatus);
+  const messageIsSuccess = message.includes("successfully") || message.includes("submitted");
 
   const statusColors: Record<string, { badge: string; text: string }> = {
     PENDING: { badge: "border-amber-400/30 bg-amber-500/10 text-amber-300", text: "text-amber-400" },
@@ -405,13 +413,27 @@ export default function OrdersPage() {
         {/* Status Message Alert */}
         {message && (
           <div
+            role={ordersLoadFailed || !messageIsSuccess ? "alert" : "status"}
             className={`rounded-2xl border p-4 text-xs font-semibold ${
-              message.includes("successfully")
+              messageIsSuccess
                 ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-200"
-                : "border-rose-400/30 bg-rose-500/15 text-rose-200"
+                : "storefront-error-notice"
             }`}
           >
-            {message}
+            <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span>{message}</span>
+              {ordersLoadFailed && (
+                <button
+                  type="button"
+                  onClick={() => void fetchOrders()}
+                  disabled={isLoading}
+                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-[#ff8a1e] px-4 font-bold text-slate-950 transition hover:bg-orange-500 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {isLoading ? "Loading orders..." : "Try again"}
+                </button>
+              )}
+            </div>
+            {ordersLoadFailed && <p className="mt-2 text-xs font-normal">Check your connection. Your order list will appear here once it loads.</p>}
           </div>
         )}
 

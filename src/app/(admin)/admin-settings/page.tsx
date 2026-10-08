@@ -11,6 +11,7 @@ import {
   KeyRound,
   MapPin,
   Phone,
+  Printer,
   QrCode,
   ShieldCheck,
   Store,
@@ -30,10 +31,13 @@ import { useEffect, useState } from "react";
 const fallbackAvatarSrc =
   process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
 
-type SettingsTab = "profile" | "store" | "wallets" | "security" | "team";
+type SettingsTab = "profile" | "store" | "pos" | "wallets" | "security" | "team";
 
 type SettingsState = {
   appName?: string;
+  registeredBusinessName?: string | null;
+  businessAddress?: string | null;
+  tinNumber?: string | null;
   currency?: string;
   gcashAccountName?: string | null;
   gcashAccountNumber?: string | null;
@@ -66,6 +70,9 @@ export default function AdminSettingsPage() {
 
   const [settingsForm, setSettingsForm] = useState<SettingsState>({
     appName: "APC Inventory",
+    registeredBusinessName: "APAYAO PASALUBONG CENTER",
+    businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+    tinNumber: "",
     currency: "PHP",
     gcashAccountName: "",
     gcashAccountNumber: "",
@@ -136,9 +143,13 @@ export default function AdminSettingsPage() {
       try {
         const response = await fetch("/api/admin/settings");
         const data = await response.json();
-        const nextSettings = data?.settings ?? {
+        const nextSettings = {
           appName: "APC Inventory",
+          registeredBusinessName: "APAYAO PASALUBONG CENTER",
+          businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+          tinNumber: "",
           currency: "PHP",
+          ...data?.settings,
         };
         setSettingsForm(nextSettings);
       } catch (err) {
@@ -357,9 +368,9 @@ export default function AdminSettingsPage() {
 
       const nextSettings = data?.settings ?? settingsForm;
       setSettingsForm(nextSettings);
-      showToast("success", "Store configuration saved successfully.");
+      showToast("success", "Settings saved successfully.");
     } catch {
-      showToast("error", "Error saving store configuration.");
+      showToast("error", "Error saving settings.");
     } finally {
       setIsSavingSettings(false);
     }
@@ -595,8 +606,7 @@ export default function AdminSettingsPage() {
               </span>
             </div>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Manage personal profile, store setup, payment receiving wallets, security, and team
-              access.
+              Manage your profile, store configuration, POS receipt details, payment wallets, security, and team access.
             </p>
           </div>
         </div>
@@ -629,6 +639,21 @@ export default function AdminSettingsPage() {
               >
                 <Store className="h-3.5 w-3.5" />
                 <span>Store Setup</span>
+              </button>
+            )}
+
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("pos")}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
+                  activeTab === "pos"
+                    ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
+                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+                }`}
+              >
+                <Printer className="h-3.5 w-3.5" />
+                <span>POS Receipt</span>
               </button>
             )}
 
@@ -888,6 +913,73 @@ export default function AdminSettingsPage() {
                     <span>Save Store Settings</span>
                   </>
                 )}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {/* POS receipt business details (Admin Only) */}
+      {activeTab === "pos" && isAdmin && (
+        <section className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">POS Receipt Header</h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              These business details appear at the top of browser and USB thermal receipts.
+            </p>
+          </div>
+
+          <form className="mt-5 space-y-4" onSubmit={handleSettingsSave}>
+            <div>
+              <label htmlFor="receipt-business-name" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Registered Business Name
+              </label>
+              <input
+                id="receipt-business-name"
+                maxLength={120}
+                value={settingsForm.registeredBusinessName ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, registeredBusinessName: e.target.value }))}
+                placeholder="Enter the registered business name"
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="receipt-business-address" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Business Address
+              </label>
+              <textarea
+                id="receipt-business-address"
+                maxLength={240}
+                rows={3}
+                value={settingsForm.businessAddress ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, businessAddress: e.target.value }))}
+                placeholder="Street, barangay, municipality, province"
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="receipt-tin" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                TIN No.
+              </label>
+              <input
+                id="receipt-tin"
+                maxLength={40}
+                value={settingsForm.tinNumber ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, tinNumber: e.target.value }))}
+                placeholder="Enter TIN, or leave blank to omit it"
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={isSavingSettings}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+              >
+                {isSavingSettings ? <span>Saving...</span> : <><Check className="h-3.5 w-3.5" /><span>Save POS Receipt Settings</span></>}
               </button>
             </div>
           </form>

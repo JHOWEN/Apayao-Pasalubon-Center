@@ -216,7 +216,7 @@ export default function ProductDetailPage() {
 
         if (!productId) {
           setLookupMessage(
-            "This item could not be loaded from the catalog right now. You can still return to your completed orders and review your purchase history.",
+            "We couldn't load this item. Check your connection and try again. If it is still unavailable, browse the catalog or check your orders.",
           );
           setProduct(null);
           setSelectedImage(null);
@@ -241,7 +241,7 @@ export default function ProductDetailPage() {
           !("id" in productPayload)
         ) {
           setLookupMessage(
-            "This item could not be loaded from the catalog right now. You can still return to your completed orders and review your purchase history.",
+            "We couldn't load this item. Check your connection and try again. If it is still unavailable, browse the catalog or check your orders.",
           );
           setProduct(null);
           setSelectedImage(null);
@@ -424,7 +424,7 @@ export default function ProductDetailPage() {
         setLookupMessage(
           error instanceof RequestTimeoutError
             ? "Connection timed out while loading this product. Please refresh and try again."
-            : "This item could not be loaded from the catalog right now. You can still return to your completed orders and review your purchase history.",
+            : "We couldn't load this item. Check your connection and try again. If it is still unavailable, browse the catalog or check your orders.",
         );
       } finally {
         setLoading(false);
@@ -814,26 +814,23 @@ export default function ProductDetailPage() {
           <h1 className="text-xl font-bold text-white">
             {isTimeoutLookup ? "Connection timed out" : "Product Not Available"}
           </h1>
-          <p className="mt-2 text-xs sm:text-sm text-slate-400">
+          <p className="storefront-error-notice mt-2 rounded-xl border p-3 text-xs sm:text-sm" role="alert">
             {lookupMessage || "This item is no longer available in the store catalog."}
           </p>
           <div className="mt-6 flex flex-col gap-2">
-            {isTimeoutLookup ? (
-              <button
-                type="button"
-                onClick={() => window.location.reload()}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-[#ff8a1e] px-5 text-xs font-bold text-slate-950 transition hover:bg-[#f97316]"
-              >
-                Retry Now
-              </button>
-            ) : (
-              <Link
-                href="/#catalog"
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-[#ff8a1e] px-5 text-xs font-bold text-slate-950 transition hover:bg-[#f97316]"
-              >
-                Browse Catalog
-              </Link>
-            )}
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex h-11 items-center justify-center rounded-xl bg-[#ff8a1e] px-5 text-xs font-bold text-slate-950 transition hover:bg-[#f97316]"
+            >
+              {isTimeoutLookup ? "Retry Now" : "Try again"}
+            </button>
+            <Link
+              href="/#catalog"
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-white/20 bg-white/5 px-5 text-xs font-semibold text-white transition hover:bg-white/10"
+            >
+              Browse Catalog
+            </Link>
             <Link
               href="/orders"
               className="inline-flex h-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 px-5 text-xs font-semibold text-slate-200 transition hover:bg-white/10"

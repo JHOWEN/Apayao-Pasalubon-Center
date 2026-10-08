@@ -511,11 +511,14 @@ export default function CheckoutPage() {
               </div>
 
               {status && (
-                <div className={`mb-6 rounded-2xl px-4 py-3 text-sm font-medium ${
+                <div
+                  role={status.includes("successfully") ? "status" : "alert"}
+                  className={`mb-6 rounded-2xl border px-4 py-3 text-sm font-medium ${
                   status.includes("successfully")
-                    ? "bg-emerald-500/15 text-emerald-300"
-                    : "bg-rose-500/15 text-rose-300"
-                }`}>
+                    ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-300"
+                    : "storefront-error-notice"
+                  }`}
+                >
                   {status}
                 </div>
               )}

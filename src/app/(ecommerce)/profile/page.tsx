@@ -470,10 +470,11 @@ export default function ProfilePage() {
         {/* Feedback Banner */}
         {statusMessage && (
           <div
+            role={statusMessage.includes("successfully") || statusMessage.includes("updated!") ? "status" : "alert"}
             className={`rounded-2xl border p-4 text-xs font-semibold ${
-              statusMessage.includes("successfully")
+              statusMessage.includes("successfully") || statusMessage.includes("updated!")
                 ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-200"
-                : "border-rose-400/30 bg-rose-500/15 text-rose-200"
+                : "storefront-error-notice"
             }`}
           >
             {statusMessage}

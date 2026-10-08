@@ -30,7 +30,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const [sessionStatus, setSessionStatus] = useState<"checking" | "verified" | "unavailable">("checking");
   const [sessionRetryVersion, setSessionRetryVersion] = useState(0);
   const [theme, setTheme] = useState<ThemeMode>("system");
-  const [isDarkAppearance, setIsDarkAppearance] = useState(false);
+  const [systemPrefersDark, setSystemPrefersDark] = useState(false);
   const [isThemeInitialized, setIsThemeInitialized] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -40,6 +40,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   const notificationMenuRef = useRef<HTMLDivElement>(null);
   const orderChannelRef = useRef<BroadcastChannel | null>(null);
+  const isDarkAppearance = theme === "dark" || (theme === "system" && systemPrefersDark);
 
   useEffect(() => {
     if (!isMobileNavOpen) return;
@@ -272,6 +273,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     const themeTimeout = window.setTimeout(() => {
       let storedTheme: string | null = null;
+      setSystemPrefersDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
       try {
         storedTheme = window.localStorage.getItem("apc-theme");
       } catch {
@@ -300,9 +302,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     if (!isThemeInitialized) return;
 
     const root = document.documentElement;
-    const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const resolvedTheme = theme === "system" ? (systemPrefersDark ? "dark" : "light") : theme;
-    setIsDarkAppearance(resolvedTheme === "dark");
 
     root.classList.toggle("dark", resolvedTheme === "dark");
     root.style.colorScheme = resolvedTheme;
@@ -311,7 +311,14 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     } catch {
       // Theme still applies when browser storage is unavailable.
     }
-  }, [isThemeInitialized, theme]);
+  }, [isThemeInitialized, systemPrefersDark, theme]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const syncSystemPreference = () => setSystemPrefersDark(mediaQuery.matches);
+    mediaQuery.addEventListener("change", syncSystemPreference);
+    return () => mediaQuery.removeEventListener("change", syncSystemPreference);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -448,7 +455,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     return (
       <div className="fixed inset-0 h-dvh overflow-hidden bg-[#f5f6f4] text-slate-800 dark:bg-slate-950 dark:text-slate-100">
         <div className="flex h-dvh">
-          <aside aria-hidden="true" className="hidden w-[250px] shrink-0 flex-col gap-8 bg-[#06262b] p-5 lg:flex">
+          <aside aria-hidden="true" className="hidden w-62.5 shrink-0 flex-col gap-8 bg-[#06262b] p-5 lg:flex">
             <div className="flex items-center gap-3">
               <div className="h-10 w-10 animate-pulse rounded-full bg-white/15" />
               <div className="space-y-2">
@@ -668,7 +675,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 title={`Dark appearance ${isDarkAppearance ? "on" : "off"}`}
                 onClick={() => {
                   const nextAppearance = !isDarkAppearance;
-                  setIsDarkAppearance(nextAppearance);
                   setTheme(nextAppearance ? "dark" : "light");
                 }}
                 className="inline-flex h-11 min-w-11 items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"

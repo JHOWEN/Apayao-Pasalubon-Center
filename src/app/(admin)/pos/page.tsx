@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowCounterClockwise as RotateCcw,
   Check,
+  CircleNotch,
   List,
   MagnifyingGlass as Search,
   Minus,
@@ -22,6 +23,7 @@ import {
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
 import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
 import { ADMIN_MODAL_BACKDROP_CLASS } from "@/utils/admin-modal";
+import { printEscPosReceipt } from "@/utils/escpos-usb";
 
 interface CartItem {
   id: string;
@@ -58,6 +60,25 @@ interface Product {
   variants?: ProductVariant[];
 }
 
+function escapeReceiptHtml(value: unknown) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[character];
+  });
+}
+
+const defaultReceiptHeader = {
+  registeredBusinessName: "APAYAO PASALUBONG CENTER",
+  businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+  tinNumber: "",
+};
+
 export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -79,6 +100,10 @@ export default function POSPage() {
   const [productView, setProductView] = useState<"grid" | "list">("list");
   const [cashierName, setCashierName] = useState("");
   const [terminalNumber, setTerminalNumber] = useState("");
+  const [receiptHeader, setReceiptHeader] = useState(defaultReceiptHeader);
+  const [isUsbPrinting, setIsUsbPrinting] = useState(false);
+  const [usbPrintMessage, setUsbPrintMessage] = useState("");
+  const [usbPrintError, setUsbPrintError] = useState("");
 
   useEffect(() => {
     const terminalStorageKey = "apc-pos-terminal-number";
@@ -128,8 +153,25 @@ export default function POSPage() {
       }
     }
 
+    async function loadReceiptHeader() {
+      try {
+        const response = await fetch("/api/admin/receipt-settings", { cache: "no-store" });
+        const data = await response.json();
+        if (response.ok && data?.settings) {
+          setReceiptHeader({
+            registeredBusinessName: data.settings.registeredBusinessName || defaultReceiptHeader.registeredBusinessName,
+            businessAddress: data.settings.businessAddress || defaultReceiptHeader.businessAddress,
+            tinNumber: data.settings.tinNumber || "",
+          });
+        }
+      } catch {
+        // Keep the standard receipt header if settings cannot be loaded.
+      }
+    }
+
     void loadProducts();
     void loadCashierProfile();
+    void loadReceiptHeader();
 
     return () => {
       window.clearInterval(clockInterval);
@@ -350,6 +392,10 @@ export default function POSPage() {
     const receiptSubtotal = completedSubtotal ?? subtotal;
     const receiptTender = completedTender ?? tender;
     const receiptChange = receiptTender > receiptSubtotal ? receiptTender - receiptSubtotal : 0;
+    const separator = "-".repeat(42);
+    const registeredBusinessName = receiptHeader.registeredBusinessName.trim() || defaultReceiptHeader.registeredBusinessName;
+    const businessAddress = receiptHeader.businessAddress.trim() || defaultReceiptHeader.businessAddress;
+    const tinNumber = receiptHeader.tinNumber.trim();
 
     const receiptHTML = `
       <!DOCTYPE html>
@@ -357,146 +403,135 @@ export default function POSPage() {
       <head>
         <title>Receipt</title>
         <style>
+          @page { margin: 0; }
+          * { box-sizing: border-box; }
           body {
             font-family: 'Courier New', monospace;
-            width: 360px;
+            width: 80mm;
             margin: 0;
-            padding: 14px;
+            padding: 3mm;
             color: #111;
             font-size: 11px;
             line-height: 1.35;
           }
           .header {
             text-align: center;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
           }
           .header h2 {
             margin: 0 0 4px;
-            font-size: 16px;
-            letter-spacing: 0.4px;
+            font-size: 14px;
+            letter-spacing: 0.2px;
           }
           .header div {
             margin: 2px 0;
           }
+          .business-address { white-space: pre-line; overflow-wrap: anywhere; }
           .rule {
-            border-top: 1px dashed #000;
-            margin: 9px 0;
+            overflow: hidden;
+            margin: 6px 0;
+            text-align: center;
+            white-space: nowrap;
+            letter-spacing: 0.15px;
           }
           .meta-row {
             display: grid;
-            grid-template-columns: 92px 1fr;
+            grid-template-columns: 86px minmax(0, 1fr);
             gap: 3px;
-            margin: 4px 0;
+            margin: 3px 0;
             align-items: baseline;
             overflow-wrap: anywhere;
             font-size: 10px;
           }
-          .meta-row span:first-child,
-          .payment-row span:first-child {
-            font-weight: bold;
-          }
-          .meta-row span:last-child,
-          .payment-row span:last-child {
-            text-align: right;
-          }
-          .payment-row {
-            display: grid;
-            grid-template-columns: 132px 1fr;
-            gap: 3px;
-            margin: 4px 0;
-            align-items: baseline;
-            white-space: nowrap;
-          }
           .items-header,
           .item {
             display: grid;
-            grid-template-columns: 28px minmax(0, 1fr) 62px 68px;
+            grid-template-columns: 30px minmax(0, 1fr) 84px;
             gap: 4px;
             align-items: start;
           }
           .items-header {
-            margin-bottom: 5px;
+            margin: 7px 0 4px;
             font-weight: bold;
           }
           .item-name {
-            flex: 1;
             min-width: 0;
             overflow-wrap: anywhere;
           }
-          .item-price,
           .item-amount,
-          .items-header span:nth-child(3),
-          .items-header span:nth-child(4) {
+          .items-header span:last-child {
             text-align: right;
           }
+          .item-unit {
+            grid-column: 2 / 4;
+            margin: 1px 0 4px;
+            color: #444;
+            font-size: 9px;
+          }
           .totals {
-            margin: 10px 0 8px;
+            margin: 7px 0;
           }
           .total-row {
             display: flex;
             justify-content: space-between;
             gap: 8px;
-            margin: 4px 0;
+            margin: 3px 0;
           }
           .grand-total {
-            font-size: 13px;
+            border-top: 1px solid #111;
+            padding-top: 5px;
+            font-size: 12px;
             font-weight: bold;
           }
           .footer {
             text-align: center;
-            margin-top: 14px;
+            margin-top: 8px;
           }
-          .footer strong { display: block; font-size: 13px; margin-bottom: 4px; }
+          .footer strong { display: block; font-size: 12px; margin-bottom: 3px; }
         </style>
       </head>
       <body>
         <div class="header">
-          <h2>APAYAO PASALUBONG CENTER</h2>
-          <div>SAN ISIDRO SUR, LUNA APAYAO - CAR -</div>
-          <div>CORDILLERA ADMINISTRATIVE REGION</div>
-          <div>PHONE: 09123456789</div>
-          <div>Business Name No. 5836951</div>
+          <h2>${escapeReceiptHtml(registeredBusinessName)}</h2>
+          <div class="business-address">${escapeReceiptHtml(businessAddress)}</div>
+          ${tinNumber ? `<div>TIN: ${escapeReceiptHtml(tinNumber)}</div>` : ""}
         </div>
 
-        <div class="rule"></div>
-        <div class="meta-row"><span>DATE:</span><span>${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span></div>
-        <div class="meta-row"><span>TIME:</span><span>${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span></div>
-        <div class="meta-row"><span>ORDER NO.:</span><span>${receiptOrderNumber}</span></div>
-        <div class="meta-row"><span>CASHIER:</span><span>${cashierName || "Unknown user"}</span></div>
-        <div class="meta-row"><span>TERMINAL NO.:</span><span>${terminalNumber || "POS-LOCAL"}</span></div>
-        <div class="meta-row"><span>TIN:</span><span>---</span></div>
+        <div class="rule">${separator}</div>
+        <div class="meta-row"><strong>DATE:</strong><span>${new Date().toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</span></div>
+        <div class="meta-row"><strong>TIME:</strong><span>${new Date().toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</span></div>
+        <div class="meta-row"><strong>ORDER NO.:</strong><span>${escapeReceiptHtml(receiptOrderNumber)}</span></div>
+        <div class="meta-row"><strong>CASHIER:</strong><span>${escapeReceiptHtml(cashierName || "Unknown user")}</span></div>
+        <div class="meta-row"><strong>TERMINAL:</strong><span>${escapeReceiptHtml(terminalNumber || "POS-LOCAL")}</span></div>
 
-        <div class="rule"></div>
-        <div class="items-header"><span>QTY</span><span>DESCRIPTION</span><span>PRICE</span><span>AMOUNT</span></div>
+        <div class="rule">${separator}</div>
+        <div class="items-header"><span>QTY</span><span>ITEM</span><span>AMOUNT</span></div>
         <div class="items">
           ${receiptItems
             .map(
               (item) =>
                 `<div class="item">
               <span>${item.quantity}</span>
-              <span class="item-name">${item.name}${item.variantValueLabel ? ` (${item.variantValueLabel})` : ""}</span>
-              <span class="item-price">${item.price.toFixed(2)}</span>
-              <span class="item-amount">${(item.price * item.quantity).toFixed(2)}</span>
+              <span class="item-name">${escapeReceiptHtml(item.name)}${item.variantValueLabel ? ` (${escapeReceiptHtml(item.variantValueLabel)})` : ""}</span>
+              <span class="item-amount">PHP ${(item.price * item.quantity).toFixed(2)}</span>
+              <span class="item-unit">PHP ${item.price.toFixed(2)} each</span>
             </div>`
             )
             .join("")}
         </div>
 
-        <div class="rule"></div>
+        <div class="rule">${separator}</div>
         <div class="totals">
           <div class="total-row">
-            <span>SUBTOTAL</span><span>${receiptSubtotal.toFixed(2)}</span>
+            <span>SUBTOTAL</span><span>PHP ${receiptSubtotal.toFixed(2)}</span>
           </div>
-          <div class="total-row"><span>DISCOUNT</span><span>0.00</span></div>
-          <div class="total-row"><span>VAT</span><span>0.00</span></div>
-          <div class="rule"></div>
-          <div class="total-row grand-total"><span>TOTAL AMOUNT</span><span>${receiptSubtotal.toFixed(2)}</span></div>
+          <div class="total-row grand-total"><span>TOTAL</span><span>PHP ${receiptSubtotal.toFixed(2)}</span></div>
         </div>
 
-        <div class="rule"></div>
-        <div class="payment-row"><span>PAYMENT METHOD:</span><span>${paymentMethod}</span></div>
-        <div class="payment-row"><span>AMOUNT TENDERED:</span><span>${receiptTender.toFixed(2)}</span></div>
-        <div class="payment-row"><span>CHANGE:</span><span>${receiptChange.toFixed(2)}</span></div>
+        <div class="rule">${separator}</div>
+        <div class="meta-row"><strong>PAYMENT:</strong><span>${escapeReceiptHtml(paymentMethod)}</span></div>
+        <div class="meta-row"><strong>TENDERED:</strong><span>PHP ${receiptTender.toFixed(2)}</span></div>
+        <div class="meta-row"><strong>CHANGE:</strong><span>PHP ${receiptChange.toFixed(2)}</span></div>
 
         <div class="footer">
           <strong>THANK YOU!</strong>
@@ -511,6 +546,42 @@ export default function POSPage() {
     setTimeout(() => {
       receiptWindow.print();
     }, 250);
+  };
+
+  const handleUsbReceiptPrint = async () => {
+    setUsbPrintMessage("");
+    setUsbPrintError("");
+    setIsUsbPrinting(true);
+
+    const receiptItems = completedItems.length > 0 ? completedItems : cart;
+    const receiptSubtotal = completedSubtotal ?? subtotal;
+    const receiptTender = completedTender ?? tender;
+
+    try {
+      const printerName = await printEscPosReceipt({
+        orderNumber,
+        registeredBusinessName: receiptHeader.registeredBusinessName || defaultReceiptHeader.registeredBusinessName,
+        businessAddress: receiptHeader.businessAddress || defaultReceiptHeader.businessAddress,
+        tinNumber: receiptHeader.tinNumber,
+        cashier: cashierName || "Unknown user",
+        terminal: terminalNumber || "POS-LOCAL",
+        paymentMethod,
+        subtotal: receiptSubtotal,
+        tender: receiptTender,
+        change: Math.max(receiptTender - receiptSubtotal, 0),
+        items: receiptItems.map((item) => ({
+          name: item.name,
+          variant: item.variantValueLabel,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+      });
+      setUsbPrintMessage(`Receipt sent to ${printerName}.`);
+    } catch (error) {
+      setUsbPrintError(error instanceof Error ? error.message : "USB printing failed. Use Print Receipt as a fallback.");
+    } finally {
+      setIsUsbPrinting(false);
+    }
   };
 
   async function handleSubmit() {
@@ -841,7 +912,7 @@ export default function POSPage() {
               )}
             </div>
 
-            <div className="mt-2 flex gap-2">
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
               <button
                 type="button"
                 onClick={() => printReceipt()}
@@ -852,13 +923,28 @@ export default function POSPage() {
               </button>
               <button
                 type="button"
+                onClick={() => void handleUsbReceiptPrint()}
+                disabled={isUsbPrinting}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-slate-900 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60 dark:bg-slate-700 dark:hover:bg-slate-600"
+              >
+                {isUsbPrinting ? <CircleNotch className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+                <span>{isUsbPrinting ? "Connecting..." : "Connect & Print USB"}</span>
+              </button>
+              <button
+                type="button"
                 onClick={resetCart}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-600 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 shadow-xs"
+                disabled={isUsbPrinting}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-600 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Start New Sale</span>
               </button>
             </div>
+            <p className="mt-2 text-center text-[11px] text-slate-500 dark:text-slate-400">
+              Formatted for an 80 mm thermal roll. For browser printing, choose 80 mm paper in printer settings; use Print Receipt if USB is unavailable.
+            </p>
+            {usbPrintMessage && <p className="mt-2 text-center text-xs font-medium text-emerald-700 dark:text-emerald-300" role="status" aria-live="polite">{usbPrintMessage}</p>}
+            {usbPrintError && <p className="mt-2 text-center text-xs font-medium text-rose-700 dark:text-rose-300" role="alert">{usbPrintError}</p>}
           </div>
         </div>
         </AdminModalPortal>

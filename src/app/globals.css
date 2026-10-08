@@ -1561,4 +1561,50 @@ html {
   color: #fffdf8 !important;
 }
 
+.storefront-shell .storefront-error-notice {
+  border-color: var(--storefront-status-danger-fg) !important;
+  background: var(--storefront-status-danger-bg) !important;
+  color: var(--storefront-status-danger-fg) !important;
+}
+
+.storefront-shell .storefront-error-card {
+  border-color: var(--storefront-status-danger-fg) !important;
+  background: var(--storefront-surface) !important;
+}
+
+.storefront-shell .storefront-error-card :is(h1, h2, h3) {
+  color: var(--storefront-ink) !important;
+}
+
+.storefront-shell .storefront-error-card > div:first-child {
+  border-color: var(--storefront-status-danger-fg) !important;
+  background: var(--storefront-status-danger-bg) !important;
+  color: var(--storefront-status-danger-fg) !important;
+}
+
+.storefront-shell .storefront-error-card > div:first-child svg {
+  color: inherit !important;
+}
+
+.storefront-shell .storefront-error-card > p {
+  color: var(--storefront-muted) !important;
+}
+
+.storefront-shell .storefront-error-icon {
+  border-color: var(--storefront-status-danger-fg) !important;
+  background: var(--storefront-status-danger-bg) !important;
+  color: var(--storefront-status-danger-fg) !important;
+}
+
+.storefront-shell .storefront-signout {
+  border-color: var(--storefront-status-danger-fg) !important;
+  background: var(--storefront-status-danger-bg) !important;
+  color: var(--storefront-status-danger-fg) !important;
+}
+
+.storefront-shell .storefront-signout:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--storefront-status-danger-bg) 76%, var(--storefront-status-danger-fg)) !important;
+  color: var(--storefront-status-danger-fg) !important;
+}
+
 }

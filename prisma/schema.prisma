@@ -308,18 +308,21 @@ model ActivityLog {
 }
 
 model AppSetting {
-  id                 String   @id @default(cuid())
-  key                String   @unique @default("default")
-  appName            String   @default("APC Inventory")
-  currency           String   @default("PHP")
-  gcashAccountName   String?
-  gcashAccountNumber String?
-  gcashQrCodeUrl     String?
-  mayaAccountName    String?
-  mayaAccountNumber  String?
-  mayaQrCodeUrl      String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  id                     String   @id @default(cuid())
+  key                    String   @unique @default("default")
+  appName                String   @default("APC Inventory")
+  registeredBusinessName String?
+  businessAddress        String?
+  tinNumber              String?
+  currency               String   @default("PHP")
+  gcashAccountName       String?
+  gcashAccountNumber     String?
+  gcashQrCodeUrl         String?
+  mayaAccountName        String?
+  mayaAccountNumber      String?
+  mayaQrCodeUrl          String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 }
 
 model RateLimitEntry {
