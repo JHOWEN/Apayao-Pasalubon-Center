@@ -644,9 +644,27 @@ export default function ReportsPage() {
       if (printFrameRef.current === printFrame) printFrameRef.current = null;
     };
 
+    const pageCover = document.createElement("div");
+    pageCover.setAttribute("aria-hidden", "true");
+    pageCover.style.cssText = [
+      "position:fixed",
+      "inset:0",
+      "z-index:2147483647",
+      "background:#f8fafc",
+      "pointer-events:none",
+    ].join(";");
+    document.body.appendChild(pageCover);
+
+    let cleanupTimer: number | null = null;
+    const cleanupPrint = () => {
+      if (cleanupTimer !== null) window.clearTimeout(cleanupTimer);
+      pageCover.remove();
+      removePrintFrame();
+    };
+
     try {
-      printWindow.addEventListener("afterprint", removePrintFrame, { once: true });
-      window.setTimeout(removePrintFrame, 120_000);
+      printWindow.addEventListener("afterprint", cleanupPrint, { once: true });
+      cleanupTimer = window.setTimeout(cleanupPrint, 120_000);
       printWindow.focus();
       setPrintError("");
       setPrintStatus(null);
@@ -656,7 +674,7 @@ export default function ReportsPage() {
       console.error("Unable to open the browser print dialog:", error);
       setPrintStatus("error");
       setPrintError("Your browser couldn't open printing. Use its menu and choose Print or Save as PDF.");
-      removePrintFrame();
+      cleanupPrint();
     }
   };
 
