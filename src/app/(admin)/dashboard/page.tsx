@@ -189,12 +189,26 @@ export default function DashboardPage() {
   };
 
   function printDashboardReport() {
-    const reportWindow = window.open(
-      "",
-      "_blank",
-      `popup=yes,width=${window.screen.availWidth},height=${window.screen.availHeight},left=0,top=0`,
-    );
-    if (!reportWindow) return;
+    const printFrame = document.createElement("iframe");
+    printFrame.setAttribute("aria-hidden", "true");
+    printFrame.title = "Dashboard performance report print preview";
+    printFrame.style.position = "fixed";
+    printFrame.style.left = "0";
+    printFrame.style.top = "0";
+    printFrame.style.width = "100vw";
+    printFrame.style.height = "100vh";
+    printFrame.style.border = "0";
+    printFrame.style.opacity = "0";
+    printFrame.style.pointerEvents = "none";
+    printFrame.style.zIndex = "-1";
+    document.body.appendChild(printFrame);
+
+    const printDocument = printFrame.contentDocument;
+    const printWindow = printFrame.contentWindow;
+    if (!printDocument || !printWindow) {
+      printFrame.remove();
+      return;
+    }
 
     const escapeHtml = (value: unknown) =>
       String(value ?? "")
@@ -251,7 +265,7 @@ export default function DashboardPage() {
             .join("")
         : `<tr><td colspan="3">No low-stock items.</td></tr>`;
 
-    reportWindow.document.write(`
+    printDocument.write(`
       <!doctype html>
       <html><head><title>Dashboard Performance Report - Apayao Pasalubong Center</title>
       <style>
@@ -325,9 +339,25 @@ export default function DashboardPage() {
         </tbody></table>
       </body></html>
     `);
-    reportWindow.document.close();
-    reportWindow.focus();
-    reportWindow.setTimeout(() => reportWindow.print(), 250);
+    printDocument.close();
+
+    let cleanupTimer: number | null = null;
+    const cleanupPrint = () => {
+      if (cleanupTimer !== null) window.clearTimeout(cleanupTimer);
+      printWindow.removeEventListener("afterprint", cleanupPrint);
+      printFrame.remove();
+    };
+
+    printWindow.addEventListener("afterprint", cleanupPrint, { once: true });
+    cleanupTimer = window.setTimeout(cleanupPrint, 120_000);
+    window.setTimeout(() => {
+      try {
+        printWindow.focus();
+        printWindow.print();
+      } catch {
+        cleanupPrint();
+      }
+    }, 250);
   }
 
   const outOfStockCount = stats.lowStock.filter((item) => item.stock <= 0).length;
