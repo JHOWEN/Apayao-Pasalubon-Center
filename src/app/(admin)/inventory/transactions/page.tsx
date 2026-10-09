@@ -696,7 +696,15 @@ export default function InventoryTransactionsPage() {
           )}
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1120px] table-fixed text-left text-sm">
+          {isLoading && (
+            <span className="sr-only" role="status">
+              Loading transactions ledger...
+            </span>
+          )}
+          <table
+            aria-busy={isLoading}
+            className="w-full min-w-[1120px] table-fixed text-left text-sm"
+          >
             <colgroup>
               <col className="w-12" />
               <col className="w-36" />
@@ -742,14 +750,44 @@ export default function InventoryTransactionsPage() {
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
               {isLoading ? (
-                <tr>
-                  <td
-                    colSpan={6}
-                    className="px-4 py-14 text-center text-slate-500"
-                  >
-                    Loading transactions ledger...
-                  </td>
-                </tr>
+                Array.from({ length: 6 }, (_, index) => (
+                  <tr key={`transaction-skeleton-${index}`} aria-hidden="true">
+                    <td className="px-3 py-4 align-top">
+                      <div className="h-4 w-4 animate-pulse rounded bg-slate-200 dark:bg-slate-700" />
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <div className="space-y-2 animate-pulse">
+                        <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+                        <div className="h-2.5 w-14 rounded bg-slate-100 dark:bg-slate-800" />
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <div className="space-y-2 animate-pulse">
+                        <div className="h-3 w-3/4 rounded bg-slate-200 dark:bg-slate-700" />
+                        <div className="h-2.5 w-1/2 rounded bg-slate-100 dark:bg-slate-800" />
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <div className="space-y-2 animate-pulse">
+                        <div className="h-5 w-16 rounded-full bg-slate-200 dark:bg-slate-700" />
+                        <div className="h-3 w-28 rounded bg-slate-200 dark:bg-slate-700" />
+                        <div className="h-2.5 w-36 rounded bg-slate-100 dark:bg-slate-800" />
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <div className="space-y-2 animate-pulse">
+                        <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
+                        <div className="h-2.5 w-14 rounded bg-slate-100 dark:bg-slate-800" />
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 align-top">
+                      <div className="space-y-2 animate-pulse">
+                        <div className="h-3 w-24 rounded bg-slate-200 dark:bg-slate-700" />
+                        <div className="h-2.5 w-40 rounded bg-slate-100 dark:bg-slate-800" />
+                      </div>
+                    </td>
+                  </tr>
+                ))
               ) : records.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-14 text-center">
