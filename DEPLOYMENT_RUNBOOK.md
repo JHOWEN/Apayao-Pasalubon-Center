@@ -23,7 +23,7 @@ Required for the current production app:
 | Variable                                             | Purpose                                                                                         |
 | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`                                       | Reachable PostgreSQL connection string for the selected environment.                            |
-| `NEXT_PUBLIC_APP_URL`                                | Canonical HTTPS origin, for example `https://shop.example.com`; used to construct email links.  |
+| `APP_URL`                                            | Server-only canonical HTTPS origin, for example `https://shop.example.com`; used to construct email links. |
 | `JWT_SECRET`                                         | Signs 10-minute access tokens. Use a unique random secret of at least 32 bytes.                 |
 | `ADMIN_ROUTE_KEY`                                    | Random URL-safe key of at least 32 bytes used to prefix admin pages and APIs. Keep server-only and consistent across instances. |
 | `EMAIL_VERIFICATION_SECRET`                          | Signs verification links; use a separate unique random secret.                                  |
@@ -55,7 +55,7 @@ Login stores only a hash of each rotating refresh token in PostgreSQL (7 days by
 
 ## 4. Configure email and verify links
 
-1. Set `NEXT_PUBLIC_APP_URL` to the final HTTPS domain before sending any production verification or reset email. The app intentionally builds links from this configured origin rather than the incoming request host.
+1. Set `APP_URL` to the final HTTPS domain before sending any production verification or reset email. The app intentionally builds links from this server-only configured origin rather than the incoming request host.
 2. For Resend, set `RESEND_API_KEY` and `RESEND_FROM` to an address on the verified sending domain. For SMTP, set the SMTP variables listed above. Restart local development after changing local variables.
 3. Register a test customer and confirm the verification email arrives and links back to the production origin. Verification links expire after 24 hours.
 4. Use **Forgot password** for that account. Confirm the reset email arrives and links to `/reset-password` on the production origin. Reset links expire after 30 minutes and are single-use.

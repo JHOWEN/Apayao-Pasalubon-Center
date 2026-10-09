@@ -13,7 +13,7 @@ DATABASE_URL="postgresql://user:password@localhost:5432/apc_inventory"
 # ===============================
 NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=your-super-secret-random-string-here
-NEXT_PUBLIC_APP_URL=https://your-canonical-app-domain.example
+APP_URL=https://your-canonical-app-domain.example
 JWT_SECRET=generate-a-unique-secret-with-at-least-32-random-bytes
 ADMIN_ROUTE_KEY=generate-a-unique-url-safe-key-with-at-least-32-random-bytes
 EMAIL_VERIFICATION_SECRET=generate-a-separate-unique-secret-with-at-least-32-random-bytes
@@ -82,7 +82,7 @@ OPERATIONAL_ALERT_WEBHOOK_URL=https://your-alert-webhook.example/endpoint
 CRON_SECRET=your-random-cron-secret
 ```
 
-Set `NEXT_PUBLIC_APP_URL` to the canonical HTTPS origin in production. Do not
+Set `APP_URL` to the canonical HTTPS origin in production. Do not
 derive email verification or password-reset links from request host headers.
 
 For the step-by-step production setup and verification checklist, see

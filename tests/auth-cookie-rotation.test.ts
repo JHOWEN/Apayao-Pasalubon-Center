@@ -83,10 +83,10 @@ test("admin portal role policy excludes customers", () => {
 });
 
 test("email verification and reset links use the canonical configured origin", () => {
-  const originalAppUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const originalAppUrl = process.env.APP_URL;
   const originalEmailSecret = process.env.EMAIL_VERIFICATION_SECRET;
   const originalResetSecret = process.env.PASSWORD_RESET_SECRET;
-  process.env.NEXT_PUBLIC_APP_URL = "https://apc.example.test/path";
+  process.env.APP_URL = "https://apc.example.test/path";
   process.env.EMAIL_VERIFICATION_SECRET = "email-test-secret";
   process.env.PASSWORD_RESET_SECRET = "reset-test-secret";
 
@@ -100,8 +100,8 @@ test("email verification and reset links use the canonical configured origin", (
     assert.match(buildEmailVerificationUrl("person@example.test", emailToken), /^https:\/\/apc\.example\.test\//);
     assert.match(buildPasswordResetUrl("person@example.test", resetToken), /^https:\/\/apc\.example\.test\//);
   } finally {
-    if (originalAppUrl === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
-    else process.env.NEXT_PUBLIC_APP_URL = originalAppUrl;
+    if (originalAppUrl === undefined) delete process.env.APP_URL;
+    else process.env.APP_URL = originalAppUrl;
     if (originalEmailSecret === undefined) delete process.env.EMAIL_VERIFICATION_SECRET;
     else process.env.EMAIL_VERIFICATION_SECRET = originalEmailSecret;
     if (originalResetSecret === undefined) delete process.env.PASSWORD_RESET_SECRET;

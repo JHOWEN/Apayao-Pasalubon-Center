@@ -60,7 +60,7 @@ JWT signing now fails closed without `JWT_SECRET` in production and explicitly u
 
 Location: `src/app/api/auth/forgot-password/route.ts`.
 
-The reset endpoint constructed email links from `Host`/`X-Forwarded-Host`, allowing a forged request to redirect a reset email to an attacker-controlled domain. Auth links now use the configured `NEXT_PUBLIC_APP_URL`; production requires a canonical HTTPS origin.
+The reset endpoint constructed email links from `Host`/`X-Forwarded-Host`, allowing a forged request to redirect a reset email to an attacker-controlled domain. Auth links now use the server-only configured `APP_URL`; production requires a canonical HTTPS origin.
 
 ### Medium: HMAC signature verification used ordinary string comparison (fixed)
 
