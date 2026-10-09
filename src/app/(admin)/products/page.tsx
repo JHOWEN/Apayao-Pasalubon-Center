@@ -74,8 +74,79 @@ async function parseJsonResponse(response: Response) {
 type ProductStatus = "DRAFT" | "PUBLISHED" | "UNPUBLISHED";
 type ModalTab = "details" | "media" | "variants";
 
+function ProductCatalogSkeleton({ view }: { view: "grid" | "list" }) {
+  const blockClass = "animate-pulse rounded bg-slate-200 dark:bg-slate-700";
+
+  return (
+    <div role="status" aria-label="Loading products" aria-busy="true">
+      <span className="sr-only">Loading products…</span>
+      {view === "list" ? (
+        <div aria-hidden="true" className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
+              <thead className="border-b border-slate-200 bg-slate-50/75 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
+                <tr>
+                  <th className="py-3 pl-4 pr-3">Product</th>
+                  <th className="px-3 py-3">Status</th>
+                  <th className="px-3 py-3">Price</th>
+                  <th className="px-3 py-3">Inventory</th>
+                  <th className="px-3 py-3">Variants</th>
+                  <th className="px-3 py-3">Media</th>
+                  <th className="py-3 pl-3 pr-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {Array.from({ length: 6 }, (_, index) => (
+                  <tr key={`product-row-skeleton-${index}`}>
+                    <td className="py-3 pl-4 pr-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`${blockClass} h-11 w-11 shrink-0`} />
+                        <div className="space-y-2">
+                          <div className={`${blockClass} h-3 w-36`} />
+                          <div className={`${blockClass} h-2.5 w-24 opacity-60`} />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3"><div className={`${blockClass} h-5 w-20`} /></td>
+                    <td className="px-3 py-3"><div className={`${blockClass} h-3 w-16`} /></td>
+                    <td className="px-3 py-3"><div className={`${blockClass} h-3 w-24`} /></td>
+                    <td className="px-3 py-3"><div className={`${blockClass} h-5 w-20`} /></td>
+                    <td className="px-3 py-3"><div className={`${blockClass} h-3 w-14`} /></td>
+                    <td className="py-3 pl-3 pr-4"><div className={`${blockClass} ml-auto h-7 w-24`} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        <div aria-hidden="true" className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 8 }, (_, index) => (
+            <div key={`product-card-skeleton-${index}`} className="animate-pulse overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
+              <div className="aspect-square w-full bg-slate-200 dark:bg-slate-800" />
+              <div className="space-y-3 p-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <div className={`${blockClass} h-4 w-3/5`} />
+                  <div className={`${blockClass} h-5 w-14 rounded-full`} />
+                </div>
+                <div className={`${blockClass} h-3 w-2/5 opacity-60`} />
+                <div className="flex items-center justify-between border-t border-slate-100 pt-3 dark:border-slate-800">
+                  <div className={`${blockClass} h-4 w-20`} />
+                  <div className={`${blockClass} h-3 w-16 opacity-60`} />
+                </div>
+                <div className={`${blockClass} h-8 w-full`} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<ProductRecord[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [status, setStatus] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [descriptionDrafts, setDescriptionDrafts] = useState<Record<string, string>>({});
@@ -207,26 +278,33 @@ export default function ProductsPage() {
   }
 
   async function loadData() {
-    const productsResponse = await fetch("/api/admin/products", { credentials: "same-origin" });
-    const productData = await parseJsonResponse(productsResponse);
+    try {
+      const productsResponse = await fetch("/api/admin/products", { credentials: "same-origin" });
+      const productData = await parseJsonResponse(productsResponse);
 
-    if (!productsResponse.ok) {
-      setProducts([]);
-      setStatus(productData?.message ?? "Unable to load products.");
-      return;
-    }
+      if (!productsResponse.ok) {
+        setProducts([]);
+        setStatus(productData?.message ?? "Unable to load products.");
+        return;
+      }
 
-    const normalizedProducts = Array.isArray(productData) ? productData : [];
-    setProducts(normalizedProducts);
-    setDescriptionDrafts((previousDrafts) => {
-      const nextDrafts: Record<string, string> = {};
+      const normalizedProducts = Array.isArray(productData) ? productData : [];
+      setProducts(normalizedProducts);
+      setDescriptionDrafts((previousDrafts) => {
+        const nextDrafts: Record<string, string> = {};
 
-      normalizedProducts.forEach((product: ProductRecord) => {
-        nextDrafts[product.id] = previousDrafts[product.id] ?? product.description ?? "";
+        normalizedProducts.forEach((product: ProductRecord) => {
+          nextDrafts[product.id] = previousDrafts[product.id] ?? product.description ?? "";
+        });
+
+        return nextDrafts;
       });
-
-      return nextDrafts;
-    });
+    } catch {
+      setProducts([]);
+      setStatus("Unable to load products.");
+    } finally {
+      setIsLoadingProducts(false);
+    }
   }
 
   useEffect(() => {
@@ -443,7 +521,7 @@ export default function ProductsPage() {
               Product Management
             </h1>
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              {products.length} {products.length === 1 ? "product" : "products"}
+              {isLoadingProducts ? "Loading products…" : `${products.length} ${products.length === 1 ? "product" : "products"}`}
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -561,7 +639,9 @@ export default function ProductsPage() {
       </div>
 
       {/* Catalog Display */}
-      {filteredProducts.length === 0 ? (
+      {isLoadingProducts ? (
+        <ProductCatalogSkeleton view={productView} />
+      ) : filteredProducts.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-200 bg-white p-12 text-center dark:border-slate-800 dark:bg-slate-900">
           <PackageOpen className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-600" />
           <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-white">

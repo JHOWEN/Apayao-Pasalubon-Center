@@ -29,6 +29,7 @@ type Category = {
 
 export default function CategoriesPage() {
   const [categories, setCategories] = useState<Category[]>([]);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true);
   const [form, setForm] = useState({ id: "", name: "", description: "" });
   const [status, setStatus] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -68,6 +69,7 @@ export default function CategoriesPage() {
         setStatus({ text: "Unable to refresh categories.", type: "error" });
       }
     } finally {
+      setIsLoadingCategories(false);
       if (isManualRefresh) setIsRefreshing(false);
     }
   }
@@ -220,7 +222,7 @@ export default function CategoriesPage() {
               Category Management
             </h1>
             <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              {categories.length} {categories.length === 1 ? "category" : "categories"}
+              {isLoadingCategories ? "Loading categories…" : `${categories.length} ${categories.length === 1 ? "category" : "categories"}`}
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
@@ -258,7 +260,7 @@ export default function CategoriesPage() {
                   Categories Directory
                 </h2>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {filteredCategories.length} of {categories.length} displayed
+                  {isLoadingCategories ? "Loading categories…" : `${filteredCategories.length} of ${categories.length} displayed`}
                 </p>
               </div>
 
@@ -286,8 +288,31 @@ export default function CategoriesPage() {
           </div>
 
           {/* Categories List Items */}
-          <div className="p-3">
-            {categories.length === 0 ? (
+          <div className="p-3" aria-busy={isLoadingCategories}>
+            {isLoadingCategories ? (
+              <div role="status" aria-label="Loading categories" className="space-y-2">
+                <span className="sr-only">Loading categories…</span>
+                {Array.from({ length: 5 }, (_, index) => (
+                  <div
+                    key={`category-skeleton-${index}`}
+                    aria-hidden="true"
+                    className="flex animate-pulse items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900"
+                  >
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <div className="h-9 w-9 shrink-0 rounded-lg bg-slate-200 dark:bg-slate-700" />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="h-3 w-2/5 rounded bg-slate-200 dark:bg-slate-700" />
+                        <div className="h-2.5 w-3/4 rounded bg-slate-100 dark:bg-slate-800" />
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <div className="h-7 w-14 rounded-md bg-slate-200 dark:bg-slate-700" />
+                      <div className="h-7 w-7 rounded-md bg-slate-200 dark:bg-slate-700" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : categories.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 p-10 text-center dark:border-slate-800">
                 <FolderOpen className="mx-auto h-9 w-9 text-slate-300 dark:text-slate-600" />
                 <h3 className="mt-2 text-xs font-bold text-slate-900 dark:text-white">
