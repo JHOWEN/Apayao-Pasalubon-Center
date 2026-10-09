@@ -278,7 +278,11 @@ export default function DashboardPage() {
         th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
         th { background: #f1f5f9; font-size: 11px; text-transform: uppercase; font-weight: 600; color: #475569; }
         td:nth-child(n+2), th:nth-child(n+2) { text-align: right; }
-        @media print { .report-header, .summary, thead, tr { break-inside: avoid; } }
+        @media screen { body { visibility: hidden; } }
+        @media print {
+          body { visibility: visible; }
+          .report-header, .summary, thead, tr { break-inside: avoid; }
+        }
       </style></head><body>
         <header class="report-header">
           <div class="brand-lockup">

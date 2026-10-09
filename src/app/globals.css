@@ -197,7 +197,7 @@ textarea:focus-visible {
   }
 
   .storefront-shell .storefront-home .product-skeleton {
-    background: linear-gradient(90deg, #e8ebe5 0%, #f7f8f5 50%, #e8ebe5 100%) !important;
+    background-image: linear-gradient(90deg, #e8ebe5 0%, #f7f8f5 50%, #e8ebe5 100%) !important;
   }
 
   .storefront-shell .storefront-home .storefront-how-to > div > div,
@@ -463,7 +463,7 @@ textarea:focus-visible {
   }
 
   .storefront-shell[data-theme="dark"] .storefront-home .product-skeleton {
-    background: linear-gradient(90deg, #2a332b 0%, #364137 50%, #2a332b 100%) !important;
+    background-image: linear-gradient(90deg, #2a332b 0%, #364137 50%, #2a332b 100%) !important;
   }
 
   .storefront-shell[data-theme="dark"] .storefront-home .storefront-status-badge[class*="bg-emerald"] {
