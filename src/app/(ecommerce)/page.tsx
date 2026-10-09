@@ -407,6 +407,8 @@ function EcommerceHomeContent() {
   }
 
   const activeCategory = categories.find((c) => c.id === categoryQuery);
+  const storeMapQuery = "Apayao Pasalubong Center, San Isidro Sur, Luna, Apayao, Philippines";
+  const storeDirectionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(storeMapQuery)}`;
   const visibleProducts = useMemo(() => {
     if (sortBy === "featured") return products;
 
@@ -906,23 +908,28 @@ function EcommerceHomeContent() {
 
             {/* Google Maps Embed */}
             <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#181b24] shadow-md">
-              <div className="flex items-center gap-2 border-b border-white/10 px-4 py-3 text-xs font-semibold text-slate-300">
-                <MapPin className="h-4 w-4 text-[#ff8a1e]" />
-                <span>Store Location Map</span>
-              </div>
-              {storeInfo.businessAddress ? (
-                <iframe
-                  title={`${storeInfo.registeredBusinessName} location`}
-                  src={`https://www.google.com/maps?q=${encodeURIComponent(storeInfo.businessAddress)}&z=14&output=embed`}
-                  className="h-72 w-full border-0 sm:h-80"
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                />
-              ) : (
-                <div className="flex h-72 items-center justify-center px-6 text-center text-sm text-slate-400 sm:h-80">
-                  Store location has not been added yet.
+              <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3 text-xs font-semibold text-slate-300">
+                <div className="flex min-w-0 items-center gap-2">
+                  <MapPin className="h-4 w-4 shrink-0 text-[#ff8a1e]" />
+                  <span className="truncate">{storeInfo.registeredBusinessName}</span>
                 </div>
-              )}
+                <a
+                  href={storeDirectionsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-bold text-[#ffb36f] transition hover:border-[#ff8a1e]/40 hover:bg-[#ff8a1e]/10"
+                >
+                  Get directions
+                  <ArrowRight className="h-3 w-3" />
+                </a>
+              </div>
+              <iframe
+                title={`${storeInfo.registeredBusinessName} location`}
+                src={`https://www.google.com/maps?q=${encodeURIComponent(storeMapQuery)}&z=17&output=embed`}
+                className="h-72 w-full border-0 sm:h-80"
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              />
             </div>
             {storeInfo.storeHours && (
               <div className="pt-1 text-sm text-slate-200 lg:col-start-2">
