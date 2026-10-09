@@ -88,6 +88,10 @@ derive email verification or password-reset links from request host headers.
 For the step-by-step production setup and verification checklist, see
 [`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md).
 
+`PASSWORD_RESET_SECRET` should be set to its own random value. If it is missing,
+password-reset tokens use a reset-specific key derived from
+`EMAIL_VERIFICATION_SECRET` or, as a final fallback, `JWT_SECRET`.
+
 The optional seed scripts are development-only and require `SEED_ADMIN_EMAIL`,
 `SEED_ADMIN_PASSWORD`, `SEED_CUSTOMER_EMAIL`, and `SEED_CUSTOMER_PASSWORD`.
 

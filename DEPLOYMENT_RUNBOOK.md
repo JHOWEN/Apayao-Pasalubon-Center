@@ -27,7 +27,7 @@ Required for the current production app:
 | `JWT_SECRET`                                         | Signs 10-minute access tokens. Use a unique random secret of at least 32 bytes.                 |
 | `ADMIN_ROUTE_KEY`                                    | Random URL-safe key of at least 32 bytes used to prefix admin pages and APIs. Keep server-only and consistent across instances. |
 | `EMAIL_VERIFICATION_SECRET`                          | Signs verification links; use a separate unique random secret.                                  |
-| `PASSWORD_RESET_SECRET`                              | Signs password-reset links; use a separate unique random secret.                                |
+| `PASSWORD_RESET_SECRET`                              | Recommended dedicated key for password-reset links. If unset, the app derives a reset-only key from `EMAIL_VERIFICATION_SECRET` or `JWT_SECRET`. |
 | `SUPABASE_URL`                                       | Supabase project URL used by the Storage adapter.                                               |
 | `SUPABASE_SERVICE_ROLE_KEY`                          | Server-only Storage credential. Never expose it to browser code or use a `NEXT_PUBLIC_` prefix. |
 | `SUPABASE_PRODUCT_BUCKET`                            | Usually `product-images`.                                                                       |

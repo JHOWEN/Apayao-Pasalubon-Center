@@ -4,12 +4,25 @@ import { getAppBaseUrl } from "@/lib/app-url";
 function getResetSecret() {
   const configuredSecret = process.env.PASSWORD_RESET_SECRET?.trim();
   if (configuredSecret) return configuredSecret;
+
+  const fallbackMasterSecret =
+    process.env.EMAIL_VERIFICATION_SECRET?.trim() || process.env.JWT_SECRET?.trim();
+  if (fallbackMasterSecret) {
+    return createHmac("sha256", fallbackMasterSecret)
+      .update("apc:password-reset:v1")
+      .digest("hex");
+  }
+
   return process.env.NODE_ENV === "production" ? null : "dev-password-reset-secret";
 }
 
 export function createPasswordResetToken(email: string) {
   const secret = getResetSecret();
-  if (!secret) throw new Error("PASSWORD_RESET_SECRET must be configured in production.");
+  if (!secret) {
+    throw new Error(
+      "Configure PASSWORD_RESET_SECRET, EMAIL_VERIFICATION_SECRET, or JWT_SECRET in production.",
+    );
+  }
 
   const randomPart = randomBytes(16).toString("hex");
   const payload = `${email.toLowerCase()}:${randomPart}`;
