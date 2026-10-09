@@ -80,9 +80,10 @@ test("auth backoff doubles by failure and is capped by policy", () => {
     backoffMaxMs: 4_000,
   };
 
-  assert.equal(calculateAuthBackoffMs(3, policy), 1_000);
-  assert.equal(calculateAuthBackoffMs(4, policy), 2_000);
-  assert.equal(calculateAuthBackoffMs(5, policy), 4_000);
+  assert.equal(calculateAuthBackoffMs(3, policy), 0);
+  assert.equal(calculateAuthBackoffMs(4, policy), 1_000);
+  assert.equal(calculateAuthBackoffMs(5, policy), 2_000);
+  assert.equal(calculateAuthBackoffMs(6, policy), 4_000);
   assert.equal(calculateAuthBackoffMs(20, policy), 4_000);
 });
 

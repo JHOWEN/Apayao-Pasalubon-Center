@@ -18,10 +18,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Please provide a valid email address." }, { status: 400 });
     }
 
-    const rateLimitResponse = await enforceRateLimit(request, "auth:forgot-password", {
+    const rateLimitResponse = await enforceRateLimit(request, "auth:forgot-password:v2", {
       group: "auth",
       email,
-      message: "Too many password reset requests. Please try again in a few minutes.",
+      message: "Too many password reset requests. Please try again in {retryAfter}.",
     });
 
     if (rateLimitResponse) {

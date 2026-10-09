@@ -225,9 +225,6 @@ export default function ForgotPasswordPage() {
                   <p className="mt-1 whitespace-pre-line text-xs leading-relaxed text-slate-700">
                     {feedback.message}
                   </p>
-                  <p className="mt-1.5 text-[11px] text-slate-600">
-                    Check the email address and try again.
-                  </p>
                 </div>
               </motion.div>
             ) : null}

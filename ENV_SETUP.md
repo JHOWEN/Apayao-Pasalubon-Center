@@ -57,7 +57,7 @@ SUPABASE_RECEIPT_BUCKET=payment-proofs
 UPSTASH_REDIS_REST_URL=https://your-region.upstash.io
 UPSTASH_REDIS_REST_TOKEN=your-server-only-upstash-token
 
-# Optional policy overrides (defaults: auth 3/15m, public 300/1m,
+# Optional policy overrides (defaults allow auth 3/15m, public 300/1m,
 # authenticated user 120/1m, admin 180/1m).
 RATE_LIMIT_AUTH_MAX_REQUESTS=5
 RATE_LIMIT_AUTH_WINDOW_MS=900000
