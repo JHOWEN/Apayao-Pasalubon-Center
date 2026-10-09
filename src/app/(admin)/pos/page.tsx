@@ -81,6 +81,7 @@ const defaultReceiptHeader = {
 
 export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({});
   const [selectedVariantIds, setSelectedVariantIds] = useState<Record<string, string>>({});
@@ -139,6 +140,8 @@ export default function POSPage() {
         setProducts(Array.isArray(data) ? data : []);
       } catch {
         // Retain empty list on error
+      } finally {
+        setIsLoadingProducts(false);
       }
     }
 
@@ -1015,7 +1018,7 @@ export default function POSPage() {
             <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
               <h2 className="text-base font-semibold text-slate-950 dark:text-white">Product catalog</h2>
               <span className="font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
-                {filteredProducts.length} items
+                {isLoadingProducts ? "Loading…" : `${filteredProducts.length} items`}
               </span>
             </div>
             {/* Catalog Controls (Search, View Toggle, Item Counter) */}
@@ -1073,11 +1076,55 @@ export default function POSPage() {
 
             {/* Scrollable Product List / Grid */}
             <div
+              aria-busy={isLoadingProducts}
               className={`max-h-[min(68vh,760px)] overflow-y-auto pr-1 ${
                 productView === "list" ? "space-y-2" : "grid gap-3 md:grid-cols-2"
               }`}
             >
-              {filteredProducts.length > 0 ? (
+              {isLoadingProducts ? (
+                <div
+                  role="status"
+                  aria-label="Loading products"
+                  className={productView === "list" ? "space-y-2" : "col-span-full grid gap-3 md:grid-cols-2"}
+                >
+                  <span className="sr-only">Loading products…</span>
+                  {Array.from({ length: productView === "list" ? 6 : 4 }, (_, index) =>
+                    productView === "list" ? (
+                      <div
+                        key={`pos-product-skeleton-${index}`}
+                        aria-hidden="true"
+                        className="flex animate-pulse items-center justify-between gap-3 border-b border-slate-200 px-1 py-3 first:border-t dark:border-slate-800"
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="h-10 w-10 shrink-0 rounded-md bg-slate-200 dark:bg-slate-700" />
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <div className="h-3 w-2/3 rounded bg-slate-200 dark:bg-slate-700" />
+                            <div className="h-2.5 w-1/2 rounded bg-slate-100 dark:bg-slate-800" />
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <div className="h-3 w-16 rounded bg-slate-200 dark:bg-slate-700" />
+                          <div className="h-8 w-8 rounded-md bg-slate-200 dark:bg-slate-700" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        key={`pos-product-skeleton-${index}`}
+                        aria-hidden="true"
+                        className="animate-pulse rounded-md border border-slate-200 p-3 dark:border-slate-800"
+                      >
+                        <div className="mb-2.5 h-32 w-full rounded-md bg-slate-200 dark:bg-slate-700" />
+                        <div className="h-3 w-3/4 rounded bg-slate-200 dark:bg-slate-700" />
+                        <div className="mt-2 h-2.5 w-1/2 rounded bg-slate-100 dark:bg-slate-800" />
+                        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-2.5 dark:border-slate-800">
+                          <div className="h-4 w-16 rounded bg-slate-200 dark:bg-slate-700" />
+                          <div className="h-8 w-8 rounded-md bg-slate-200 dark:bg-slate-700" />
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              ) : filteredProducts.length > 0 ? (
                 filteredProducts.map((product) => {
                   const selectedVariant = getSelectedVariant(product);
                   const variantOptions = product.variants ?? [];
