@@ -38,6 +38,10 @@ type SettingsState = {
   appName?: string;
   registeredBusinessName?: string | null;
   businessAddress?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  facebookUrl?: string | null;
+  storeHours?: string | null;
   tinNumber?: string | null;
   currency?: string;
   gcashAccountName?: string | null;
@@ -73,6 +77,10 @@ export default function AdminSettingsPage() {
     appName: "APC Inventory",
     registeredBusinessName: "APAYAO PASALUBONG CENTER",
     businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+    contactEmail: "info@apayao-pasalubong.com",
+    contactPhone: "0917 123 4567",
+    facebookUrl: "https://www.facebook.com/apayaopasalubong",
+    storeHours: "Open daily, 7:00 AM - 8:30 PM.",
     tinNumber: "",
     currency: "PHP",
     gcashAccountName: "",
@@ -148,6 +156,10 @@ export default function AdminSettingsPage() {
           appName: "APC Inventory",
           registeredBusinessName: "APAYAO PASALUBONG CENTER",
           businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+          contactEmail: "info@apayao-pasalubong.com",
+          contactPhone: "0917 123 4567",
+          facebookUrl: "https://www.facebook.com/apayaopasalubong",
+          storeHours: "Open daily, 7:00 AM - 8:30 PM.",
           tinNumber: "",
           currency: "PHP",
           ...data?.settings,
@@ -859,7 +871,7 @@ export default function AdminSettingsPage() {
               Store Setup
             </h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Configure store identity.
+              Configure the storefront contact details shown in Ecommerce Info. The store address is also used on POS receipts.
             </p>
           </div>
 
@@ -899,7 +911,89 @@ export default function AdminSettingsPage() {
               />
             </div>
 
+            <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                Ecommerce Contact Information
+              </h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Leave a field blank to hide that contact method from customers.
+              </p>
+            </div>
 
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="store-contact-email" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Contact Email
+                </label>
+                <input
+                  id="store-contact-email"
+                  type="email"
+                  maxLength={160}
+                  value={settingsForm.contactEmail ?? ""}
+                  onChange={(e) => setSettingsForm((curr) => ({ ...curr, contactEmail: e.target.value }))}
+                  placeholder="store@example.com"
+                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                />
+              </div>
+              <div>
+                <label htmlFor="store-contact-phone" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Contact Phone
+                </label>
+                <input
+                  id="store-contact-phone"
+                  type="tel"
+                  maxLength={40}
+                  value={settingsForm.contactPhone ?? ""}
+                  onChange={(e) => setSettingsForm((curr) => ({ ...curr, contactPhone: e.target.value }))}
+                  placeholder="0917 123 4567"
+                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="store-facebook-url" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Facebook Page URL
+              </label>
+              <input
+                id="store-facebook-url"
+                type="url"
+                maxLength={240}
+                value={settingsForm.facebookUrl ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, facebookUrl: e.target.value }))}
+                placeholder="https://www.facebook.com/yourpage"
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="store-business-address" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Store Address
+              </label>
+              <textarea
+                id="store-business-address"
+                maxLength={240}
+                rows={2}
+                value={settingsForm.businessAddress ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, businessAddress: e.target.value }))}
+                placeholder="Street, barangay, municipality, province"
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="store-hours" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Store Hours
+              </label>
+              <input
+                id="store-hours"
+                maxLength={120}
+                value={settingsForm.storeHours ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, storeHours: e.target.value }))}
+                placeholder="Open daily, 7:00 AM - 8:30 PM"
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
 
             <div className="flex justify-end pt-2">
               <button
@@ -927,7 +1021,7 @@ export default function AdminSettingsPage() {
           <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">POS Receipt Header</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              These business details appear at the top of browser and USB thermal receipts.
+              The registered business name appears on the storefront and at the top of browser and USB thermal receipts.
             </p>
           </div>
 
@@ -943,21 +1037,6 @@ export default function AdminSettingsPage() {
                 onChange={(e) => setSettingsForm((curr) => ({ ...curr, registeredBusinessName: e.target.value }))}
                 placeholder="Enter the registered business name"
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="receipt-business-address" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Business Address
-              </label>
-              <textarea
-                id="receipt-business-address"
-                maxLength={240}
-                rows={3}
-                value={settingsForm.businessAddress ?? ""}
-                onChange={(e) => setSettingsForm((curr) => ({ ...curr, businessAddress: e.target.value }))}
-                placeholder="Street, barangay, municipality, province"
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
 

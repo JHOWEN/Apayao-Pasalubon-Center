@@ -313,6 +313,10 @@ model AppSetting {
   appName                String   @default("APC Inventory")
   registeredBusinessName String?
   businessAddress        String?
+  contactEmail           String?  @default("info@apayao-pasalubong.com")
+  contactPhone           String?  @default("0917 123 4567")
+  facebookUrl            String?  @default("https://www.facebook.com/apayaopasalubong")
+  storeHours             String?  @default("Open daily, 7:00 AM - 8:30 PM.")
   tinNumber              String?
   currency               String   @default("PHP")
   gcashAccountName       String?

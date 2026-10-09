@@ -5,6 +5,15 @@ import { prisma } from "@/lib/prisma";
 import { getUserForToken } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
+function isHttpUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 async function ensureAuthenticatedAdmin() {
   const cookieStore = await cookies();
   const token = cookieStore.get("token")?.value;
@@ -63,6 +72,10 @@ export async function GET(request: Request) {
         appName: settings.appName,
         registeredBusinessName: settings.registeredBusinessName ?? "APAYAO PASALUBONG CENTER",
         businessAddress: settings.businessAddress ?? "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+        contactEmail: settings.contactEmail,
+        contactPhone: settings.contactPhone,
+        facebookUrl: settings.facebookUrl,
+        storeHours: settings.storeHours,
         tinNumber: settings.tinNumber ?? "",
         currency: settings.currency,
         gcashAccountName: settings.gcashAccountName,
@@ -88,6 +101,25 @@ export async function PUT(request: Request) {
     if (rateLimitResponse) return rateLimitResponse;
 
     const body = await request.json();
+    const contactEmail = typeof body.contactEmail === "string" ? body.contactEmail.trim() : null;
+    const facebookUrl = typeof body.facebookUrl === "string" ? body.facebookUrl.trim() : null;
+
+    if (contactEmail && (contactEmail.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail))) {
+      return NextResponse.json({ success: false, message: "Enter a valid storefront contact email." }, { status: 400 });
+    }
+
+    if (facebookUrl && (facebookUrl.length > 240 || !isHttpUrl(facebookUrl))) {
+      return NextResponse.json({ success: false, message: "Enter a valid Facebook page URL starting with http:// or https://." }, { status: 400 });
+    }
+
+    if (typeof body.contactPhone === "string" && body.contactPhone.trim().length > 40) {
+      return NextResponse.json({ success: false, message: "The storefront phone number must be 40 characters or fewer." }, { status: 400 });
+    }
+
+    if (typeof body.storeHours === "string" && body.storeHours.trim().length > 120) {
+      return NextResponse.json({ success: false, message: "Store hours must be 120 characters or fewer." }, { status: 400 });
+    }
+
     const settings = await getOrCreateSettings();
 
     const nextSettings = await prisma.appSetting.update({
@@ -96,6 +128,10 @@ export async function PUT(request: Request) {
         appName: typeof body.appName === "string" ? body.appName.trim() : settings.appName,
         registeredBusinessName: typeof body.registeredBusinessName === "string" ? body.registeredBusinessName.trim().slice(0, 120) || null : settings.registeredBusinessName,
         businessAddress: typeof body.businessAddress === "string" ? body.businessAddress.trim().slice(0, 240) || null : settings.businessAddress,
+        contactEmail: typeof body.contactEmail === "string" ? contactEmail || null : settings.contactEmail,
+        contactPhone: typeof body.contactPhone === "string" ? body.contactPhone.trim().slice(0, 40) || null : settings.contactPhone,
+        facebookUrl: typeof body.facebookUrl === "string" ? facebookUrl || null : settings.facebookUrl,
+        storeHours: typeof body.storeHours === "string" ? body.storeHours.trim().slice(0, 120) || null : settings.storeHours,
         tinNumber: typeof body.tinNumber === "string" ? body.tinNumber.trim().slice(0, 40) || null : settings.tinNumber,
         currency: typeof body.currency === "string" ? body.currency.trim().toUpperCase() : settings.currency,
         gcashAccountName: typeof body.gcashAccountName === "string" ? body.gcashAccountName.trim() || null : settings.gcashAccountName,
@@ -115,6 +151,10 @@ export async function PUT(request: Request) {
         appName: nextSettings.appName,
         registeredBusinessName: nextSettings.registeredBusinessName,
         businessAddress: nextSettings.businessAddress,
+        contactEmail: nextSettings.contactEmail,
+        contactPhone: nextSettings.contactPhone,
+        facebookUrl: nextSettings.facebookUrl,
+        storeHours: nextSettings.storeHours,
         tinNumber: nextSettings.tinNumber,
         currency: nextSettings.currency,
         gcashAccountName: nextSettings.gcashAccountName,

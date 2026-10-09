@@ -91,6 +91,24 @@ type CategoryItem = {
   name: string;
 };
 
+type StoreContactSettings = {
+  registeredBusinessName: string;
+  businessAddress: string;
+  contactEmail: string;
+  contactPhone: string;
+  facebookUrl: string;
+  storeHours: string;
+};
+
+const defaultStoreContactSettings: StoreContactSettings = {
+  registeredBusinessName: "APAYAO PASALUBONG CENTER",
+  businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+  contactEmail: "info@apayao-pasalubong.com",
+  contactPhone: "0917 123 4567",
+  facebookUrl: "https://www.facebook.com/apayaopasalubong",
+  storeHours: "Open daily, 7:00 AM - 8:30 PM.",
+};
+
 function ProductGridSkeleton({ count, label }: { count: number; label: string }) {
   return (
     <div role="status" aria-label={label} className="space-y-2">
@@ -144,9 +162,44 @@ function EcommerceHomeContent() {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
   const [sortBy, setSortBy] = useState<"featured" | "popular" | "rating" | "price-low" | "price-high">("featured");
+  const [storeInfo, setStoreInfo] = useState<StoreContactSettings>(defaultStoreContactSettings);
   const searchQuery = searchParams.get("search")?.trim() ?? "";
   const categoryQuery = searchParams.get("category")?.trim() ?? "";
   const isTimeoutError = (catalogError ?? "").toLowerCase().includes("timed out");
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadStoreInfo() {
+      try {
+        const response = await fetch("/api/public/settings", { cache: "no-store" });
+        const data = await response.json();
+        const settings = data?.settings;
+
+        if (!response.ok || !settings || !isMounted) return;
+
+        setStoreInfo({
+          registeredBusinessName: typeof settings.registeredBusinessName === "string"
+            ? settings.registeredBusinessName
+            : defaultStoreContactSettings.registeredBusinessName,
+          businessAddress: typeof settings.businessAddress === "string"
+            ? settings.businessAddress
+            : "",
+          contactEmail: typeof settings.contactEmail === "string" ? settings.contactEmail : "",
+          contactPhone: typeof settings.contactPhone === "string" ? settings.contactPhone : "",
+          facebookUrl: typeof settings.facebookUrl === "string" ? settings.facebookUrl : "",
+          storeHours: typeof settings.storeHours === "string" ? settings.storeHours : "",
+        });
+      } catch {
+        // Keep the familiar contact details visible if the public settings request fails.
+      }
+    }
+
+    void loadStoreInfo();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     async function loadProducts() {
@@ -786,59 +839,69 @@ function EcommerceHomeContent() {
           <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_1.1fr] items-start">
             {/* Contact Channels */}
             <div className="space-y-3">
-              <a
-                href="mailto:info@apayao-pasalubong.com"
-                className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-[#181b24]/60 p-4 transition hover:border-white/20 hover:bg-[#181b24]"
-              >
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-orange-400/20 bg-orange-500/10 text-orange-300">
-                  <Mail className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Email Inquiries</div>
-                  <div className="text-sm font-semibold text-white group-hover:text-[#ffb36f] transition-colors">
-                    info@apayao-pasalubong.com
+              {storeInfo.contactEmail && (
+                <a
+                  href={`mailto:${storeInfo.contactEmail}`}
+                  className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-[#181b24]/60 p-4 transition hover:border-white/20 hover:bg-[#181b24]"
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-orange-400/20 bg-orange-500/10 text-orange-300">
+                    <Mail className="h-5 w-5" />
                   </div>
-                </div>
-              </a>
-
-              <a
-                href="https://www.facebook.com/apayaopasalubong"
-                target="_blank"
-                rel="noreferrer"
-                className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-[#181b24]/60 p-4 transition hover:border-white/20 hover:bg-[#181b24]"
-              >
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-blue-400/20 bg-blue-500/10 text-blue-300">
-                  <Globe className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Official Facebook</div>
-                  <div className="text-sm font-semibold text-white group-hover:text-blue-300 transition-colors">
-                    @apayaopasalubong
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Email Inquiries</div>
+                    <div className="break-all text-sm font-semibold text-white transition-colors group-hover:text-[#ffb36f]">
+                      {storeInfo.contactEmail}
+                    </div>
                   </div>
-                </div>
-              </a>
+                </a>
+              )}
 
-              <a
-                href="tel:+639171234567"
-                className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-[#181b24]/60 p-4 transition hover:border-white/20 hover:bg-[#181b24]"
-              >
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-500/10 text-emerald-300">
-                  <Phone className="h-5 w-5" />
-                </div>
-                <div>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Phone Hotline</div>
-                  <div className="text-sm font-semibold text-white group-hover:text-emerald-300 transition-colors">
-                    0917 123 4567
+              {storeInfo.facebookUrl && (
+                <a
+                  href={storeInfo.facebookUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-[#181b24]/60 p-4 transition hover:border-white/20 hover:bg-[#181b24]"
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-blue-400/20 bg-blue-500/10 text-blue-300">
+                    <Globe className="h-5 w-5" />
                   </div>
-                </div>
-              </a>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Official Facebook</div>
+                    <div className="text-sm font-semibold text-white transition-colors group-hover:text-blue-300">
+                      Visit our Facebook page
+                    </div>
+                  </div>
+                </a>
+              )}
 
-              <div className="flex items-start gap-3 rounded-2xl border border-white/5 bg-white/2 p-4 text-xs text-slate-400">
-                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#ff8a1e]" />
-                <p>
-                  Apayao Pasalubong Center, San Isidro Sur, Luna, Apayao. Visit our shop during standard operating hours for reservation collections and product availability inquiries.
-                </p>
-              </div>
+              {storeInfo.contactPhone && (
+                <a
+                  href={`tel:${storeInfo.contactPhone.replace(/[^\d+]/g, "")}`}
+                  className="group flex items-center gap-4 rounded-2xl border border-white/10 bg-[#181b24]/60 p-4 transition hover:border-white/20 hover:bg-[#181b24]"
+                >
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-500/10 text-emerald-300">
+                    <Phone className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Phone Hotline</div>
+                    <div className="text-sm font-semibold text-white transition-colors group-hover:text-emerald-300">
+                      {storeInfo.contactPhone}
+                    </div>
+                  </div>
+                </a>
+              )}
+
+              {storeInfo.businessAddress && (
+                <div className="flex items-start gap-3 rounded-2xl border border-white/5 bg-white/2 p-4 text-xs text-slate-400">
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-[#ff8a1e]" />
+                  <p>
+                    <span className="font-semibold text-slate-200">{storeInfo.registeredBusinessName}</span>
+                    <br />
+                    {storeInfo.businessAddress}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Google Maps Embed */}
@@ -847,17 +910,25 @@ function EcommerceHomeContent() {
                 <MapPin className="h-4 w-4 text-[#ff8a1e]" />
                 <span>Store Location Map</span>
               </div>
-              <iframe
-                title="Apayao Pasalubong Center location"
-                src="https://www.google.com/maps?q=Apayao%20Pasalubong%20Center%20Luna%20Apayao&z=14&output=embed"
-                className="h-72 w-full border-0 sm:h-80"
-                loading="lazy"
-                referrerPolicy="no-referrer-when-downgrade"
-              />
+              {storeInfo.businessAddress ? (
+                <iframe
+                  title={`${storeInfo.registeredBusinessName} location`}
+                  src={`https://www.google.com/maps?q=${encodeURIComponent(storeInfo.businessAddress)}&z=14&output=embed`}
+                  className="h-72 w-full border-0 sm:h-80"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
+              ) : (
+                <div className="flex h-72 items-center justify-center px-6 text-center text-sm text-slate-400 sm:h-80">
+                  Store location has not been added yet.
+                </div>
+              )}
             </div>
-            <div className="pt-1 text-sm text-slate-200 lg:col-start-2">
-              <span className="font-semibold text-[#ffb36f]">Store hours:</span> Open daily, 7:00 AM - 8:30 PM.
-            </div>
+            {storeInfo.storeHours && (
+              <div className="pt-1 text-sm text-slate-200 lg:col-start-2">
+                <span className="font-semibold text-[#ffb36f]">Store hours:</span> {storeInfo.storeHours}
+              </div>
+            )}
           </div>
         </section>
 
@@ -866,7 +937,7 @@ function EcommerceHomeContent() {
           <div className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
             <div className="sm:col-span-2">
               <div className="text-sm font-bold text-white tracking-wide uppercase">
-                Apayao Pasalubong Center
+                {storeInfo.registeredBusinessName}
               </div>
               <p className="mt-2.5 text-xs sm:text-sm text-slate-400 leading-relaxed max-w-md">
                 Empowering local Apayao farmers, weavers, and small businesses by providing a premier digital reservation and pickup hub for authentic provincial goods.
@@ -893,7 +964,7 @@ function EcommerceHomeContent() {
           </div>
 
           <div className="mt-8 flex flex-col gap-3 border-t border-white/10 pt-6 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-            <div>© {new Date().getFullYear()} Apayao Pasalubong Center.</div>
+            <div>© {new Date().getFullYear()} {storeInfo.registeredBusinessName}.</div>
             <div className="text-[11px] text-slate-400">Store pickup reserve system</div>
           </div>
         </footer>
