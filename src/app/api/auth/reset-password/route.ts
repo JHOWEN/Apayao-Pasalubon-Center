@@ -3,7 +3,6 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { clearAuthCookies } from "@/lib/cookies";
 import { enforceRateLimit, resetLoginRateLimit } from "@/lib/rate-limit";
-import { verifyPasswordResetToken } from "@/lib/password-reset";
 import { getRequestId, logError } from "@/lib/logger";
 import { getNewPasswordPolicyError } from "@/lib/password-policy";
 
@@ -47,7 +46,9 @@ export async function POST(request: Request) {
     const storedToken = user.passwordResetToken || "";
     const expiresAt = user.passwordResetTokenExpiresAt ? new Date(user.passwordResetTokenExpiresAt) : null;
 
-    if (!storedToken || !expiresAt || expiresAt.getTime() <= Date.now() || !verifyPasswordResetToken(email, token)) {
+    // The persisted high-entropy token is authoritative across Vercel deployments;
+    // expiry and exact matching still make it time-limited and single-use.
+    if (!storedToken || !expiresAt || Number.isNaN(expiresAt.getTime()) || expiresAt.getTime() <= Date.now()) {
       return NextResponse.json({ success: false, message: "Reset link is invalid or has expired." }, { status: 400 });
     }
 
