@@ -2034,6 +2034,12 @@ export default function ReportsPage() {
                       <CheckCircle2 className="h-5 w-5" /> Your report is ready
                     </div>
                     <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Choose Print or Save as PDF in your device’s print dialog.</p>
+                    <div role="note" className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" />
+                      <p className="text-xs leading-5">
+                        <span className="font-semibold">Before printing:</span> this app can’t detect whether a printer is connected. Check that it’s powered on and selected in the print dialog. If it isn’t available, choose Save as PDF.
+                      </p>
+                    </div>
                     <dl className="mt-5 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-950/50 sm:grid-cols-2">
                       <div>
                         <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Period</dt>
