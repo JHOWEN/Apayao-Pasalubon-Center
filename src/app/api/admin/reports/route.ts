@@ -3,23 +3,23 @@ import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
-function parseDateOnly(value: string | null, endOfDay = false) {
-  if (!value) {
+const STORE_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function parseStoreDateStart(value: string | null) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+
+  const [year, month, day] = value.split("-").map(Number);
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    calendarDate.getUTCFullYear() !== year ||
+    calendarDate.getUTCMonth() !== month - 1 ||
+    calendarDate.getUTCDate() !== day
+  ) {
     return undefined;
   }
 
-  const [yearString, monthString, dayString] = value.split("-");
-  const year = Number(yearString);
-  const month = Number(monthString);
-  const day = Number(dayString);
-
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
-    return undefined;
-  }
-
-  const parsedDate = new Date(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
-
-  return Number.isNaN(parsedDate.getTime()) ? undefined : parsedDate;
+  return new Date(calendarDate.getTime() - STORE_UTC_OFFSET_MS);
 }
 
 export async function GET(request: Request) {
@@ -35,21 +35,23 @@ export async function GET(request: Request) {
   const endDate = searchParams.get("endDate");
   const category = searchParams.get("category");
 
-  const fromDate = parseDateOnly(startDate, false);
-  const toDate = parseDateOnly(endDate, true);
+  const fromDate = parseStoreDateStart(startDate);
+  const endDateStart = parseStoreDateStart(endDate);
+  const toDateExclusive = endDateStart ? new Date(endDateStart.getTime() + DAY_MS) : undefined;
 
-  if (toDate && fromDate && toDate < fromDate) {
+  if (toDateExclusive && fromDate && toDateExclusive <= fromDate) {
     return NextResponse.json({ message: "End date cannot be earlier than start date." }, { status: 400 });
   }
 
   const whereClause = {
     status: "COMPLETED" as const,
     items: { some: {} },
-    ...(fromDate || toDate
+    // Completed orders are terminal, so updatedAt is the timestamp of completion.
+    ...(fromDate || toDateExclusive
       ? {
-          createdAt: {
+          updatedAt: {
             ...(fromDate ? { gte: fromDate } : {}),
-            ...(toDate ? { lte: toDate } : {}),
+            ...(toDateExclusive ? { lt: toDateExclusive } : {}),
           },
         }
       : {}),
@@ -76,7 +78,7 @@ export async function GET(request: Request) {
       select: {
         id: true,
         orderNumber: true,
-        createdAt: true,
+        updatedAt: true,
         isWalkIn: true,
         paymentMethod: true,
         totalAmount: true,
@@ -102,7 +104,7 @@ export async function GET(request: Request) {
           },
         },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { updatedAt: "desc" },
       take: 50,
     }),
     prisma.order.groupBy({
@@ -234,7 +236,7 @@ export async function GET(request: Request) {
       totalAmount: order.items
         .reduce((sum, item) => sum + Number(item.subtotal ?? 0), 0)
         .toFixed(2),
-      createdAt: order.createdAt,
+      completedAt: order.updatedAt,
       itemCount: order.items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0),
       items: order.items.map((item) => ({
         quantity: Number(item.quantity ?? 0),

@@ -21,7 +21,7 @@ type ReportData = {
   recentOrders: Array<{
     orderNumber: string;
     totalAmount: string;
-    createdAt: string;
+    completedAt: string;
     items: Array<{ productName: string; quantity: number }>;
   }>;
   lowStock: Array<{ name: string; sku: string; stock: number; minStock: number }>;
@@ -146,7 +146,7 @@ function createSections(report: ReportData, type: ReportType): ReportSection[] {
   ]);
   const sales = report.recentOrders.map((order) => [
     order.orderNumber,
-    new Date(order.createdAt).toLocaleDateString("en-PH"),
+    new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }),
     order.items.map((item) => `${item.productName} (x${item.quantity})`).join(", ") || "—",
     String(order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)),
     currency(order.totalAmount),
@@ -183,7 +183,7 @@ function createSections(report: ReportData, type: ReportType): ReportSection[] {
     return [
       { title: "Sales channel breakdown", headers: ["Channel", "Orders", "Revenue"], rows: channels },
       { title: "Payment method breakdown", headers: ["Payment method", "Orders", "Revenue"], rows: payments },
-      { title: "Completed orders", headers: ["Order", "Date", "Items", "Qty", "Total"], rows: sales },
+      { title: "Completed orders", headers: ["Order", "Completed date", "Items", "Qty", "Total"], rows: sales },
     ];
   }
   if (type === "LOW_STOCK") {
@@ -195,7 +195,7 @@ function createSections(report: ReportData, type: ReportType): ReportSection[] {
   return [
     { title: "Sales channel breakdown", headers: ["Channel", "Orders", "Revenue"], rows: channels },
     { title: "Payment method breakdown", headers: ["Payment method", "Orders", "Revenue"], rows: payments },
-    { title: "Completed orders", headers: ["Order", "Date", "Items", "Qty", "Total"], rows: sales },
+    { title: "Completed orders", headers: ["Order", "Completed date", "Items", "Qty", "Total"], rows: sales },
     { title: "Inventory snapshot", headers: ["Product / variant", "SKU", "Stock", "Unit cost", "Retail price", "Stock value"], rows: inventory },
     { title: "Low stock snapshot", headers: ["Product / variant", "SKU", "In stock", "Minimum"], rows: lowStock.map((row) => row.slice(0, 4)) },
     { title: "Top products", headers: ["Rank", "Product / variant", "SKU", "Units sold", "Revenue"], rows: topProducts },

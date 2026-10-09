@@ -79,7 +79,7 @@ type RecentOrder = {
   id: string;
   orderNumber: string;
   totalAmount: string;
-  createdAt: string;
+  completedAt: string;
   itemCount: number;
   items: RecentOrderItem[];
 };
@@ -780,7 +780,7 @@ export default function ReportsPage() {
             return `
             <tr>
               <td><strong>${order.orderNumber}</strong></td>
-              <td>${new Date(order.createdAt).toLocaleDateString()}</td>
+              <td>${new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</td>
               <td>${itemsSummary || "-"}</td>
               <td class="right">${totalQty}</td>
               <td class="right"><strong>₱${Number(order.totalAmount).toFixed(2)}</strong></td>
@@ -815,7 +815,7 @@ export default function ReportsPage() {
           <thead>
             <tr>
               <th>Order Number</th>
-              <th>Date</th>
+              <th>Completed Date</th>
               <th>Items Purchased</th>
               <th class="right">Qty</th>
               <th class="right">Order Amount</th>
@@ -915,7 +915,7 @@ export default function ReportsPage() {
           .map((item) => `${item.productName} (x${item.quantity})`)
           .join("<br>");
         const quantity = order.items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
-        return `<tr><td>${order.orderNumber}</td><td>${new Date(order.createdAt).toLocaleDateString()}</td><td>${products || "-"}</td><td class="right">${quantity}</td><td class="right">₱${Number(order.totalAmount).toFixed(2)}</td></tr>`;
+        return `<tr><td>${order.orderNumber}</td><td>${new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</td><td>${products || "-"}</td><td class="right">${quantity}</td><td class="right">₱${Number(order.totalAmount).toFixed(2)}</td></tr>`;
       }).join("");
 
       const inventoryRows = data.inventoryItems.map(
@@ -967,7 +967,7 @@ export default function ReportsPage() {
 
         <h2 class="section-title">Completed orders</h2>
         <table>
-          <thead><tr><th>Order #</th><th>Date</th><th>Items</th><th class="right">Units</th><th class="right">Total</th></tr></thead>
+          <thead><tr><th>Order #</th><th>Completed Date</th><th>Items</th><th class="right">Units</th><th class="right">Total</th></tr></thead>
           <tbody>${salesRows || `<tr><td colspan="5">No completed sales.</td></tr>`}</tbody>
         </table>
 
@@ -1042,9 +1042,9 @@ export default function ReportsPage() {
       filename = "sales-orders-report.csv";
       addSection("Sales Channels", ["Channel", "Orders", "Revenue"], Object.entries(data.channelBreakdown).map(([label, v]) => [label, v.count, v.revenue]));
       addSection("Payment Methods", ["Payment Method", "Orders", "Revenue"], Object.entries(data.paymentBreakdown).map(([label, v]) => [label, v.count, v.revenue]));
-      addSection("Completed Sales Orders", ["Order Number", "Date", "Items", "Quantity", "Total Amount"], data.recentOrders.map((order) => [
+      addSection("Completed Sales Orders", ["Order Number", "Completed Date", "Items", "Quantity", "Total Amount"], data.recentOrders.map((order) => [
         order.orderNumber,
-        new Date(order.createdAt).toLocaleDateString(),
+        new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }),
         order.items.map((i) => `${i.productName} (Qty. ${i.quantity})`).join("; "),
         order.items.reduce((sum, i) => sum + Number(i.quantity ?? 0), 0),
         order.totalAmount,
@@ -1072,9 +1072,9 @@ export default function ReportsPage() {
       filename = "complete-business-summary-report.csv";
       addSection("Sales Breakdown", ["Channel", "Orders", "Revenue"], Object.entries(data.channelBreakdown).map(([l, v]) => [l, v.count, v.revenue]));
       addSection("Payment Breakdown", ["Payment method", "Orders", "Revenue"], Object.entries(data.paymentBreakdown).map(([l, v]) => [l, v.count, v.revenue]));
-      addSection("Sales Orders", ["Order", "Date", "Items", "Quantity", "Total"], data.recentOrders.map((order) => [
+      addSection("Sales Orders", ["Order", "Completed Date", "Items", "Quantity", "Total"], data.recentOrders.map((order) => [
         order.orderNumber,
-        new Date(order.createdAt).toLocaleDateString(),
+        new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }),
         order.items.map((i) => `${i.productName} (Qty. ${i.quantity})`).join("; "),
         order.items.reduce((sum, i) => sum + Number(i.quantity ?? 0), 0),
         order.totalAmount,
@@ -1750,7 +1750,7 @@ export default function ReportsPage() {
               <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-3">Order Number</th>
-                  <th className="px-4 py-3">Date & Time</th>
+                  <th className="px-4 py-3">Completed Date</th>
                   <th className="px-4 py-3">Items Purchased</th>
                   <th className="px-4 py-3 text-right">Total Units</th>
                   <th className="px-4 py-3 text-right">Order Amount</th>
@@ -1769,10 +1769,11 @@ export default function ReportsPage() {
                           {order.orderNumber}
                         </td>
                         <td className="px-4 py-3 text-slate-500">
-                          {new Date(order.createdAt).toLocaleDateString("en-PH", {
+                          {new Date(order.completedAt).toLocaleDateString("en-PH", {
                             month: "short",
                             day: "numeric",
                             year: "numeric",
+                            timeZone: "Asia/Manila",
                           })}
                         </td>
                         <td className="px-4 py-3 text-slate-700 dark:text-slate-300 max-w-xs truncate">
