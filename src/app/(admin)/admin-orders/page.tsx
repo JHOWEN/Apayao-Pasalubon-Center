@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import Image from "@/components/safe-image";
 import { AdminToast } from "@/components/admin/admin-toast";
 import styles from "./admin-orders.module.css";
@@ -108,6 +108,7 @@ export default function AdminOrdersPage() {
   const [totalOrderCount, setTotalOrderCount] = useState(0);
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [paymentProofViewerUrl, setPaymentProofViewerUrl] = useState<string | null>(null);
+  const [printDialog, setPrintDialog] = useState<{ title: string; description: string; html: string } | null>(null);
   const [jumpInput, setJumpInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const isMounted = useSyncExternalStore(
@@ -260,13 +261,74 @@ export default function AdminOrdersPage() {
     })[character] ?? character);
   }
 
+  function printHtmlInHiddenFrame(title: string, html: string) {
+    const printFrame = document.createElement("iframe");
+    printFrame.setAttribute("aria-hidden", "true");
+    printFrame.title = `${title} print document`;
+    printFrame.style.position = "fixed";
+    printFrame.style.left = "0";
+    printFrame.style.top = "0";
+    printFrame.style.width = "100vw";
+    printFrame.style.height = "100vh";
+    printFrame.style.border = "0";
+    printFrame.style.opacity = "0";
+    printFrame.style.pointerEvents = "none";
+    printFrame.style.zIndex = "-1";
+    document.body.appendChild(printFrame);
+
+    const printDocument = printFrame.contentDocument;
+    const printWindow = printFrame.contentWindow;
+    if (!printDocument || !printWindow) {
+      printFrame.remove();
+      setStatusUpdateFeedback({
+        type: "error",
+        title: "Unable to print",
+        message: "The print document could not be prepared. Please try again.",
+      });
+      return;
+    }
+
+    let cleanupTimer: number | null = null;
+    const cleanupPrint = () => {
+      if (cleanupTimer !== null) window.clearTimeout(cleanupTimer);
+      printWindow.removeEventListener("afterprint", cleanupPrint);
+      printFrame.remove();
+    };
+
+    try {
+      printDocument.open();
+      const printReadyHtml = html.replace(
+        "</head>",
+        "<style>@media screen{body{visibility:hidden}}@media print{body{visibility:visible}}</style></head>",
+      );
+      printDocument.write(printReadyHtml);
+      printDocument.close();
+      printWindow.addEventListener("afterprint", cleanupPrint, { once: true });
+      cleanupTimer = window.setTimeout(cleanupPrint, 120_000);
+      printWindow.focus();
+      printWindow.print();
+    } catch {
+      cleanupPrint();
+      setStatusUpdateFeedback({
+        type: "error",
+        title: "Unable to print",
+        message: "Your browser could not open printing. Please try again.",
+      });
+    }
+  }
+
+  function confirmPrintDialog() {
+    if (!printDialog) return;
+
+    const pendingPrint = printDialog;
+    flushSync(() => setPrintDialog(null));
+    printHtmlInHiddenFrame(pendingPrint.title, pendingPrint.html);
+  }
+
   function printFilteredPickupSheet() {
     const pickupOrders = filteredOrders
       .filter((order) => !order.isWalkIn && !["COMPLETED", "CANCELLED"].includes(order.status))
       .sort((left, right) => new Date(left.pickupDate ?? 0).getTime() - new Date(right.pickupDate ?? 0).getTime());
-
-    const printWindow = window.open("", "tomorrow-pickups", "width=900,height=900");
-    if (!printWindow) return;
 
     const orderMarkup = pickupOrders
       .map(
@@ -298,22 +360,22 @@ export default function AdminOrdersPage() {
       .join("");
 
     const filterLabel = filterDate === "ALL" ? "Filtered Pickup Schedule" : `${filterDate.replaceAll("_", " ")} Pickup Schedule`;
-    printWindow.document.write(`<!doctype html><html><head><title>${filterLabel}</title><style>
+    const reportHtml = `<!doctype html><html><head><title>${escapeHtml(filterLabel)}</title><style>
       *{box-sizing:border-box}body{margin:0;padding:28px;color:#17251f;font:13px Arial,sans-serif}h1{margin:0;font-size:24px}h2{margin:4px 0 0;font-size:13px;font-weight:400;color:#64748b}.meta{margin:18px 0;padding:12px 14px;background:#ecfdf5;border:1px solid #a7f3d0}.order{margin:0 0 18px;padding:16px;border:1px solid #cbd5e1;break-inside:avoid}.order-header{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #e2e8f0;padding-bottom:10px;font-size:14px}.order-header strong{font-size:16px}.pickup{font-weight:700;color:#047857;text-align:right}.customer{padding:10px 0;line-height:1.6;color:#475569}.customer strong{color:#334155}table{width:100%;border-collapse:collapse}th,td{padding:7px 6px;border-top:1px solid #e2e8f0;text-align:left}th{font-size:10px;text-transform:uppercase;color:#64748b}th:last-child,td:last-child{text-align:center;width:60px}.total{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:2px solid #334155}.empty{text-align:center;padding:40px;border:1px dashed #94a3b8;color:#64748b}@media print{body{padding:16px}}
     </style></head><body><h1>${filterLabel}</h1><h2>Apayao Pasalubong Center</h2><div class="meta"><strong>${pickupOrders.length} pickup order(s)</strong> · Printed ${new Date().toLocaleString()}</div>${
       orderMarkup || '<div class="empty">No orders match the current filters.</div>'
-    }</body></html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    window.setTimeout(() => printWindow.print(), 300);
+    }</body></html>`;
+    setPrintDialog({
+      title: "Print pickup sheet",
+      description: `${pickupOrders.length} pickup order(s)`,
+      html: reportHtml,
+    });
   }
 
   function printFilteredOrderLabels() {
     const labelOrders = filteredOrders
       .filter((order) => !order.isWalkIn && !["COMPLETED", "CANCELLED"].includes(order.status))
       .sort((left, right) => new Date(left.pickupDate ?? 0).getTime() - new Date(right.pickupDate ?? 0).getTime());
-    const printWindow = window.open("", "filtered-order-labels", "width=700,height=900");
-    if (!printWindow) return;
 
     const labelsMarkup = labelOrders
       .map(
@@ -345,12 +407,14 @@ export default function AdminOrdersPage() {
       )
       .join("");
 
-    printWindow.document.write(`<!doctype html><html><head><title>Filtered pickup labels</title><style>
+    const labelsHtml = `<!doctype html><html><head><title>Filtered pickup labels</title><style>
       *{box-sizing:border-box}@page{size:letter portrait;margin:.35in}body{margin:0;background:#e5e7eb;color:#17251f;font:12px Arial,sans-serif}.label{width:7.8in;height:4.95in;margin:0 auto;padding:.22in;background:#fff;border:2px solid #064e3b;break-inside:avoid}.label:nth-child(even){break-after:page}.brand{color:#064e3b;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.label-title{margin-top:12px;color:#64748b;font-size:9px;font-weight:700;letter-spacing:.18em}.order-number{margin-top:4px;font-size:24px;font-weight:800;letter-spacing:.04em}.customer-name{margin-top:4px;font-size:18px;font-weight:700;overflow-wrap:anywhere}.details{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:12px;padding:9px 0;border-top:1px solid #cbd5e1;border-bottom:1px solid #cbd5e1}.details div{display:grid;gap:3px}.details .address{grid-column:1 / -1}.details strong{color:#64748b;font-size:8px;letter-spacing:.1em;text-transform:uppercase}.details span{overflow-wrap:anywhere}.items{margin-top:10px;border-top:1px solid #334155}.item{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid #e2e8f0}.item span{min-width:0;overflow-wrap:anywhere}.item strong{flex-shrink:0}.item small{display:block;margin-top:2px;color:#64748b;font-size:9px;font-weight:400}.footer{display:flex;justify-content:space-between;gap:10px;margin-top:10px;padding-top:8px;border-top:2px solid #064e3b;color:#065f46}.footer strong{font-size:15px}@media print{body{background:#fff}.label{margin:0;border-width:1px}}
-    </style></head><body>${labelsMarkup || '<div class="label">No orders match the current filters.</div>'}</body></html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    window.setTimeout(() => printWindow.print(), 300);
+    </style></head><body>${labelsMarkup || '<div class="label">No orders match the current filters.</div>'}</body></html>`;
+    setPrintDialog({
+      title: "Print order labels",
+      description: `${labelOrders.length} order label(s)`,
+      html: labelsHtml,
+    });
   }
 
   const loadOrders = useCallback(async (showLoading = false) => {
@@ -1852,6 +1916,76 @@ export default function AdminOrdersPage() {
         </div>,
         document.body,
       )
+        : null}
+
+      {/* Centered print confirmation dialog */}
+      {isMounted && printDialog
+        ? createPortal(
+            <div
+              className={`${styles.modalBackdrop} p-4`}
+              onClick={() => setPrintDialog(null)}
+            >
+              <section
+                className={ADMIN_MODAL_PANEL_CLASS}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="orders-print-dialog-title"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <header className={ADMIN_MODAL_HEADER_CLASS}>
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                      <Printer className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-300">
+                        Print center
+                      </p>
+                      <h2 id="orders-print-dialog-title" className="text-sm font-semibold text-slate-950 dark:text-white">
+                        {printDialog.title}
+                      </h2>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPrintDialog(null)}
+                    aria-label="Close print dialog"
+                    className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </header>
+
+                <div className="space-y-2 p-5 text-sm">
+                  <p className="font-semibold text-slate-900 dark:text-slate-100">
+                    {printDialog.description}
+                  </p>
+                  <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                    Continue to open the browser print dialog, where you can choose a printer or save as PDF.
+                  </p>
+                </div>
+
+                <footer className={ADMIN_MODAL_ACTION_ROW_CLASS}>
+                  <button
+                    type="button"
+                    onClick={() => setPrintDialog(null)}
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmPrintDialog}
+                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                  >
+                    <Printer className="h-4 w-4" />
+                    Continue to print
+                  </button>
+                </footer>
+              </section>
+            </div>,
+            document.body,
+          )
         : null}
 
       {/*  Feedback Alert */}
