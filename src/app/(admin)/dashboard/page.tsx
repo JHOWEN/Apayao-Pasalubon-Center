@@ -3,22 +3,28 @@
 import Link from "next/link";
 import Image from "@/components/safe-image";
 import {
+  Activity,
   AlertTriangle,
   ArrowRight,
   Calendar,
   CheckCircle2,
   Clock,
+  Database,
+  HardDrive,
+  Mail,
   Package,
   Plus,
   Printer,
   Receipt,
+  RefreshCw,
+  Server,
   Store,
   Globe,
   TrendingUp,
   Warehouse,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
 
 type LowStockItem = {
@@ -51,6 +57,34 @@ type SalesChannelItem = {
 };
 
 type DashboardRange = "DAILY" | "WEEKLY" | "MONTHLY" | "ANNUALLY" | "CUSTOM";
+
+type SystemCheckStatus = "operational" | "configured" | "attention" | "unavailable";
+
+type SystemCheck = {
+  status: SystemCheckStatus;
+  label: string;
+  detail: string;
+  action: string;
+};
+
+type SystemStatusData = {
+  checkedAt: string;
+  checks: Record<"database" | "storage" | "redis" | "email", SystemCheck>;
+};
+
+const SYSTEM_STATUS_ITEMS = [
+  { key: "database", label: "Database", icon: Database },
+  { key: "storage", label: "File storage", icon: HardDrive },
+  { key: "redis", label: "Sessions and rate limits", icon: Server },
+  { key: "email", label: "Email", icon: Mail },
+] as const;
+
+const SYSTEM_STATUS_CLASSES: Record<SystemCheckStatus, string> = {
+  operational: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
+  configured: "bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300",
+  attention: "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
+  unavailable: "bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300",
+};
 
 function formatDateInput(date: Date) {
   const year = date.getFullYear();
@@ -90,6 +124,9 @@ export default function DashboardPage() {
   const endDateInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [systemStatus, setSystemStatus] = useState<SystemStatusData | null>(null);
+  const [isSystemStatusLoading, setIsSystemStatusLoading] = useState(true);
+  const [systemStatusLoadError, setSystemStatusLoadError] = useState(false);
 
   const [stats, setStats] = useState({
     products: 0,
@@ -111,6 +148,44 @@ export default function DashboardPage() {
     cancelledOrders: 0,
     completedOrders: 0,
   });
+
+  const loadSystemStatus = useCallback(async () => {
+    setIsSystemStatusLoading(true);
+    try {
+      const response = await fetch("/api/admin/system-status", { cache: "no-store" });
+      if (!response.ok) throw new Error("Unable to load system status.");
+      const data = (await response.json()) as SystemStatusData;
+      setSystemStatus(data);
+      setSystemStatusLoadError(false);
+    } catch {
+      setSystemStatusLoadError(true);
+    } finally {
+      setIsSystemStatusLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const initialLoad = window.setTimeout(() => {
+      void loadSystemStatus();
+    }, 0);
+
+    const refreshInterval = window.setInterval(() => {
+      void loadSystemStatus();
+    }, 5 * 60_000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void loadSystemStatus();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(refreshInterval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [loadSystemStatus]);
 
   useEffect(() => {
     async function loadDashboardData() {
@@ -984,6 +1059,93 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        <section
+          aria-labelledby="system-status-heading"
+          className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <Activity className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 id="system-status-heading" className="text-lg font-semibold text-slate-950 dark:text-white">
+                  System Status
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Checks for services used by the store and admin portal
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {systemStatus?.checkedAt
+                  ? `Last checked ${new Date(systemStatus.checkedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  : isSystemStatusLoading
+                    ? "Checking services…"
+                    : "Status not available"}
+              </span>
+              <button
+                type="button"
+                onClick={() => void loadSystemStatus()}
+                disabled={isSystemStatusLoading}
+                aria-label="Refresh system status"
+                title="Refresh system status"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+              >
+                <RefreshCw className={`h-4 w-4 ${isSystemStatusLoading ? "animate-spin" : ""}`} />
+              </button>
+            </div>
+          </div>
+
+          {systemStatusLoadError && systemStatus ? (
+            <p role="status" className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              Refresh failed. Showing the last successful check.
+            </p>
+          ) : null}
+
+          {systemStatus ? (
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {SYSTEM_STATUS_ITEMS.map(({ key, label, icon: Icon }) => {
+                const check = systemStatus.checks[key];
+
+                return (
+                  <div key={key} className="rounded-md border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-800/40">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Icon className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                        <h3 className="truncate text-sm font-semibold text-slate-800 dark:text-slate-200">{label}</h3>
+                      </div>
+                      <span className={`shrink-0 rounded px-2 py-1 text-[10px] font-bold ${SYSTEM_STATUS_CLASSES[check.status]}`}>
+                        {check.label}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">{check.detail}</p>
+                    <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">Next step: </span>
+                      {check.action}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p
+              role={systemStatusLoadError ? "alert" : "status"}
+              className={`mt-4 rounded-md px-3 py-3 text-sm ${
+                systemStatusLoadError
+                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                  : "bg-slate-50 text-slate-600 dark:bg-slate-800/50 dark:text-slate-300"
+              }`}
+            >
+              {systemStatusLoadError
+                ? "Could not load system status. Refresh and check that your admin session is active."
+                : "Checking database, storage, Redis, and email setup…"}
+            </p>
+          )}
+        </section>
       </div>
     </div>
   );

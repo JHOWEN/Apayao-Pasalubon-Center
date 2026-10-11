@@ -4,6 +4,7 @@ Use this index to find setup instructions and project references. For applicatio
 
 ## Setup and operations
 
+- [Product requirements document](PRD.md): repository-derived goals, scope, priorities, metrics, and rollout.
 - [Environment setup](development/environment-setup.md): local and hosted environment variables.
 - [Deployment runbook](operations/deployment-runbook.md): production services and release checks.
 
@@ -29,4 +30,4 @@ These documents record proposed work or point-in-time analysis. Check the curren
 
 ## Editor instructions
 
-Tool-specific instructions stay at the paths expected by each editor: [`AGENTS.md`](../AGENTS.md), [`CLAUDE.md`](../CLAUDE.md), [Copilot instructions](../.github/copilot-instructions.md), and [Continue rules](../.continue/rules/new-rule.md). Installed agent skills are local developer files and are not tracked in this repository.
+Tool-specific instructions stay at the paths expected by each editor: [`AGENTS.md`](../AGENTS.md), [`CLAUDE.md`](../CLAUDE.md), and [Copilot instructions](../.github/copilot-instructions.md). Installed agent skills are local developer files and are not tracked in this repository.

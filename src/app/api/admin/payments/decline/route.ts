@@ -7,6 +7,7 @@ import { getRequestId, logError } from "@/lib/logger";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { recordOrderEvent } from "@/lib/order-history";
 import { emitOrderUpdatedEvent } from "@/lib/realtime";
+import { sendPaymentDecisionEmail } from "@/lib/mailer";
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -41,7 +42,10 @@ export async function POST(request: Request) {
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },
-      include: { items: true },
+      include: {
+        items: true,
+        user: { select: { name: true, email: true } },
+      },
     });
 
     if (!order) {
@@ -141,7 +145,41 @@ export async function POST(request: Request) {
       userId: order.userId,
     });
 
-    return NextResponse.json({ success: true, message: "Payment declined." }, { status: 200 });
+    const customerEmail = order.user?.email?.trim();
+    const emailResult = customerEmail
+      ? await sendPaymentDecisionEmail({
+          to: customerEmail,
+          customerName: order.customerName || order.user?.name || "Customer",
+          orderNumber: order.orderNumber,
+          paymentMethod: order.paymentMethod,
+          decision: "declined",
+          decisionAt: new Date(),
+          totalAmount: Number(order.totalAmount),
+          items: order.items.map((item) => ({
+            name: item.productNameSnapshot,
+            quantity: item.quantity,
+            subtotal: Number(item.subtotal),
+            variantDetails: [
+              item.variantAttributesSnapshot,
+              item.variantSkuSnapshot ? `SKU ${item.variantSkuSnapshot}` : null,
+            ].filter(Boolean).join(" · ") || null,
+          })),
+        })
+      : { sent: false as const, reason: "no_recipient" as const };
+
+    return NextResponse.json(
+      {
+        success: true,
+        emailSent: emailResult.sent,
+        emailStatus: emailResult.sent ? "sent" : emailResult.reason,
+        message: emailResult.sent
+          ? "Payment declined. An update was emailed to the customer."
+          : emailResult.reason === "no_recipient"
+            ? "Payment declined. No customer email is linked to this order."
+            : "Payment declined, but the customer email could not be sent. Check the email provider settings and logs.",
+      },
+      { status: 200 },
+    );
   } catch (error) {
     logError("admin.payment.decline_failed", error, { requestId: getRequestId(request) });
     return NextResponse.json({ success: false, message: "Unable to decline payment." }, { status: 500 });

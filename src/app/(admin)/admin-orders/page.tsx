@@ -128,7 +128,7 @@ export default function AdminOrdersPage() {
   const [statusUpdateFeedback, setStatusUpdateFeedback] = useState<{
     title: string;
     message: string;
-    type: "success" | "error";
+    type: "success" | "error" | "warning";
   } | null>(null);
   const [, setIsProcessingPaymentAction] = useState(false);
 
@@ -560,6 +560,8 @@ export default function AdminOrdersPage() {
       return;
     }
 
+    const data = await response.json().catch(() => ({}));
+
     setOrders((prev) =>
       prev.map((order) =>
         order.id === orderId
@@ -574,8 +576,8 @@ export default function AdminOrdersPage() {
     setIsProcessingPaymentAction(false);
     setStatusUpdateFeedback({
       title: "Payment approved",
-      message: "Payment confirmed for order. Stock has been reserved.",
-      type: "success",
+      message: data.message ?? "Payment confirmed for order. Stock has been reserved.",
+      type: data.emailSent === false ? "warning" : "success",
     });
   }
 
@@ -599,6 +601,8 @@ export default function AdminOrdersPage() {
       return;
     }
 
+    const data = await response.json().catch(() => ({}));
+
     setOrders((prev) =>
       prev.map((order) =>
         order.id === orderId ? { ...order, paymentStatus: "FAILED", status: "CANCELLED" } : order
@@ -611,8 +615,8 @@ export default function AdminOrdersPage() {
     setIsProcessingPaymentAction(false);
     setStatusUpdateFeedback({
       title: "Payment declined",
-      message: "Order was cancelled and stock was released.",
-      type: "success",
+      message: data.message ?? "Order was cancelled and stock was released.",
+      type: data.emailSent === false ? "warning" : "success",
     });
   }
 
