@@ -37,7 +37,7 @@ export function AuthCardLayout({
 
   return (
     <main
-      className="relative flex min-h-dvh items-start justify-center bg-[#f5f5f4] px-3 py-4 selection:bg-slate-900 selection:text-white sm:items-center sm:px-6 sm:py-8 lg:px-8"
+      className="auth-page-layout relative flex min-h-dvh items-start justify-center bg-[#f5f5f4] px-3 py-4 selection:bg-slate-900 selection:text-white sm:items-center sm:px-6 sm:py-8 lg:px-8"
     >
       <motion.div
         initial={{ opacity: 0, y: 16 }}
@@ -46,7 +46,7 @@ export function AuthCardLayout({
         className="relative z-10 w-full max-w-5xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_20px_55px_-22px_rgba(15,23,42,0.22)] sm:rounded-4xl"
       >
         <div className="grid grid-cols-1 gap-0 lg:grid-cols-[0.92fr_1.08fr]">
-          <section className="relative flex flex-col items-center justify-center overflow-hidden rounded-b-3xl border-b border-orange-200 bg-linear-to-br from-orange-100 via-orange-50 to-white px-5 py-6 text-center text-slate-900 sm:rounded-b-4xl sm:px-8 sm:py-9 lg:rounded-r-4xl lg:rounded-bl-none lg:border-b-0 lg:border-r lg:px-10 lg:py-12">
+          <section className="auth-hero-panel relative flex flex-col items-center justify-center overflow-hidden rounded-b-3xl border-b border-orange-200 bg-linear-to-br from-orange-100 via-orange-50 to-white px-5 py-6 text-center text-slate-900 sm:rounded-b-4xl sm:px-8 sm:py-9 lg:rounded-r-4xl lg:rounded-bl-none lg:border-b-0 lg:border-r lg:px-10 lg:py-12">
             <div className="absolute inset-0 opacity-50" style={{ backgroundImage: "radial-gradient(rgba(154, 52, 18, 0.12) 1px, transparent 1px)", backgroundSize: "18px 18px" }} />
 
             <div className="relative z-10 flex w-full max-w-77.5 flex-col items-center">
@@ -77,7 +77,7 @@ export function AuthCardLayout({
             </div>
           </section>
 
-          <section className="relative flex flex-col justify-center bg-white px-5 py-6 sm:px-10 sm:py-9 lg:px-12 lg:py-10">
+          <section className="auth-form-panel relative flex flex-col justify-center bg-white px-5 py-6 sm:px-10 sm:py-9 lg:px-12 lg:py-10">
             <div className="mx-auto w-full max-w-125">
               {badge || title || subtitle ? (
                 <div className="mb-5 sm:mb-7">

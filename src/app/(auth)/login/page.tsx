@@ -233,8 +233,8 @@ export default function LoginPage() {
             disabled={isLoading}
           />
 
-          <div className="flex flex-col gap-3 pt-1 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:text-sm">
-            <label className="group flex cursor-pointer select-none items-center gap-2 text-slate-700 transition hover:text-slate-900">
+          <div className="flex flex-row items-center justify-between gap-2 pt-1 text-[11px] min-[360px]:text-xs sm:gap-4 sm:text-sm">
+            <label className="group flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-slate-700 transition hover:text-slate-900 sm:gap-2">
               <input
                 type="checkbox"
                 checked={rememberMe}
@@ -249,7 +249,7 @@ export default function LoginPage() {
             </label>
             <Link
               href="/forgot-password"
-              className="font-semibold text-slate-800 transition hover:text-slate-900 hover:underline"
+              className="whitespace-nowrap font-semibold text-slate-800 transition hover:text-slate-900 hover:underline"
             >
               Forgot password?
             </Link>
