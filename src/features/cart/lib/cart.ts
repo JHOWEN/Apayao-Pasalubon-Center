@@ -13,6 +13,7 @@ export type CartItem = {
 
 const CART_KEY = "apc-cart";
 const ORDERS_KEY = "apc-orders";
+export const CART_UPDATED_EVENT = "apc-cart-updated";
 
 export function getCartItems(): CartItem[] {
   if (typeof window === "undefined") return [];
@@ -27,6 +28,7 @@ export function getCartItems(): CartItem[] {
 export function saveCartItems(items: CartItem[]) {
   if (typeof window === "undefined") return;
   localStorage.setItem(CART_KEY, JSON.stringify(items));
+  window.dispatchEvent(new Event(CART_UPDATED_EVENT));
 }
 
 function dispatchStockWarning(message: string) {

@@ -354,7 +354,6 @@ export default function ProfilePage() {
 
       clearStoredUser();
       clearCart();
-      window.dispatchEvent(new Event("storage"));
       setUser(null);
       setDeleteEmail("");
       setDeletePassword("");

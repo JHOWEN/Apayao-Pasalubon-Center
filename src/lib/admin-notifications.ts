@@ -1,4 +1,5 @@
 export const ADMIN_NOTIFICATION_STORAGE_KEY = "apc-admin-notifications";
+const ADMIN_NOTIFIED_ORDERS_KEY = "apc-admin-notified-orders";
 
 export function getAdminNotificationCount() {
   if (typeof window === "undefined") {
@@ -20,47 +21,6 @@ export function setAdminNotificationCount(value: number) {
   return nextValue;
 }
 
-export function calculatePickupAlertCount(
-  orders: Array<{ status?: string; pickupDate?: string | null }>
-) {
-  if (!Array.isArray(orders) || orders.length === 0) {
-    return 0;
-  }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-
-  const latestWindow = new Date(today);
-  latestWindow.setDate(today.getDate() + 2);
-
-  return orders.filter((order) => {
-    if (!order?.pickupDate) {
-      return false;
-    }
-
-    if (order.status === "CANCELLED" || order.status === "COMPLETED") {
-      return false;
-    }
-
-    const pickupDate = new Date(order.pickupDate);
-    if (Number.isNaN(pickupDate.getTime())) {
-      return false;
-    }
-
-    const pickupStart = new Date(today);
-    pickupStart.setHours(0, 0, 0, 0);
-
-    const pickupEnd = new Date(latestWindow);
-    pickupEnd.setHours(23, 59, 59, 999);
-
-    return pickupDate >= pickupStart && pickupDate <= pickupEnd;
-  }).length;
-}
-
-export function syncAdminPickupAlertCount(orders: Array<{ status?: string; pickupDate?: string | null }>) {
-  return setAdminNotificationCount(calculatePickupAlertCount(orders));
-}
-
 export function incrementAdminNotificationCount() {
   return setAdminNotificationCount(getAdminNotificationCount() + 1);
 }
@@ -69,19 +29,19 @@ export function clearAdminNotificationCount() {
   return setAdminNotificationCount(0);
 }
 
-export function emitNewOrderAdminNotification() {
-  if (typeof window === "undefined") {
-    return;
+export function notifyAdminOfNewOrder(orderId: string) {
+  if (typeof window === "undefined" || !orderId) return;
+
+  let notifiedOrderIds: string[] = [];
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(ADMIN_NOTIFIED_ORDERS_KEY) ?? "[]");
+    if (Array.isArray(stored)) notifiedOrderIds = stored.filter((id): id is string => typeof id === "string");
+  } catch {
+    // Continue with an empty history if browser storage contains invalid data.
   }
 
+  if (notifiedOrderIds.includes(orderId)) return;
+
+  window.localStorage.setItem(ADMIN_NOTIFIED_ORDERS_KEY, JSON.stringify([...notifiedOrderIds, orderId].slice(-100)));
   incrementAdminNotificationCount();
-  window.localStorage.setItem("apc-new-order-trigger", String(Date.now()));
-
-  if (typeof BroadcastChannel !== "undefined") {
-    const channel = new BroadcastChannel("apc-order-events");
-    channel.postMessage({ type: "apc-new-order" });
-    channel.close();
-  }
-
-  window.dispatchEvent(new Event("apc-new-order"));
 }

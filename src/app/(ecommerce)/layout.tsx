@@ -4,7 +4,7 @@ import Image from "@/components/safe-image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { clearStoredUser, getCartCount, getStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
+import { CART_UPDATED_EVENT, clearStoredUser, getCartCount, getStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
 import { AlertTriangle, Bell, Heart, LogOut, Menu, Moon, Search, ShoppingCart, Sun, User, X } from "lucide-react";
 
 type EcommerceUser = {
@@ -143,11 +143,13 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     updateCount();
     void loadCurrentUser();
     window.addEventListener("storage", updateCount);
+    window.addEventListener(CART_UPDATED_EVENT, updateCount);
     window.addEventListener("apc-user-updated", refreshProfile);
     window.addEventListener("apc-cart-toss", triggerCartToss);
     window.addEventListener("apc-cart-stock-warning", showStockWarning);
     return () => {
       window.removeEventListener("storage", updateCount);
+      window.removeEventListener(CART_UPDATED_EVENT, updateCount);
       window.removeEventListener("apc-user-updated", refreshProfile);
       window.removeEventListener("apc-cart-toss", triggerCartToss);
       window.removeEventListener("apc-cart-stock-warning", showStockWarning);
@@ -183,6 +185,10 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     const refreshInterval = window.setInterval(() => void refreshSession(), 4 * 60 * 1000);
     return () => window.clearInterval(refreshInterval);
   }, [user]);
+
+  useEffect(() => {
+    setCartCount(getCartCount());
+  }, [pathname]);
 
   useEffect(() => {
     if (!user) return;

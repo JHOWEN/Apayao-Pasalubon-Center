@@ -121,7 +121,6 @@ export function ProductCard({
       variantAttributes: includeVariant ? selectedVariant?.attributes : undefined,
     });
     setAdded(true);
-    window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new Event("apc-cart-toss"));
     if (goToCheckout) router.push("/checkout");
     setIsOptionModalOpen(false);

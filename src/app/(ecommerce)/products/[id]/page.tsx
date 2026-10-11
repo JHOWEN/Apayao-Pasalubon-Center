@@ -514,7 +514,6 @@ export default function ProductDetailPage() {
       quantity: customQuantity,
       imageUrl: getPrimaryImageUrl(variant.imageUrls?.[0] ?? product.imageUrl ?? undefined) ?? undefined,
     });
-    window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new Event("apc-cart-toss"));
     setAddedToast(true);
     setTimeout(() => setAddedToast(false), 2000);
@@ -636,7 +635,6 @@ export default function ProductDetailPage() {
       variantLabel: selectedGroupItem.optionValue,
     });
 
-    window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new Event("apc-cart-toss"));
     setShowOptionsModal(false);
     setAddedToast(true);
@@ -685,7 +683,6 @@ export default function ProductDetailPage() {
         imageUrl: getPrimaryImageUrl(activeProductImage as string | undefined) ?? undefined,
       });
 
-      window.dispatchEvent(new Event("storage"));
       window.dispatchEvent(new Event("apc-cart-toss"));
       setAddedToast(true);
       setTimeout(() => setAddedToast(false), 2000);

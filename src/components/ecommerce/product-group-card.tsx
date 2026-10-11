@@ -119,7 +119,6 @@ export function ProductGroupCard({
       variantSku: selectedOption.sku,
     });
 
-    window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new Event("apc-cart-toss"));
     setIsOptionModalOpen(false);
   }

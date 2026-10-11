@@ -119,17 +119,20 @@ export function AdminSidebar({
 
     void loadSidebarProfile();
 
-    const syncCount = () => setNotificationCount(getAdminNotificationCount());
-    syncCount();
+    const syncCount = () => {
+      const count = getAdminNotificationCount();
+      if (pathname === "/admin-orders") {
+        setNotificationCount(0);
+        if (count > 0) clearAdminNotificationCount();
+        return;
+      }
+      setNotificationCount(count);
+    };
 
     const handleStorage = (event: StorageEvent) => {
       if (event.key === "apc-admin-notifications") {
         syncCount();
       }
-    };
-
-    const handleOrderCreated = () => {
-      syncCount();
     };
 
     const handleCustomNotificationUpdate = () => {
@@ -144,20 +147,12 @@ export function AdminSidebar({
     };
 
     window.addEventListener("storage", handleStorage);
-    window.addEventListener("apc-new-order", handleOrderCreated);
     window.addEventListener("apc-admin-notifications-updated", handleCustomNotificationUpdate);
     window.addEventListener("apc-admin-live-event", handleLiveEvent);
-
-    if (pathname === "/admin-orders") {
-      clearAdminNotificationCount();
-      window.setTimeout(() => {
-        setNotificationCount(0);
-      }, 0);
-    }
+    syncCount();
 
     return () => {
       window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("apc-new-order", handleOrderCreated);
       window.removeEventListener("apc-admin-notifications-updated", handleCustomNotificationUpdate);
       window.removeEventListener("apc-admin-live-event", handleLiveEvent);
     };

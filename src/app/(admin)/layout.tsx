@@ -13,7 +13,7 @@ import {
   Sun,
 } from "lucide-react";
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
-import { syncAdminPickupAlertCount } from "@/lib/admin-notifications";
+import { notifyAdminOfNewOrder } from "@/lib/admin-notifications";
 import { getPickupDateKey } from "@/lib/order";
 
 const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
@@ -39,7 +39,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   >([]);
 
   const notificationMenuRef = useRef<HTMLDivElement>(null);
-  const orderChannelRef = useRef<BroadcastChannel | null>(null);
   const isDarkAppearance = theme === "dark" || (theme === "system" && systemPrefersDark);
 
   useEffect(() => {
@@ -384,27 +383,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               .slice(0, 5)
 
         setNotifications(upcoming);
-        syncAdminPickupAlertCount(upcoming);
       } catch {
         setNotifications([]);
-        syncAdminPickupAlertCount([]);
       }
     }
 
-    const handleNewOrder = () => {
-      void loadPickupNotifications();
-    };
-
-    const handleStorageRefresh = (event: StorageEvent) => {
-      if (event.key === "apc-new-order-trigger") {
-        void loadPickupNotifications();
-      }
-    };
-
     const handleSseMessage = (event: MessageEvent) => {
       try {
-        const message = JSON.parse(event.data) as { type?: string };
+        const message = JSON.parse(event.data) as { type?: string; payload?: { orderId?: string } };
         if (message?.type === "order-created" || message?.type === "order-updated" || message?.type === "inventory-updated") {
+          if (message.type === "order-created" && message.payload?.orderId) {
+            notifyAdminOfNewOrder(message.payload.orderId);
+          }
           window.dispatchEvent(new CustomEvent("apc-admin-live-event", { detail: message }));
           void loadPickupNotifications();
         }
@@ -413,39 +403,20 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       }
     };
 
-    if (typeof BroadcastChannel !== "undefined") {
-      const channel = new BroadcastChannel("apc-order-events");
-      channel.onmessage = (event) => {
-        const message = event?.data as { type?: string } | undefined;
-        if (message?.type === "apc-new-order") {
-          void loadPickupNotifications();
-        }
-      };
-      orderChannelRef.current = channel;
-    }
-
     const eventSource = new EventSource("/api/admin/live");
     eventSource.addEventListener("order-created", handleSseMessage);
     eventSource.addEventListener("order-updated", handleSseMessage);
     eventSource.addEventListener("inventory-updated", handleSseMessage);
 
     void loadPickupNotifications();
-    window.addEventListener("apc-new-order", handleNewOrder);
-    window.addEventListener("storage", handleStorageRefresh);
 
     const refreshInterval = window.setInterval(() => {
       void loadPickupNotifications();
     }, 30000);
 
     return () => {
-      window.removeEventListener("apc-new-order", handleNewOrder);
-      window.removeEventListener("storage", handleStorageRefresh);
       window.clearInterval(refreshInterval);
       eventSource.close();
-      if (orderChannelRef.current) {
-        orderChannelRef.current.close();
-        orderChannelRef.current = null;
-      }
     };
   }, [sessionStatus]);
 

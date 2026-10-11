@@ -218,9 +218,6 @@ export default function CheckoutPage() {
           String(Number(window.localStorage.getItem("apc-customer-notifications") ?? "0") + 1),
         );
         window.dispatchEvent(new Event("apc-customer-notifications-updated"));
-
-        const { emitNewOrderAdminNotification } = await import("@/lib/admin-notifications");
-        emitNewOrderAdminNotification();
       }
 
       saveRecentOrder(data.order);

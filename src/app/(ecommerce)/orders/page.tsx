@@ -319,7 +319,6 @@ export default function OrdersPage() {
     });
 
     saveCartItems(nextCart);
-    window.dispatchEvent(new Event("storage"));
     router.push("/cart");
   }
 
@@ -399,13 +398,13 @@ export default function OrdersPage() {
               Order History & Tracking
             </h1>
             <p className="mt-1 text-xs sm:text-sm text-slate-400">
-              Track store pickup reservations and review previous purchases.
+              Track store pickup orders and review previous purchases.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <span className="rounded-xl border border-white/10 bg-[#12141c] px-3 py-1.5 text-xs font-semibold text-slate-300">
-              {orders.filter((o) => o.status !== "COMPLETED" && o.status !== "CANCELLED").length} active reservations
+              {orders.filter((o) => o.status !== "COMPLETED" && o.status !== "CANCELLED").length} active orders
             </span>
           </div>
         </div>
@@ -681,7 +680,7 @@ export default function OrdersPage() {
                         onClick={() => handleCancelOrder(order.id)}
                         className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/20 transition"
                       >
-                        Cancel Reservation
+                        Cancel Order
                       </button>
                     )}
 
