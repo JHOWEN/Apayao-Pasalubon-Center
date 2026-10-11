@@ -1337,7 +1337,7 @@ export default function AdminSettingsPage() {
 
       {/* 5. TAB 4: SECURITY & AUTHENTICATION */}
       {activeTab === "security" && (
-        <section className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <section className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
               Password & Account Security
@@ -1347,11 +1347,11 @@ export default function AdminSettingsPage() {
             </p>
           </div>
 
-          <form className="mt-5 max-w-xl space-y-4" onSubmit={handlePasswordChange}>
+          <form className="mt-5 w-full max-w-xl space-y-5 sm:space-y-4" onSubmit={handlePasswordChange}>
             <div>
               <label
                 htmlFor="current-password"
-                className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
+                className="block text-sm font-bold text-slate-800 dark:text-slate-200"
               >
                 Current Password
               </label>
@@ -1366,14 +1366,14 @@ export default function AdminSettingsPage() {
                     currentPassword: e.target.value,
                   }))
                 }
-                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                className="mt-2 h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
 
             <div>
               <label
                 htmlFor="new-password"
-                className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
+                className="block text-sm font-bold text-slate-800 dark:text-slate-200"
               >
                 New Password
               </label>
@@ -1389,9 +1389,9 @@ export default function AdminSettingsPage() {
                     newPassword: e.target.value,
                   }))
                 }
-                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                className="mt-2 h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
-              <p className="mt-1 text-[11px] text-slate-500">
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">
                 Use at least {MIN_NEW_PASSWORD_CHARACTERS} characters and no more than 72 UTF-8 bytes. Passphrases and spaces are allowed.
               </p>
             </div>
@@ -1399,7 +1399,7 @@ export default function AdminSettingsPage() {
             <div>
               <label
                 htmlFor="confirm-password"
-                className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
+                className="block text-sm font-bold text-slate-800 dark:text-slate-200"
               >
                 Confirm New Password
               </label>
@@ -1414,7 +1414,7 @@ export default function AdminSettingsPage() {
                     confirmPassword: e.target.value,
                   }))
                 }
-                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                className="mt-2 h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
 
@@ -1422,7 +1422,7 @@ export default function AdminSettingsPage() {
               <button
                 type="submit"
                 disabled={isChangingPassword}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60 sm:w-auto dark:bg-emerald-500 dark:hover:bg-emerald-600"
               >
                 {isChangingPassword ? (
                   <span>Updating...</span>

@@ -47,6 +47,26 @@ textarea:focus-visible {
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
 }
 
+.auth-form-input {
+  color-scheme: light;
+  -webkit-text-fill-color: #020617;
+  caret-color: #0f172a;
+}
+
+.auth-form-input::placeholder {
+  color: #64748b;
+  opacity: 1;
+  -webkit-text-fill-color: #64748b;
+}
+
+.auth-form-input:-webkit-autofill,
+.auth-form-input:-webkit-autofill:hover,
+.auth-form-input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #020617;
+  caret-color: #0f172a;
+  box-shadow: 0 0 0 1000px #ffffff inset;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

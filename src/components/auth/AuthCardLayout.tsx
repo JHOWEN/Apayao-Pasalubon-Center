@@ -37,20 +37,20 @@ export function AuthCardLayout({
 
   return (
     <main
-      className="relative flex min-h-screen items-center justify-center bg-[#f5f5f4] px-4 py-8 selection:bg-slate-900 selection:text-white sm:px-6 lg:px-8"
+      className="relative flex min-h-dvh items-start justify-center bg-[#f5f5f4] px-3 py-4 selection:bg-slate-900 selection:text-white sm:items-center sm:px-6 sm:py-8 lg:px-8"
     >
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        className="relative z-10 w-full max-w-5xl overflow-hidden rounded-4xl border border-slate-200 bg-white shadow-[0_20px_55px_-22px_rgba(15,23,42,0.22)]"
+        className="relative z-10 w-full max-w-5xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_20px_55px_-22px_rgba(15,23,42,0.22)] sm:rounded-4xl"
       >
         <div className="grid grid-cols-1 gap-0 lg:grid-cols-[0.92fr_1.08fr]">
-          <section className="relative flex flex-col items-center justify-center overflow-hidden rounded-b-4xl border-b border-orange-200 bg-linear-to-br from-orange-100 via-orange-50 to-white px-8 py-10 text-center text-slate-900 lg:rounded-r-4xl lg:rounded-bl-none lg:border-b-0 lg:border-r lg:px-10 lg:py-12">
+          <section className="relative flex flex-col items-center justify-center overflow-hidden rounded-b-3xl border-b border-orange-200 bg-linear-to-br from-orange-100 via-orange-50 to-white px-5 py-6 text-center text-slate-900 sm:rounded-b-4xl sm:px-8 sm:py-9 lg:rounded-r-4xl lg:rounded-bl-none lg:border-b-0 lg:border-r lg:px-10 lg:py-12">
             <div className="absolute inset-0 opacity-50" style={{ backgroundImage: "radial-gradient(rgba(154, 52, 18, 0.12) 1px, transparent 1px)", backgroundSize: "18px 18px" }} />
 
             <div className="relative z-10 flex w-full max-w-77.5 flex-col items-center">
-              <div className="mb-5 flex h-24 w-24 items-center justify-center rounded-full bg-[#f4d7c7] p-2.5 shadow-[0_12px_28px_-14px_rgba(146,64,14,0.42)] ring-4 ring-orange-200/80">
+              <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-[#f4d7c7] p-2 shadow-[0_12px_28px_-14px_rgba(146,64,14,0.42)] ring-4 ring-orange-200/80 sm:mb-5 sm:h-24 sm:w-24 sm:p-2.5">
                 <Image
                   src={logoSrc}
                   alt="APC Inventory logo"
@@ -65,11 +65,11 @@ export function AuthCardLayout({
                 APAYAO PASALUBONG CENTER
               </h2>
 
-              <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-slate-900 sm:text-5xl">
+              <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-slate-900 sm:mt-6 sm:text-5xl">
                 {heroTitle}
               </h1>
 
-              <p className="mt-3 max-w-xs text-sm leading-relaxed text-slate-700">
+              <p className="mt-2 max-w-xs text-xs leading-relaxed text-slate-700 sm:mt-3 sm:text-sm">
                 {heroSubtitle}
               </p>
 
@@ -77,17 +77,17 @@ export function AuthCardLayout({
             </div>
           </section>
 
-          <section className="relative flex flex-col justify-center bg-white px-6 py-8 sm:px-10 sm:py-10 lg:px-12 lg:py-10">
+          <section className="relative flex flex-col justify-center bg-white px-5 py-6 sm:px-10 sm:py-9 lg:px-12 lg:py-10">
             <div className="mx-auto w-full max-w-125">
               {badge || title || subtitle ? (
-                <div className="mb-7">
+                <div className="mb-5 sm:mb-7">
                   {badge ? (
                     <span className="mb-2 inline-block rounded-md bg-slate-100 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-700">
                       {badge}
                     </span>
                   ) : null}
                   {title ? (
-                    <h2 className="text-3xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
+                    <h2 className="text-2xl font-extrabold tracking-tight text-slate-900 sm:text-4xl">
                       {title}
                     </h2>
                   ) : null}

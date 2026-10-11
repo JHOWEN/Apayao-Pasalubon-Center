@@ -233,22 +233,23 @@ export default function LoginPage() {
             disabled={isLoading}
           />
 
-          <div className="flex items-center justify-between gap-4 pt-1 text-xs sm:text-sm">
-            <label className="group flex cursor-pointer select-none items-center gap-2 text-slate-600 transition hover:text-slate-900">
+          <div className="flex flex-col gap-3 pt-1 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:text-sm">
+            <label className="group flex cursor-pointer select-none items-center gap-2 text-slate-700 transition hover:text-slate-900">
               <input
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
                 disabled={isLoading}
                 className="h-4 w-4 rounded border-slate-300 accent-slate-900"
+                style={{ colorScheme: "light" }}
               />
-              <span className="font-medium text-slate-600 group-hover:text-slate-900">
+              <span className="font-semibold text-slate-700 group-hover:text-slate-900">
                 Remember me
               </span>
             </label>
             <Link
               href="/forgot-password"
-              className="font-medium text-slate-700 transition hover:text-slate-900 hover:underline"
+              className="font-semibold text-slate-800 transition hover:text-slate-900 hover:underline"
             >
               Forgot password?
             </Link>
@@ -325,7 +326,7 @@ export default function LoginPage() {
             whileHover={{ scale: isLocked || isLoading || sessionState === "error" ? 1 : 1.005 }}
             whileTap={{ scale: isLocked || isLoading || sessionState === "error" ? 1 : 0.99 }}
             disabled={isLoading || isLocked || sessionState === "error"}
-            className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-6 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+            className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-4 text-sm font-bold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:px-6"
           >
             {isLoading ? (
               <>
