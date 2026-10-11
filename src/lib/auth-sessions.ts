@@ -9,6 +9,7 @@ const REMEMBERED_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 const REVOKED_JTI_KEY_PREFIX = "auth:revoked:jti:";
 export const ADMIN_IDLE_TIMEOUT_SECONDS = 15 * 60 + 45;
 const ADMIN_IDLE_SESSION_KEY_PREFIX = "auth:admin:idle:";
+const DEVELOPMENT_JWT_SECRET = randomBytes(32).toString("base64url");
 
 type AccessTokenClaims = jwt.JwtPayload & {
   sub: string;
@@ -68,7 +69,7 @@ export async function touchAdminIdleSession(sessionId: string) {
 function getJwtSecret() {
   const configuredSecret = process.env.JWT_SECRET?.trim();
   if (configuredSecret) return configuredSecret;
-  return process.env.NODE_ENV === "production" ? null : "apc-inventory-dev-secret";
+  return process.env.NODE_ENV === "production" ? null : DEVELOPMENT_JWT_SECRET;
 }
 
 export function verifyAccessToken(token: string) {
