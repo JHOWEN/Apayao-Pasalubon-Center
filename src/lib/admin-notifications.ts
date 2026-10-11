@@ -21,6 +21,33 @@ export function setAdminNotificationCount(value: number) {
   return nextValue;
 }
 
+export function calculatePickupAlertCount(
+  orders: Array<{ status?: string; pickupDate?: string | null }>,
+) {
+  if (!Array.isArray(orders) || orders.length === 0) return 0;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const latestWindow = new Date(today);
+  latestWindow.setDate(today.getDate() + 2);
+
+  return orders.filter((order) => {
+    if (!order?.pickupDate || order.status === "CANCELLED" || order.status === "COMPLETED") return false;
+
+    const pickupDate = new Date(order.pickupDate);
+    if (Number.isNaN(pickupDate.getTime())) return false;
+
+    const pickupStart = new Date(today);
+    pickupStart.setHours(0, 0, 0, 0);
+
+    const pickupEnd = new Date(latestWindow);
+    pickupEnd.setHours(23, 59, 59, 999);
+
+    return pickupDate >= pickupStart && pickupDate <= pickupEnd;
+  }).length;
+}
+
 export function incrementAdminNotificationCount() {
   return setAdminNotificationCount(getAdminNotificationCount() + 1);
 }
