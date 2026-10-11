@@ -38,7 +38,7 @@ Required for the current production app:
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Required for production JTI revocation, shared rate limiting, and cross-instance realtime.      |
 | `CRON_SECRET`                                        | Random secret required by the wallet-reservation cleanup endpoint.                              |
 
-Optional variables include `OPERATIONAL_ALERT_WEBHOOK_URL`, `MAX_PRODUCT_IMAGE_SIZE_MB`, and the `RATE_LIMIT_*` policy overrides documented in [ENV_SETUP.md](ENV_SETUP.md).
+Optional variables include `OPERATIONAL_ALERT_WEBHOOK_URL`, `MAX_PRODUCT_IMAGE_SIZE_MB`, and the `RATE_LIMIT_*` policy overrides documented in [the environment setup guide](../development/environment-setup.md).
 
 For SMTP instead of Resend, configure `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, and `SMTP_FROM`. `EMAIL_FROM` is not read by the current mailer. `NEXTAUTH_URL` and `NEXTAUTH_SECRET` do not configure the primary login flow; the current app signs its own JWT cookie with `JWT_SECRET`.
 

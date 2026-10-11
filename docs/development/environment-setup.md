@@ -86,7 +86,7 @@ Set `APP_URL` to the canonical HTTPS origin in production. Do not
 derive email verification or password-reset links from request host headers.
 
 For the step-by-step production setup and verification checklist, see
-[`DEPLOYMENT_RUNBOOK.md`](DEPLOYMENT_RUNBOOK.md).
+[the deployment runbook](../operations/deployment-runbook.md).
 
 `PASSWORD_RESET_SECRET` should be set to its own random value. If it is missing,
 password-reset tokens use a reset-specific key derived from
