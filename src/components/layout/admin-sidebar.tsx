@@ -85,7 +85,7 @@ export function AdminSidebar({
           .map((section) => ({
             ...section,
             links: section.links.filter((link) =>
-              ["/pos", "/products", "/admin-settings"].includes(link.href)
+              ["/pos", "/admin-orders", "/products", "/admin-settings"].includes(link.href)
             ),
           }))
           .filter((section) => section.links.length > 0);

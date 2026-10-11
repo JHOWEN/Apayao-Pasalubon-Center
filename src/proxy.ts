@@ -16,7 +16,6 @@ const adminPageRoots = [
 
 const staffRestrictedRoots = [
   "/dashboard",
-  "/admin-orders",
   "/categories",
   "/inventory",
   "/customers",

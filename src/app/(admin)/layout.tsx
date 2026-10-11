@@ -291,7 +291,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (userRole !== "STAFF") return;
 
-    const staffRestrictedPaths = ["/dashboard", "/admin-orders", "/categories", "/inventory", "/customers"];
+    const staffRestrictedPaths = ["/dashboard", "/categories", "/inventory", "/customers"];
     if (staffRestrictedPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
       router.replace("/pos");
     }
