@@ -4,9 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, Lock, AlertCircle, Clock, Loader2, ArrowRight, X } from "lucide-react";
+import { Mail, Lock, AlertCircle, Clock, Loader2, ArrowRight, X, CheckCircle2 } from "lucide-react";
 import { clearStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
-import { AuthSuccessState } from "@/components/auth/AuthSuccessState";
 import { AuthCardLayout } from "@/components/auth/AuthCardLayout";
 import { AuthInput } from "@/components/auth/AuthInput";
 
@@ -18,7 +17,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [showSessionExpiredNotice, setShowSessionExpiredNotice] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
   const [lockoutEmail, setLockoutEmail] = useState("");
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [sessionState, setSessionState] = useState<"clearing" | "ready" | "error">("clearing");
@@ -80,7 +79,7 @@ export default function LoginPage() {
     const clearSessionWhenRestored = (event: PageTransitionEvent) => {
       if (!event.persisted) return;
       sessionCleanupPromise.current = null;
-      setIsSuccess(false);
+      setSuccessMessage("");
       setIsLoading(false);
       setPassword("");
       setError("");
@@ -124,6 +123,7 @@ export default function LoginPage() {
     }
 
     setError("");
+    setSuccessMessage("");
     setShowSessionExpiredNotice(false);
     setIsLoading(true);
 
@@ -163,13 +163,17 @@ export default function LoginPage() {
       }
 
       if (data.user?.role === "ADMIN" || data.user?.role === "STAFF") {
-        setIsSuccess(true);
         const destination = data.user.role === "STAFF" ? "/pos" : "/dashboard";
+        setSuccessMessage(
+          data.user.role === "STAFF"
+            ? "Login successful. Redirecting to POS..."
+            : "Login successful. Redirecting to your dashboard...",
+        );
         router.replace(destination);
         return;
       }
 
-      setIsSuccess(true);
+      setSuccessMessage("Login successful. Redirecting to the store...");
       router.push("/");
     } catch {
       setIsLoading(false);
@@ -179,28 +183,38 @@ export default function LoginPage() {
 
   return (
     <AuthCardLayout
-      title={isSuccess ? "" : "Login"}
-      subtitle={isSuccess ? "" : "Welcome back! Please sign in to continue."}
+      title="Login"
+      subtitle="Welcome back! Please sign in to continue."
       heroTitle="Welcome Back!"
       heroSubtitle="To stay connected with us please login with your personal information."
       heroActionLink={undefined}
       footer={null}
     >
-      {isSuccess ? (
-        <AuthSuccessState
-          title="Welcome back"
-          message="Your account is ready. Taking you to your workspace now."
-        />
-      ) : (
-        <motion.form
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          className="space-y-4"
-          onSubmit={handleSubmit}
-          aria-label="Sign in form"
-          aria-busy={isLoading}
-        >
+      <motion.form
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="space-y-4"
+        onSubmit={handleSubmit}
+        aria-label="Sign in form"
+        aria-busy={isLoading || Boolean(successMessage)}
+      >
+        <AnimatePresence>
+          {successMessage ? (
+            <motion.div
+              initial={{ opacity: 0, y: -6, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: "auto" }}
+              exit={{ opacity: 0, y: -6, height: 0 }}
+              role="status"
+              aria-live="polite"
+              className="flex items-center gap-2.5 overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-sm text-emerald-800"
+            >
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+              <span>{successMessage}</span>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+
           <AuthInput
             id="login-email"
             name="email"
@@ -212,7 +226,7 @@ export default function LoginPage() {
             onChange={(e) => handleEmailChange(e.target.value)}
             placeholder="name@example.com"
             icon={Mail}
-            disabled={isLoading}
+            disabled={isLoading || Boolean(successMessage)}
           />
 
           <AuthInput
@@ -231,7 +245,7 @@ export default function LoginPage() {
             }}
             placeholder="Enter your password"
             icon={Lock}
-            disabled={isLoading}
+            disabled={isLoading || Boolean(successMessage)}
           />
 
           <div className="flex flex-row items-center justify-between gap-2 pt-1 text-[11px] min-[360px]:text-xs sm:gap-4 sm:text-sm">
@@ -240,7 +254,7 @@ export default function LoginPage() {
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                disabled={isLoading}
+                disabled={isLoading || Boolean(successMessage)}
                 className="h-4 w-4 rounded border-slate-300 accent-slate-900"
                 style={{ colorScheme: "light" }}
               />
@@ -324,15 +338,15 @@ export default function LoginPage() {
 
           <motion.button
             type="submit"
-            whileHover={{ scale: isLocked || isLoading || sessionState === "error" ? 1 : 1.005 }}
-            whileTap={{ scale: isLocked || isLoading || sessionState === "error" ? 1 : 0.99 }}
-            disabled={isLoading || isLocked || sessionState === "error"}
+            whileHover={{ scale: isLocked || isLoading || Boolean(successMessage) || sessionState === "error" ? 1 : 1.005 }}
+            whileTap={{ scale: isLocked || isLoading || Boolean(successMessage) || sessionState === "error" ? 1 : 0.99 }}
+            disabled={isLoading || Boolean(successMessage) || isLocked || sessionState === "error"}
             className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-4 text-sm font-bold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:px-6"
           >
-            {isLoading ? (
+            {isLoading || successMessage ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin text-white" />
-                <span>Signing in...</span>
+                <span>{isLoading ? "Signing in..." : "Redirecting..."}</span>
               </>
             ) : sessionState === "error" ? (
               <span>Retry session cleanup above</span>
@@ -355,8 +369,7 @@ export default function LoginPage() {
               Sign up
             </Link>
           </p>
-        </motion.form>
-      )}
+      </motion.form>
     </AuthCardLayout>
   );
 }
