@@ -164,7 +164,8 @@ export default function LoginPage() {
 
       if (data.user?.role === "ADMIN" || data.user?.role === "STAFF") {
         setIsSuccess(true);
-        window.setTimeout(() => router.push("/dashboard"), 750);
+        const destination = data.user.role === "STAFF" ? "/pos" : "/dashboard";
+        window.setTimeout(() => router.replace(destination), 750);
         return;
       }
 
