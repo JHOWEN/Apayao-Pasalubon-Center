@@ -3,7 +3,13 @@ import { NextResponse } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
-import { applyOrderInventoryMovement, recordInventoryLifecycleEvent } from "@/features/inventory/lib/inventory";
+import {
+  applyOrderInventoryMovement,
+  InventoryConflictError,
+  InventoryItemUnavailableError,
+  InsufficientStockError,
+  recordInventoryLifecycleEvent,
+} from "@/features/inventory/lib/inventory";
 import { canTransitionOrderStatus, isOrderStatus, normalizePickupDateInput, OrderStatus, resolveInitialOrderStatus } from "@/lib/order";
 import { resolvePaymentProofUrl } from "@/lib/storage";
 import { getRequestId, logError } from "@/lib/logger";
@@ -13,6 +19,26 @@ import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { getOrderItemSnapshot, getOrderStatusEventType, recordOrderEvent } from "@/lib/order-history";
 
 class OrderStateConflictError extends Error {}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function getPrismaErrorCode(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
+}
+
+function haveSameOrderItems(
+  existingItems: Array<{ productId: string; variantId: string | null; quantity: number; price: unknown }>,
+  incomingItems: OrderItemForMutation[],
+) {
+  const normalize = (items: Array<{ productId: string; variantId?: string | null; quantity: number; price: unknown }>) =>
+    items
+      .map((item) => [item.productId, item.variantId ?? "", item.quantity, Math.round(Number(item.price) * 100) / 100])
+      .sort((a, b) => a.map(String).join("\u0000").localeCompare(b.map(String).join("\u0000")));
+
+  return JSON.stringify(normalize(existingItems)) === JSON.stringify(normalize(incomingItems));
+}
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -231,6 +257,7 @@ type OrderItemForMutation = OrderItemInput & {
 type OrderPayload = {
   items?: OrderItemInput[];
   orderNumber?: string;
+  idempotencyKey?: string;
   userId?: string;
   customerName?: string;
   customerPhone?: string;
@@ -243,6 +270,11 @@ type OrderPayload = {
 
 export async function POST(request: Request) {
   let requestBody: OrderPayload | null = null;
+  let requestItems: OrderItemForMutation[] = [];
+  let requestOrderNumber: string | null = null;
+  let requestIdempotencyKey: string | null = null;
+  let requestIsWalkIn: boolean | null = null;
+  let requestPaymentMethod: "CASH" | "GCASH" | "PAYMAYA" | null = null;
 
   try {
     const authCheck = await requireAdminAccess();
@@ -252,18 +284,67 @@ export async function POST(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:orders:create", "admin");
     if (rateLimitResponse) return rateLimitResponse;
 
-    requestBody = (await request.json()) as OrderPayload;
-    const body = requestBody;
-    const items = (body.items ?? []).filter(
-      (item): item is OrderItemForMutation => Boolean(item.productId)
-    );
-
-    if (!items.length) {
-      return NextResponse.json(
-        { success: false, message: "Order items are required." },
-        { status: 400 }
-      );
+    const parsedBody: unknown = await request.json();
+    if (!isRecord(parsedBody)) {
+      return apiError(request, 400, "INVALID_CHECKOUT", "Checkout details must be provided as a valid object.");
     }
+    requestBody = parsedBody as OrderPayload;
+    const body = requestBody;
+    const rawItems = body.items;
+
+    if (!Array.isArray(rawItems) || rawItems.length === 0) {
+      return apiError(request, 400, "INVALID_CHECKOUT", "Add at least one product before checkout.");
+    }
+    if (rawItems.length > 500) {
+      return apiError(request, 400, "TOO_MANY_ITEMS", "This checkout contains too many different items. Split it into smaller sales.");
+    }
+
+    const items: OrderItemForMutation[] = [];
+    for (const rawItem of rawItems as unknown[]) {
+      if (!isRecord(rawItem)) {
+        return apiError(request, 400, "INVALID_CHECKOUT_ITEM", "One of the checkout items is invalid. Refresh the cart and try again.");
+      }
+      const productId = typeof rawItem.productId === "string" ? rawItem.productId.trim() : "";
+      const variantId = typeof rawItem.variantId === "string" ? rawItem.variantId.trim() : undefined;
+      const quantity = rawItem.quantity;
+      const price = rawItem.price;
+      if (!productId || (rawItem.variantId != null && (!variantId || variantId.length > 128))) {
+        return apiError(request, 400, "INVALID_CHECKOUT_ITEM", "One of the checkout items has an invalid product selection. Refresh the cart and try again.");
+      }
+      if (typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 10000) {
+        return apiError(request, 400, "INVALID_QUANTITY", "Each product quantity must be a whole number from 1 to 10,000.");
+      }
+      if (typeof price !== "number" || !Number.isFinite(price) || price < 0 || price > 99_999_999.99) {
+        return apiError(request, 400, "INVALID_PRICE", "One of the checkout prices is invalid. Refresh the cart and try again.");
+      }
+      items.push({
+        productId,
+        ...(variantId ? { variantId } : {}),
+        quantity,
+        price,
+        ...(typeof rawItem.sku === "string" ? { sku: rawItem.sku } : {}),
+        ...(typeof rawItem.unitLabel === "string" ? { unitLabel: rawItem.unitLabel } : {}),
+      });
+    }
+    requestItems = items;
+
+    if (body.orderNumber !== undefined && (typeof body.orderNumber !== "string" || !body.orderNumber.trim() || body.orderNumber.length > 100)) {
+      return apiError(request, 400, "INVALID_ORDER_NUMBER", "The checkout number is invalid. Try submitting the sale again.");
+    }
+    if (body.idempotencyKey !== undefined && (typeof body.idempotencyKey !== "string" || !body.idempotencyKey.trim() || body.idempotencyKey.length > 128)) {
+      return apiError(request, 400, "INVALID_CHECKOUT_KEY", "The checkout request is invalid. Refresh the POS page and try again.");
+    }
+
+    if (body.paymentMethod !== undefined && typeof body.paymentMethod !== "string") {
+      return apiError(request, 400, "INVALID_PAYMENT_METHOD", "Choose a supported payment method before checkout.");
+    }
+    const paymentMethodValue = (body.paymentMethod ?? "CASH").toUpperCase();
+    const validPaymentMethods: string[] = ["CASH", "GCASH", "PAYMAYA"];
+    if (!validPaymentMethods.includes(paymentMethodValue)) {
+      return apiError(request, 400, "INVALID_PAYMENT_METHOD", "Choose a supported payment method before checkout.");
+    }
+    const paymentMethod = paymentMethodValue as "CASH" | "GCASH" | "PAYMAYA";
+    requestPaymentMethod = paymentMethod;
 
     if (body.userId) {
       const customer = await prisma.user.findUnique({
@@ -290,16 +371,40 @@ export async function POST(request: Request) {
       }
     }
 
-    const orderNumber = body.orderNumber ?? `ORD-${Date.now()}`;
+    const orderNumber = body.orderNumber?.trim() ?? `ORD-${Date.now()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const idempotencyKey = body.idempotencyKey?.trim() ?? null;
+    requestOrderNumber = orderNumber;
+    requestIdempotencyKey = idempotencyKey;
     const totalAmount = items.reduce(
       (sum: number, item) => sum + Number(item.price ?? 0) * Number(item.quantity ?? 0),
       0
     );
+    if (!Number.isFinite(totalAmount) || totalAmount < 0 || totalAmount > 99_999_999.99) {
+      return apiError(request, 400, "INVALID_TOTAL", "The checkout total is outside the supported amount. Review the cart and try again.");
+    }
     const isWalkIn = body.isWalkIn === true;
+    requestIsWalkIn = isWalkIn;
     const initialStatus = resolveInitialOrderStatus(isWalkIn);
-    const paymentMethod = (body.paymentMethod ?? "CASH").toUpperCase() as "CASH" | "GCASH" | "PAYMAYA";
     const effectiveStatus = isWalkIn ? "COMPLETED" : initialStatus;
     const effectivePaymentStatus = isWalkIn ? "PAID" : "PENDING";
+
+    if (idempotencyKey) {
+      const existingOrder = await prisma.order.findUnique({
+        where: { idempotencyKey },
+        include: { items: true },
+      });
+      if (existingOrder) {
+        if (
+          existingOrder.isWalkIn !== isWalkIn ||
+          existingOrder.orderNumber !== orderNumber ||
+          existingOrder.paymentMethod !== paymentMethod ||
+          !haveSameOrderItems(existingOrder.items, items)
+        ) {
+          return apiError(request, 409, "CHECKOUT_KEY_REUSED", "This checkout request was already used for a different sale. Refresh the cart before trying again.");
+        }
+        return NextResponse.json({ success: true, order: existingOrder, idempotent: true }, { status: 200 });
+      }
+    }
 
     const productIds = [...new Set(items.map((item) => item.productId))];
     const existingProducts = await prisma.product.findMany({
@@ -311,12 +416,12 @@ export async function POST(request: Request) {
 
     for (const item of items) {
       if (!existingProductIds.has(item.productId)) {
-        return NextResponse.json({ success: false, message: `Product ${item.productId} no longer exists.` }, { status: 400 });
+        return apiError(request, 409, "ITEM_UNAVAILABLE", `Product ${item.productId} no longer exists. Refresh the POS catalog and try again.`);
       }
 
-      const product = existingProducts.find((entry) => entry.id === item.productId);
+      const product = existingProductMap.get(item.productId);
       if (product && !product.isActive) {
-        return NextResponse.json({ success: false, message: `Product ${item.productId} is no longer available.` }, { status: 400 });
+        return apiError(request, 409, "ITEM_UNAVAILABLE", `${product.name} is no longer available for sale. Refresh the POS catalog and try again.`);
       }
 
     }
@@ -333,11 +438,11 @@ export async function POST(request: Request) {
 
       const variant = existingVariantMap.get(item.variantId);
       if (!variant) {
-        return NextResponse.json({ success: false, message: `Variant ${item.variantId} no longer exists.` }, { status: 400 });
+        return apiError(request, 409, "ITEM_UNAVAILABLE", `A selected product option is no longer available. Refresh the POS catalog and try again.`);
       }
 
       if (variant.productId !== item.productId) {
-        return NextResponse.json({ success: false, message: `Variant ${item.variantId} does not belong to the selected product.` }, { status: 400 });
+        return apiError(request, 400, "INVALID_PRODUCT_OPTION", "A selected product option does not match its product. Refresh the POS catalog and try again.");
       }
     }
 
@@ -345,6 +450,7 @@ export async function POST(request: Request) {
       const createdOrder = await tx.order.create({
         data: {
           orderNumber,
+          idempotencyKey,
           userId: body.userId ?? null,
           customerName: body.customerName ?? "Walk-in Customer",
           customerPhone: body.customerPhone ?? "",
@@ -416,14 +522,18 @@ export async function POST(request: Request) {
       }
 
       return createdOrder;
-    });
+    }, { maxWait: 10_000, timeout: 30_000 });
 
-    emitOrderCreatedEvent({
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      userId: order.userId,
-      customerName: order.customerName,
-    });
+    try {
+      emitOrderCreatedEvent({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        userId: order.userId,
+        customerName: order.customerName,
+      });
+    } catch (eventError) {
+      logError("admin.orders.realtime_publish_failed", eventError, { requestId: getRequestId(request), orderId: order.id });
+    }
 
     return NextResponse.json({ success: true, order }, { status: 201 });
   } catch (error: unknown) {
@@ -435,14 +545,53 @@ export async function POST(request: Request) {
       userId: requestBody?.userId ?? null,
     });
 
-    const message = getUserFacingErrorMessage(error, "Unable to create order.");
+    const requestId = getRequestId(request);
+    const prismaCode = getPrismaErrorCode(error);
 
-    const status = String(error).includes("Not enough stock") || String(error).includes("not enough stock") ? 409 : 500;
+    if (error instanceof SyntaxError) {
+      return apiError(request, 400, "INVALID_JSON", "Checkout details could not be read. Refresh the POS page and try again.");
+    }
+    if (error instanceof InsufficientStockError) {
+      return apiError(request, 409, "INSUFFICIENT_STOCK", error.message);
+    }
+    if (error instanceof InventoryItemUnavailableError) {
+      return apiError(request, 409, "ITEM_UNAVAILABLE", error.message);
+    }
+    if (error instanceof InventoryConflictError || error instanceof OrderStateConflictError || prismaCode === "P2034") {
+      return apiError(request, 409, "INVENTORY_CONFLICT", "Stock changed while checkout was processing. No sale was recorded. Refresh the cart and try again.");
+    }
+    if (prismaCode === "P2028") {
+      return apiError(request, 503, "CHECKOUT_TIMEOUT", "Checkout took too long and was rolled back. No sale was recorded. Retry the checkout; the request is safe to repeat.");
+    }
+    if (prismaCode === "P2003") {
+      return apiError(request, 409, "ITEM_UNAVAILABLE", "A selected product changed while checkout was processing. Refresh the POS catalog and try again.");
+    }
+    if (["P2024", "P1001", "P1002"].includes(prismaCode ?? "")) {
+      return apiError(request, 503, "CHECKOUT_DATABASE_BUSY", "The checkout service is busy or temporarily unreachable. No sale was recorded. Please retry in a moment.");
+    }
 
-    return NextResponse.json(
-      { success: false, message },
-      { status }
-    );
+    if (prismaCode === "P2002" && requestIdempotencyKey) {
+      try {
+        const existingOrder = await prisma.order.findUnique({
+          where: { idempotencyKey: requestIdempotencyKey },
+          include: { items: true },
+        });
+        if (
+          existingOrder &&
+          existingOrder.isWalkIn === requestIsWalkIn &&
+          existingOrder.orderNumber === requestOrderNumber &&
+          existingOrder.paymentMethod === requestPaymentMethod &&
+          haveSameOrderItems(existingOrder.items, requestItems)
+        ) {
+          return NextResponse.json({ success: true, order: existingOrder, idempotent: true }, { status: 200 });
+        }
+      } catch (lookupError) {
+        logError("admin.orders.idempotency_lookup_failed", lookupError, { requestId });
+      }
+      return apiError(request, 409, "ORDER_NUMBER_CONFLICT", "That order number is already in use. Refresh the POS page and submit the sale again.");
+    }
+
+    return apiError(request, 500, "CHECKOUT_FAILED", "Checkout could not be confirmed. Check the order list before retrying.");
   }
 }
 

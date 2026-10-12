@@ -1,5 +1,7 @@
 type LogContext = Record<string, unknown>;
 
+const requestIds = new WeakMap<Request, string>();
+
 function serializeError(error: unknown) {
   if (error instanceof Error) {
     return {
@@ -27,7 +29,14 @@ function writeLog(level: "info" | "warn" | "error", event: string, context: LogC
 }
 
 export function getRequestId(request: Request) {
-  return request.headers.get("x-request-id") ?? "unknown";
+  const existing = requestIds.get(request);
+  if (existing) return existing;
+
+  const requestId = request.headers.get("x-request-id")
+    ?? request.headers.get("x-vercel-id")
+    ?? crypto.randomUUID();
+  requestIds.set(request, requestId);
+  return requestId;
 }
 
 export function logInfo(event: string, context?: LogContext) {

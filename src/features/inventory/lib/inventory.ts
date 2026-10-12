@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { emitInventoryUpdatedEvent } from "@/lib/realtime";
 
 type TransactionClient = Prisma.TransactionClient;
@@ -13,6 +13,20 @@ export class InsufficientStockError extends Error {
   constructor(itemLabel = "one of the selected items") {
     super(`Not enough stock for ${itemLabel}. Refresh your cart and try again.`);
     this.name = "InsufficientStockError";
+  }
+}
+
+export class InventoryItemUnavailableError extends Error {
+  constructor(itemLabel: string) {
+    super(`${itemLabel} is no longer available for sale. Refresh the POS catalog and try again.`);
+    this.name = "InventoryItemUnavailableError";
+  }
+}
+
+export class InventoryConflictError extends Error {
+  constructor(itemLabel: string) {
+    super(`Inventory changed while processing ${itemLabel}. Refresh the POS catalog and try again.`);
+    this.name = "InventoryConflictError";
   }
 }
 
@@ -96,6 +110,166 @@ export async function applyOrderInventoryMovement(
       ...item,
       quantity: Number(existing?.quantity ?? 0) + Number(item.quantity ?? 0),
     });
+  }
+
+  if (type === "STOCK_OUT" && aggregatedItems.size > 0) {
+    const productItems = [...aggregatedItems.values()].filter((item) => !item.variantId);
+    const variantItems = [...aggregatedItems.values()].filter((item) => Boolean(item.variantId));
+    const productIds = [...new Set(productItems.map((item) => item.productId))];
+    const variantIds = [...new Set(variantItems.map((item) => item.variantId!))];
+    const [products, variants] = await Promise.all([
+      productIds.length
+        ? tx.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, name: true, isActive: true },
+          })
+        : Promise.resolve([]),
+      variantIds.length
+        ? tx.productVariant.findMany({
+            where: { id: { in: variantIds } },
+            select: {
+              id: true,
+              productId: true,
+              sku: true,
+              isActive: true,
+              product: { select: { name: true, isActive: true } },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+    const productById = new Map(products.map((product) => [product.id, product]));
+    const variantById = new Map(variants.map((variant) => [variant.id, variant]));
+
+    for (const item of aggregatedItems.values()) {
+      if (!Number.isSafeInteger(item.quantity) || item.quantity <= 0) {
+        throw new Error("Each checkout quantity must be a whole number greater than zero.");
+      }
+
+      const product = productById.get(item.productId);
+      if (!product || !product.isActive) {
+        throw new InventoryItemUnavailableError(product?.name ?? item.productId);
+      }
+
+      if (item.variantId) {
+        const variant = variantById.get(item.variantId);
+        if (!variant || variant.productId !== item.productId || !variant.isActive || !variant.product.isActive) {
+          throw new InventoryItemUnavailableError(variant?.product.name ?? product.name);
+        }
+      }
+    }
+
+    const updatedProducts = productItems.length
+      ? await tx.$queryRaw<Array<{ id: string; stockAfter: number }>>`
+          UPDATE "Product" AS product
+          SET "stock" = product."stock" - requested."quantity",
+              "updatedAt" = CURRENT_TIMESTAMP
+          FROM (VALUES ${Prisma.join(productItems.map((item) => Prisma.sql`(${item.productId}, ${item.quantity})`))})
+            AS requested("id", "quantity")
+          WHERE product."id" = requested."id"
+            AND product."isActive" = true
+            AND product."stock" >= requested."quantity"
+          RETURNING product."id" AS "id", product."stock" AS "stockAfter"
+        `
+      : [];
+    const updatedVariants = variantItems.length
+      ? await tx.$queryRaw<Array<{ id: string; stockAfter: number }>>`
+          UPDATE "ProductVariant" AS variant
+          SET "stock" = variant."stock" - requested."quantity",
+              "updatedAt" = CURRENT_TIMESTAMP
+          FROM (VALUES ${Prisma.join(variantItems.map((item) => Prisma.sql`(${item.variantId}, ${item.quantity})`))})
+            AS requested("id", "quantity"),
+            "Product" AS product
+          WHERE variant."id" = requested."id"
+            AND product."id" = variant."productId"
+            AND product."isActive" = true
+            AND variant."isActive" = true
+            AND variant."stock" >= requested."quantity"
+          RETURNING variant."id" AS "id", variant."stock" AS "stockAfter"
+        `
+      : [];
+    const productStockById = new Map(updatedProducts.map((product) => [product.id, product.stockAfter]));
+    const variantStockById = new Map(updatedVariants.map((variant) => [variant.id, variant.stockAfter]));
+
+    for (const item of aggregatedItems.values()) {
+      const stockAfter = item.variantId
+        ? variantStockById.get(item.variantId)
+        : productStockById.get(item.productId);
+      if (stockAfter !== undefined) continue;
+
+      if (item.variantId) {
+        const variant = await tx.productVariant.findUnique({
+          where: { id: item.variantId },
+          select: { stock: true, isActive: true, product: { select: { name: true, isActive: true } } },
+        });
+        const label = variant?.product.name ?? productById.get(item.productId)?.name ?? item.productId;
+        if (!variant || !variant.isActive || !variant.product.isActive) {
+          throw new InventoryItemUnavailableError(label);
+        }
+        if (variant.stock < item.quantity) throw new InsufficientStockError(label);
+        throw new InventoryConflictError(label);
+      }
+
+      const product = await tx.product.findUnique({
+        where: { id: item.productId },
+        select: { name: true, stock: true, isActive: true },
+      });
+      const label = product?.name ?? item.productId;
+      if (!product || !product.isActive) throw new InventoryItemUnavailableError(label);
+      if (product.stock < item.quantity) throw new InsufficientStockError(label);
+      throw new InventoryConflictError(label);
+    }
+
+    const auditRows = [...aggregatedItems.values()].map((item) => {
+      const quantity = item.quantity;
+      const stockAfter = item.variantId
+        ? variantStockById.get(item.variantId)!
+        : productStockById.get(item.productId)!;
+      const variant = item.variantId ? variantById.get(item.variantId) : null;
+      const product = productById.get(item.productId)!;
+      const eventType = auditContext.eventType ?? "STOCK_OUT";
+
+      return {
+        productId: item.productId,
+        productName: product.name,
+        orderId: auditContext.orderId ?? null,
+        performedById: auditContext.actorUserId ?? null,
+        variantId: item.variantId || null,
+        variantSku: variant?.sku ?? null,
+        type,
+        eventType,
+        quantity,
+        stockBefore: stockAfter + quantity,
+        stockAfter,
+        minStockBefore: auditContext.minStockBefore ?? null,
+        minStockAfter: auditContext.minStockAfter ?? null,
+        reservedBefore: auditContext.reservedBefore ?? (eventType === "RESERVATION_CREATED" || eventType === "RESERVATION_RELEASED" ? (eventType === "RESERVATION_RELEASED" ? quantity : 0) : null),
+        reservedAfter: auditContext.reservedAfter ?? (eventType === "RESERVATION_CREATED" || eventType === "RESERVATION_RELEASED" ? (eventType === "RESERVATION_CREATED" ? quantity : 0) : null),
+        remarks,
+        performedByName: performedByName || null,
+        performedByType: auditContext.performedByType ?? (performedByName ? "ADMIN" : "SYSTEM"),
+        source: auditContext.source ?? "INVENTORY",
+        customerName: auditContext.customerName ?? null,
+        orderNumber: auditContext.orderNumber ?? null,
+        paymentMethod: paymentAudit.paymentMethod,
+        paymentStatus: paymentAudit.paymentStatus,
+        paymentReference: paymentAudit.paymentReference,
+      };
+    });
+
+    await tx.inventoryTransaction.createMany({ data: auditRows });
+
+    try {
+      const onlyItem = auditRows.length === 1 ? auditRows[0] : null;
+      emitInventoryUpdatedEvent({
+        ...(onlyItem ? { productId: onlyItem.productId, variantId: onlyItem.variantId, quantity: onlyItem.quantity } : { itemCount: auditRows.length }),
+        type,
+        orderNumber: auditContext.orderNumber ?? null,
+      });
+    } catch (error) {
+      console.warn("Unable to publish the inventory refresh event.", error);
+    }
+
+    return;
   }
 
   for (const item of aggregatedItems.values()) {

@@ -60,6 +60,14 @@ interface Product {
   variants?: ProductVariant[];
 }
 
+type CheckoutAttempt = {
+  fingerprint: string;
+  idempotencyKey: string;
+  orderNumber: string;
+};
+
+const CHECKOUT_ATTEMPT_STORAGE_KEY = "apc-pos-pending-checkout";
+
 function escapeReceiptHtml(value: unknown) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => {
     const entities: Record<string, string> = {
@@ -110,6 +118,7 @@ export default function POSPage() {
   const [usbPrintMessage, setUsbPrintMessage] = useState("");
   const [usbPrintError, setUsbPrintError] = useState("");
   const productRequestSequence = useRef(0);
+  const checkoutAttemptRef = useRef<CheckoutAttempt | null>(null);
 
   const loadProducts = useCallback(async () => {
     const requestSequence = ++productRequestSequence.current;
@@ -418,8 +427,42 @@ export default function POSPage() {
   const change = useMemo(() => (tender > subtotal ? tender - subtotal : 0), [tender, subtotal]);
 
   const generateOrderNumber = () => {
-    const timestamp = Date.now().toString().slice(-6);
-    return `POS-${timestamp}`;
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const suffix = Math.random().toString(36).slice(2, 7).toUpperCase();
+    return `POS-${timestamp}-${suffix}`;
+  };
+
+  const getCheckoutAttempt = (fingerprint: string) => {
+    let attempt = checkoutAttemptRef.current;
+    if (attempt?.fingerprint !== fingerprint) {
+      try {
+        const storedValue = sessionStorage.getItem(CHECKOUT_ATTEMPT_STORAGE_KEY);
+        const storedAttempt = storedValue ? JSON.parse(storedValue) as CheckoutAttempt : null;
+        attempt = storedAttempt?.fingerprint === fingerprint &&
+          typeof storedAttempt.idempotencyKey === "string" &&
+          typeof storedAttempt.orderNumber === "string"
+          ? storedAttempt
+          : null;
+      } catch {
+        attempt = null;
+      }
+    }
+
+    if (!attempt) {
+      attempt = {
+        fingerprint,
+        idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `pos-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        orderNumber: generateOrderNumber(),
+      };
+    }
+
+    checkoutAttemptRef.current = attempt;
+    try {
+      sessionStorage.setItem(CHECKOUT_ATTEMPT_STORAGE_KEY, JSON.stringify(attempt));
+    } catch {
+      // The in-memory attempt still protects retries while the POS page remains open.
+    }
+    return attempt;
   };
 
   const printReceipt = (receiptOrderNumber = orderNumber) => {
@@ -663,40 +706,57 @@ export default function POSPage() {
 
     setIsSubmitting(true);
     setStatusMessage("");
+    setWarningMessage("");
     setShowSuccessOverlay(false);
 
-    const newOrderNumber = generateOrderNumber();
-    setOrderNumber(newOrderNumber);
+    const requestItems = cart.map((item) => ({
+      productId: item.productId,
+      variantId: item.variantId,
+      quantity: item.quantity,
+      price: item.price,
+    }));
+    const fingerprint = JSON.stringify([paymentMethod, requestItems]);
+    const attempt = getCheckoutAttempt(fingerprint);
+    setOrderNumber(attempt.orderNumber);
 
     try {
       const response = await fetch("/api/admin/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          orderNumber: attempt.orderNumber,
+          idempotencyKey: attempt.idempotencyKey,
           paymentMethod,
           isWalkIn: true,
-          items: cart.map((item) => ({
-            productId: item.productId,
-            variantId: item.variantId,
-            quantity: item.quantity,
-            price: item.price,
-          })),
+          items: requestItems,
         }),
       });
 
-      const data = await response.json();
+      const data: { success?: boolean; code?: string; message?: string; requestId?: string; order?: { orderNumber?: string } } | null =
+        await response.json().catch(() => null);
       setIsSubmitting(false);
 
-      if (!response.ok) {
-        if (typeof data.message === "string" && data.message.includes("Not enough stock")) {
-          const productId = data.message.match(/Not enough stock for ([^.]+)\.?/)?.[1];
-          const productName = productId ? products.find((product) => product.id === productId)?.name : null;
-          setWarningMessage(productName ? `Not enough stock for ${productName}.` : data.message);
+      if (!data || typeof data !== "object") {
+        throw new Error("The server returned an unreadable checkout response.");
+      }
+
+      if (!response.ok || data.success !== true) {
+        if (data.code === "INSUFFICIENT_STOCK" || data.code === "ITEM_UNAVAILABLE") {
+          setWarningMessage(data.message ?? "A product in the cart is no longer available. Refresh the cart and try again.");
           setStatusMessage("");
         } else {
-          setStatusMessage(data.message ?? "Unable to create order.");
+          const reference = response.status >= 500 && data.requestId ? ` Reference: ${data.requestId}` : "";
+          setStatusMessage(`${data.message ?? "Unable to complete checkout."}${reference}`);
         }
         return;
+      }
+
+      setOrderNumber(data.order?.orderNumber ?? attempt.orderNumber);
+      checkoutAttemptRef.current = null;
+      try {
+        sessionStorage.removeItem(CHECKOUT_ATTEMPT_STORAGE_KEY);
+      } catch {
+        // Clearing browser storage is best effort after the sale is confirmed.
       }
 
       setShowSuccessOverlay(true);
@@ -754,7 +814,7 @@ export default function POSPage() {
       }, 1200);
     } catch {
       setIsSubmitting(false);
-      setStatusMessage("An unexpected error occurred. Please try again.");
+      setStatusMessage("The connection ended before checkout could be confirmed. Check recent orders before retrying. If you retry without reloading this page, the same request key prevents a duplicate sale.");
     }
   }
 
