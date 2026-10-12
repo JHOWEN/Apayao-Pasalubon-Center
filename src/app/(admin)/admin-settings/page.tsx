@@ -72,7 +72,6 @@ type TeamUser = {
 
 export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
-
   const [settingsForm, setSettingsForm] = useState<SettingsState>({
     appName: "APC Inventory",
     registeredBusinessName: "APAYAO PASALUBONG CENTER",
@@ -141,7 +140,19 @@ export default function AdminSettingsPage() {
   const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
+  const [isRoleLoading, setIsRoleLoading] = useState(true);
   const isAdmin = userRole === "ADMIN";
+  const showAdminTabs = isRoleLoading || isAdmin;
+  const getTabClassName = (tab: SettingsTab) =>
+    [
+      "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition",
+      activeTab === tab
+        ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
+        : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
+      isRoleLoading && tab !== "profile" && tab !== "security"
+        ? "cursor-not-allowed opacity-60"
+        : "",
+    ].join(" ");
 
   const showToast = (type: "success" | "error", message: string) => {
     setToast({ show: true, type, message });
@@ -195,6 +206,8 @@ export default function AdminSettingsPage() {
         }
       } catch (err) {
         console.error("Failed to load profile:", err);
+      } finally {
+        setIsRoleLoading(false);
       }
     }
 
@@ -625,89 +638,65 @@ export default function AdminSettingsPage() {
           </div>
         </div>
 
-        {/* Segmented Category Tabs */}
         <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800/80">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0">
             <button
               type="button"
               onClick={() => setActiveTab("profile")}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                activeTab === "profile"
-                  ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-              }`}
+              className={getTabClassName("profile")}
             >
               <User className="h-3.5 w-3.5" />
               <span>Profile & Account</span>
             </button>
-
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("store")}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                  activeTab === "store"
-                    ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-                }`}
-              >
-                <Store className="h-3.5 w-3.5" />
-                <span>Store Setup</span>
-              </button>
+            {showAdminTabs && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("store")}
+                  disabled={!isAdmin}
+                  aria-label={isRoleLoading ? "Store Setup (checking access)" : "Store Setup"}
+                  className={getTabClassName("store")}
+                >
+                  <Store className="h-3.5 w-3.5" />
+                  <span>Store Setup</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("pos")}
+                  disabled={!isAdmin}
+                  aria-label={isRoleLoading ? "POS Receipt (checking access)" : "POS Receipt"}
+                  className={getTabClassName("pos")}
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  <span>POS Receipt</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("wallets")}
+                  disabled={!isAdmin}
+                  aria-label={isRoleLoading ? "Payment Wallets (checking access)" : "Payment Wallets"}
+                  className={getTabClassName("wallets")}
+                >
+                  <CreditCard className="h-3.5 w-3.5" />
+                  <span>Payment Wallets</span>
+                </button>
+              </>
             )}
-
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("pos")}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                  activeTab === "pos"
-                    ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-                }`}
-              >
-                <Printer className="h-3.5 w-3.5" />
-                <span>POS Receipt</span>
-              </button>
-            )}
-
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("wallets")}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                  activeTab === "wallets"
-                    ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-                }`}
-              >
-                <CreditCard className="h-3.5 w-3.5" />
-                <span>Payment Wallets</span>
-              </button>
-            )}
-
             <button
               type="button"
               onClick={() => setActiveTab("security")}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                activeTab === "security"
-                  ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-              }`}
+              className={getTabClassName("security")}
             >
               <KeyRound className="h-3.5 w-3.5" />
               <span>Security</span>
             </button>
-
-            {isAdmin && (
+            {showAdminTabs && (
               <button
                 type="button"
                 onClick={() => setActiveTab("team")}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                  activeTab === "team"
-                    ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-                }`}
+                disabled={!isAdmin}
+                aria-label={isRoleLoading ? "Team Management (checking access)" : "Team Management"}
+                className={getTabClassName("team")}
               >
                 <Users className="h-3.5 w-3.5" />
                 <span>Team Management</span>
