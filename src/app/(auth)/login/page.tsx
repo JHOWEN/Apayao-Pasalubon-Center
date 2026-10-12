@@ -165,12 +165,12 @@ export default function LoginPage() {
       if (data.user?.role === "ADMIN" || data.user?.role === "STAFF") {
         setIsSuccess(true);
         const destination = data.user.role === "STAFF" ? "/pos" : "/dashboard";
-        window.setTimeout(() => router.replace(destination), 750);
+        router.replace(destination);
         return;
       }
 
       setIsSuccess(true);
-      window.setTimeout(() => router.push("/"), 750);
+      router.push("/");
     } catch {
       setIsLoading(false);
       setError("We're having trouble connecting to our servers. Please check your internet connection and try refreshing the page.");
