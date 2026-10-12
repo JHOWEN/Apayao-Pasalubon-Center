@@ -125,6 +125,7 @@ export default function DashboardPage() {
   const dashboardRequestSequence = useRef(0);
   const dashboardHasLoaded = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [systemStatus, setSystemStatus] = useState<SystemStatusData | null>(null);
   const [isSystemStatusLoading, setIsSystemStatusLoading] = useState(true);
@@ -214,7 +215,11 @@ export default function DashboardPage() {
   useEffect(() => {
     async function loadDashboardData() {
       const requestSequence = ++dashboardRequestSequence.current;
-      if (!dashboardHasLoaded.current) setIsLoading(true);
+      if (!dashboardHasLoaded.current) {
+        setIsLoading(true);
+      } else {
+        setIsRefreshing(true);
+      }
 
       const params = new URLSearchParams({ range, includeToday: "true" });
       if (range === "CUSTOM") {
@@ -255,7 +260,10 @@ export default function DashboardPage() {
       } catch {
         // Retain current state if analytics fails
       } finally {
-        if (requestSequence === dashboardRequestSequence.current) setIsLoading(false);
+        if (requestSequence === dashboardRequestSequence.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     }
 
@@ -603,13 +611,22 @@ export default function DashboardPage() {
           </button>
 
           {/* Live Status Indicator */}
-          <div className="flex min-h-10 min-w-32 shrink-0 items-center justify-end gap-2 px-1 text-right text-xs text-slate-600 dark:text-slate-300">
+          <div
+            className="flex min-h-10 min-w-32 shrink-0 items-center justify-end gap-2 px-1 text-right text-xs text-slate-600 dark:text-slate-300"
+            role="status"
+            aria-live="polite"
+          >
+            {isRefreshing && (
+              <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-500" />
+            )}
             <span
-              className={`h-2.5 w-2.5 shrink-0 rounded-full ${isLoading ? "animate-pulse bg-amber-500" : "bg-emerald-500"}`}
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${isLoading || isRefreshing ? "animate-pulse bg-amber-500" : "bg-emerald-500"}`}
             />
             <span className="whitespace-nowrap">
               {isLoading
-                ? "Syncing..."
+                ? "Loading dashboard..."
+                : isRefreshing
+                ? "Updating dashboard..."
                 : lastUpdated
                 ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
                 : "Live"}
