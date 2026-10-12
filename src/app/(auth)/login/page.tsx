@@ -162,18 +162,14 @@ export default function LoginPage() {
         window.dispatchEvent(new Event("apc-user-updated"));
       }
 
+      setSuccessMessage("Logged in successfully");
+
       if (data.user?.role === "ADMIN" || data.user?.role === "STAFF") {
         const destination = data.user.role === "STAFF" ? "/pos" : "/dashboard";
-        setSuccessMessage(
-          data.user.role === "STAFF"
-            ? "Login successful. Redirecting to POS..."
-            : "Login successful. Redirecting to your dashboard...",
-        );
         router.replace(destination);
         return;
       }
 
-      setSuccessMessage("Login successful. Redirecting to the store...");
       router.push("/");
     } catch {
       setIsLoading(false);
@@ -190,6 +186,22 @@ export default function LoginPage() {
       heroActionLink={undefined}
       footer={null}
     >
+      <AnimatePresence>
+        {successMessage ? (
+          <motion.div
+            initial={{ opacity: 0, y: -6, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: "auto" }}
+            exit={{ opacity: 0, y: -6, height: 0 }}
+            role="status"
+            aria-live="polite"
+            className="mb-4 flex items-center gap-2.5 overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-sm text-emerald-800"
+          >
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+            <span>{successMessage}</span>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
       <motion.form
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -199,22 +211,6 @@ export default function LoginPage() {
         aria-label="Sign in form"
         aria-busy={isLoading || Boolean(successMessage)}
       >
-        <AnimatePresence>
-          {successMessage ? (
-            <motion.div
-              initial={{ opacity: 0, y: -6, height: 0 }}
-              animate={{ opacity: 1, y: 0, height: "auto" }}
-              exit={{ opacity: 0, y: -6, height: 0 }}
-              role="status"
-              aria-live="polite"
-              className="flex items-center gap-2.5 overflow-hidden rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-3 text-sm text-emerald-800"
-            >
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-              <span>{successMessage}</span>
-            </motion.div>
-          ) : null}
-        </AnimatePresence>
-
           <AuthInput
             id="login-email"
             name="email"
