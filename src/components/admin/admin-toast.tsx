@@ -62,7 +62,7 @@ export function AdminToast({
       </span>
       <span className="min-w-0 flex-1">
         {title && <span className={`block text-xs font-bold ${accent}`}>{title}</span>}
-        <span className="block wrap-break-word text-xs font-medium text-slate-700 dark:text-slate-200">{message}</span>
+        <span className="block wrap-break-word text-sm font-semibold leading-5 text-slate-700 dark:text-slate-200">{message}</span>
       </span>
       <button
         type="button"
