@@ -122,6 +122,8 @@ export default function DashboardPage() {
   const [range, setRange] = useState<DashboardRange>("DAILY");
   const startDateInputRef = useRef<HTMLInputElement>(null);
   const endDateInputRef = useRef<HTMLInputElement>(null);
+  const dashboardRequestSequence = useRef(0);
+  const dashboardHasLoaded = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [systemStatus, setSystemStatus] = useState<SystemStatusData | null>(null);
@@ -167,7 +169,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const initialLoad = window.setTimeout(() => {
       void loadSystemStatus();
-    }, 0);
+    }, 3000);
 
     const refreshInterval = window.setInterval(() => {
       void loadSystemStatus();
@@ -188,26 +190,44 @@ export default function DashboardPage() {
   }, [loadSystemStatus]);
 
   useEffect(() => {
-    async function loadDashboardData() {
-      try {
-        const profileResponse = await fetch("/api/admin/profile");
-        const profileData = await profileResponse.json();
+    let isActive = true;
 
-        if (profileData?.success && typeof profileData?.user?.name === "string" && profileData.user.name.trim()) {
+    fetch("/api/admin/profile", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((profileData) => {
+        if (
+          isActive &&
+          profileData?.success &&
+          typeof profileData?.user?.name === "string" &&
+          profileData.user.name.trim()
+        ) {
           setUserName(profileData.user.name.trim());
         }
-      } catch {
-        // Fallback to default name
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    async function loadDashboardData() {
+      const requestSequence = ++dashboardRequestSequence.current;
+      if (!dashboardHasLoaded.current) setIsLoading(true);
+
+      const params = new URLSearchParams({ range, includeToday: "true" });
+      if (range === "CUSTOM") {
+        params.set("from", startDate);
+        params.set("to", endDate);
       }
 
+      const summaryRequest = fetch(`/api/admin/dashboard?${params.toString()}`);
+
       try {
-        setIsLoading(true);
-        const params = new URLSearchParams({ range, includeToday: "true" });
-        if (range === "CUSTOM") {
-          params.set("from", startDate);
-          params.set("to", endDate);
-        }
-        const summaryResponse = await fetch(`/api/admin/analytics?${params.toString()}`);
+        const summaryResponse = await summaryRequest;
+        if (requestSequence !== dashboardRequestSequence.current) return;
+        if (!summaryResponse.ok) throw new Error("Unable to load dashboard analytics.");
         const summaryData = await summaryResponse.json();
 
         setStats({
@@ -231,30 +251,45 @@ export default function DashboardPage() {
           completedOrders: Number(summaryData?.todayStats?.completedOrders ?? 0),
         });
         setLastUpdated(new Date());
+        dashboardHasLoaded.current = true;
       } catch {
         // Retain current state if analytics fails
       } finally {
-        setIsLoading(false);
+        if (requestSequence === dashboardRequestSequence.current) setIsLoading(false);
       }
     }
 
     void loadDashboardData();
 
-    const refreshInterval = window.setInterval(() => {
-      void loadDashboardData();
-    }, 30000);
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") void loadDashboardData();
+    };
+    let liveRefreshTimeout: number | undefined;
+    const handleAdminLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated"
+      ) {
+        if (liveRefreshTimeout) window.clearTimeout(liveRefreshTimeout);
+        liveRefreshTimeout = window.setTimeout(refreshIfVisible, 500);
+      }
+    };
+    const refreshInterval = window.setInterval(refreshIfVisible, 60000);
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void loadDashboardData();
-      }
+      refreshIfVisible();
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("apc-admin-live-event", handleAdminLiveEvent);
 
     return () => {
       window.clearInterval(refreshInterval);
+      if (liveRefreshTimeout) window.clearTimeout(liveRefreshTimeout);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("apc-admin-live-event", handleAdminLiveEvent);
     };
   }, [range, startDate, endDate]);
 

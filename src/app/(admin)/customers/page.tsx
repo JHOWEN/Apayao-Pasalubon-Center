@@ -29,7 +29,7 @@ import {
   ADMIN_MODAL_PANEL_CLASS,
 } from "@/utils/admin-modal";
 import Image from "@/components/safe-image";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type CustomerRow = {
   id: string;
@@ -55,6 +55,7 @@ type FilterKey = "all" | "verified" | "blocked" | "withOrders";
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -63,6 +64,9 @@ export default function CustomersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [jumpInput, setJumpInput] = useState("");
+  const [pagination, setPagination] = useState({ page: 1, limit: 15, totalCount: 0, totalPages: 1 });
+  const [summary, setSummary] = useState({ total: 0, verified: 0, blocked: 0, withOrders: 0 });
+  const customerRequestSequence = useRef(0);
 
   // Modal states
   const [viewingCustomer, setViewingCustomer] = useState<CustomerRow | null>(null);
@@ -108,116 +112,83 @@ export default function CustomersPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [viewingCustomer, editingCustomer, blockingCustomer]);
 
-  async function loadCustomers() {
+  const loadCustomers = useCallback(async () => {
+    const requestSequence = ++customerRequestSequence.current;
+    const params = new URLSearchParams({ page: String(currentPage), limit: String(pageSize), filter });
+    if (debouncedSearchQuery) params.set("search", debouncedSearchQuery);
+
     setLoading(true);
     try {
-      const response = await fetch("/api/admin/customers");
+      const response = await fetch(`/api/admin/customers?${params.toString()}`, { cache: "no-store" });
       const text = await response.text();
+      let data: {
+        customers?: unknown;
+        pagination?: { page: number; limit: number; totalCount: number; totalPages: number };
+        summary?: { total: number; verified: number; blocked: number; withOrders: number };
+        message?: string;
+      } = {};
+
+      try {
+        data = text ? JSON.parse(text) as typeof data : {};
+      } catch {
+        data = {};
+      }
 
       if (!response.ok) {
-        throw new Error(text || "Unable to load customers.");
+        throw new Error(data.message || text || "Unable to load customers.");
       }
 
-      let data: unknown = [];
-      try {
-        data = text ? JSON.parse(text) : [];
-      } catch {
-        data = [];
+      if (requestSequence !== customerRequestSequence.current) return;
+
+      const nextPagination = data.pagination ?? { page: 1, limit: pageSize, totalCount: 0, totalPages: 1 };
+      if (currentPage > nextPagination.totalPages) {
+        setCurrentPage(Math.max(1, nextPagination.totalPages));
+        return;
       }
 
-      const nextCustomers = Array.isArray(data) ? (data as CustomerRow[]) : [];
+      const nextCustomers = Array.isArray(data.customers) ? data.customers as CustomerRow[] : [];
       setCustomers(nextCustomers);
+      setPagination(nextPagination);
+      setSummary(data.summary ?? { total: 0, verified: 0, blocked: 0, withOrders: 0 });
       setApiError(null);
     } catch (error) {
-      console.error("Failed to load customers", error);
-      setCustomers([]);
-      setApiError(error instanceof Error ? error.message : "Unable to load customers.");
+      if (requestSequence === customerRequestSequence.current) {
+        console.error("Failed to load customers", error);
+        setCustomers([]);
+        setApiError(error instanceof Error ? error.message : "Unable to load customers.");
+      }
     } finally {
-      setLoading(false);
+      if (requestSequence === customerRequestSequence.current) setLoading(false);
     }
-  }
+  }, [currentPage, debouncedSearchQuery, filter, pageSize]);
 
   useEffect(() => {
-    let isMounted = true;
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+      setCurrentPage(1);
+    }, 250);
 
-    async function fetchInitial() {
-      try {
-        const response = await fetch("/api/admin/customers");
-        const text = await response.text();
+    return () => window.clearTimeout(timeoutId);
+  }, [searchQuery]);
 
-        if (!response.ok) {
-          throw new Error(text || "Unable to load customers.");
-        }
-
-        let data: unknown = [];
-        try {
-          data = text ? JSON.parse(text) : [];
-        } catch {
-          data = [];
-        }
-
-        if (isMounted) {
-          const nextCustomers = Array.isArray(data) ? (data as CustomerRow[]) : [];
-          setCustomers(nextCustomers);
-          setApiError(null);
-        }
-      } catch (error) {
-        if (isMounted) {
-          console.error("Failed to load customers", error);
-          setCustomers([]);
-          setApiError(error instanceof Error ? error.message : "Unable to load customers.");
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
-      }
-    }
-
-    void fetchInitial();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  // Filtered dataset
-  const filteredCustomers = useMemo(() => {
-    return customers.filter((customer) => {
-      const safeQuery = searchQuery.trim().toLowerCase();
-      const queryMatch =
-        !safeQuery ||
-        [customer.name, customer.email, customer.phone ?? "", customer.address ?? ""]
-          .join(" ")
-          .toLowerCase()
-          .includes(safeQuery);
-
-      if (!queryMatch) return false;
-
-      if (filter === "verified") return customer.emailVerified && !customer.isBlocked;
-      if (filter === "blocked") return Boolean(customer.isBlocked);
-      if (filter === "withOrders") return customer.hasOrders;
-
-      return true;
-    });
-  }, [customers, searchQuery, filter]);
+  useEffect(() => {
+    void loadCustomers();
+  }, [loadCustomers]);
 
   // Metric counts
-  const totalCount = customers.length;
-  const verifiedCount = useMemo(() => customers.filter((c) => c.emailVerified && !c.isBlocked).length, [customers]);
-  const blockedCount = useMemo(() => customers.filter((c) => c.isBlocked).length, [customers]);
-  const withOrdersCount = useMemo(() => customers.filter((c) => c.hasOrders).length, [customers]);
+  const totalCount = summary.total;
+  const verifiedCount = summary.verified;
+  const blockedCount = summary.blocked;
+  const withOrdersCount = summary.withOrders;
 
   // Pagination calculations
-  const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / pageSize));
+  const totalPages = Math.max(1, pagination.totalPages);
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * pageSize;
-  const paginatedCustomers = useMemo(() => {
-    return filteredCustomers.slice(startIndex, startIndex + pageSize);
-  }, [filteredCustomers, startIndex, pageSize]);
+  const paginatedCustomers = customers;
 
-  const startRecord = filteredCustomers.length === 0 ? 0 : startIndex + 1;
-  const endRecord = Math.min(startIndex + pageSize, filteredCustomers.length);
+  const startRecord = pagination.totalCount === 0 ? 0 : startIndex + 1;
+  const endRecord = Math.min(startIndex + customers.length, pagination.totalCount);
 
   function getPageNumbers() {
     if (totalPages <= 7) {
@@ -245,7 +216,6 @@ export default function CustomersPage() {
 
   function handleSearchChange(val: string) {
     setSearchQuery(val);
-    setCurrentPage(1);
   }
 
   function handleFilterChange(val: FilterKey) {
@@ -301,6 +271,7 @@ export default function CustomersPage() {
       }
       setEditingCustomer(null);
       setToast({ type: "success", message: "Customer profile updated successfully." });
+      void loadCustomers();
     } catch {
       setToast({ type: "error", message: "Network error updating customer profile." });
     } finally {
@@ -338,6 +309,7 @@ export default function CustomersPage() {
         type: "success",
         message: `${blockingCustomer.name} has been ${nextBlocked ? "blocked" : "unblocked"}.`,
       });
+      void loadCustomers();
     } catch {
       setToast({ type: "error", message: "Network error updating customer status." });
     } finally {
@@ -551,7 +523,7 @@ export default function CustomersPage() {
                     </div>
                   </td>
                 </tr>
-              ) : filteredCustomers.length === 0 ? (
+              ) : customers.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-14 text-center text-slate-500 dark:text-slate-400">
                     <div className="flex flex-col items-center justify-center">
@@ -723,7 +695,7 @@ export default function CustomersPage() {
             <span>
               Showing <strong className="font-semibold text-slate-800 dark:text-slate-200">{startRecord.toLocaleString()}</strong> to{" "}
               <strong className="font-semibold text-slate-800 dark:text-slate-200">{endRecord.toLocaleString()}</strong> of{" "}
-              <strong className="font-semibold text-slate-800 dark:text-slate-200">{filteredCustomers.length.toLocaleString()}</strong> customers
+              <strong className="font-semibold text-slate-800 dark:text-slate-200">{pagination.totalCount.toLocaleString()}</strong> customers
             </span>
 
             <div className="flex items-center gap-1.5 pl-3 border-l border-slate-200 dark:border-slate-700">

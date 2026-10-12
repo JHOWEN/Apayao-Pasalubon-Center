@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "@/components/safe-image";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowCounterClockwise as RotateCcw,
   Check,
@@ -82,6 +82,8 @@ const defaultReceiptHeader = {
 export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [productPage, setProductPage] = useState(1);
+  const [productPagination, setProductPagination] = useState({ totalCount: 0, totalPages: 1 });
   const [cart, setCart] = useState<CartItem[]>([]);
   const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({});
   const [selectedVariantIds, setSelectedVariantIds] = useState<Record<string, string>>({});
@@ -91,6 +93,7 @@ export default function POSPage() {
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [warningMessage, setWarningMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [tenderAmount, setTenderAmount] = useState("");
   const [orderNumber, setOrderNumber] = useState("");
   const [showReceipt, setShowReceipt] = useState(false);
@@ -106,6 +109,37 @@ export default function POSPage() {
   const [isUsbPrinting, setIsUsbPrinting] = useState(false);
   const [usbPrintMessage, setUsbPrintMessage] = useState("");
   const [usbPrintError, setUsbPrintError] = useState("");
+  const productRequestSequence = useRef(0);
+
+  const loadProducts = useCallback(async () => {
+    const requestSequence = ++productRequestSequence.current;
+    const params = new URLSearchParams({ view: "pos", page: String(productPage), limit: "30" });
+    if (debouncedSearchQuery) params.set("search", debouncedSearchQuery);
+
+    try {
+      const response = await fetch(`/api/admin/products?${params.toString()}`, { cache: "no-store" });
+      if (!response.ok) return;
+
+      const data = await response.json();
+      if (requestSequence !== productRequestSequence.current) return;
+
+      const nextPagination = data?.pagination;
+      if (nextPagination && productPage > nextPagination.totalPages) {
+        setProductPage(Math.max(1, nextPagination.totalPages));
+        return;
+      }
+
+      setProducts(Array.isArray(data?.products) ? data.products : []);
+      setProductPagination({
+        totalCount: Number(nextPagination?.totalCount ?? 0),
+        totalPages: Math.max(1, Number(nextPagination?.totalPages ?? 1)),
+      });
+    } catch {
+      // Keep the current catalog if a refresh fails.
+    } finally {
+      if (requestSequence === productRequestSequence.current) setIsLoadingProducts(false);
+    }
+  }, [debouncedSearchQuery, productPage]);
 
   useEffect(() => {
     const terminalStorageKey = "apc-pos-terminal-number";
@@ -132,18 +166,6 @@ export default function POSPage() {
 
     updateClock();
     const clockInterval = window.setInterval(updateClock, 30000);
-
-    async function loadProducts() {
-      try {
-        const response = await fetch("/api/admin/products");
-        const data = await response.json();
-        setProducts(Array.isArray(data) ? data : []);
-      } catch {
-        // Retain empty list on error
-      } finally {
-        setIsLoadingProducts(false);
-      }
-    }
 
     async function loadCashierProfile() {
       try {
@@ -173,7 +195,6 @@ export default function POSPage() {
       }
     }
 
-    void loadProducts();
     void loadCashierProfile();
     void loadReceiptHeader();
 
@@ -182,38 +203,51 @@ export default function POSPage() {
     };
   }, []);
 
-  // Periodic refresh to keep POS stocks synchronized
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+      setProductPage(1);
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadProducts();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loadProducts]);
+
+  // Refresh the visible POS page when inventory changes, with a slower fallback.
   useEffect(() => {
     if (isSubmitting || showReceipt || showSuccessOverlay) return;
 
-    let mounted = true;
-    const id = window.setInterval(async () => {
-      try {
-        const r = await fetch("/api/admin/products");
-        if (!r.ok) return;
-        const data = await r.json();
-        if (!mounted) return;
-        setProducts(Array.isArray(data) ? data : []);
-      } catch {
-        // ignore polling errors
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") void loadProducts();
+    };
+    const handleAdminLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated"
+      ) {
+        refreshIfVisible();
       }
-    }, 5000);
+    };
+
+    const fallbackRefresh = window.setInterval(refreshIfVisible, 60_000);
+    window.addEventListener("apc-admin-live-event", handleAdminLiveEvent);
+    document.addEventListener("visibilitychange", refreshIfVisible);
 
     return () => {
-      mounted = false;
-      window.clearInterval(id);
+      window.clearInterval(fallbackRefresh);
+      window.removeEventListener("apc-admin-live-event", handleAdminLiveEvent);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
     };
-  }, [isSubmitting, showReceipt, showSuccessOverlay]);
-
-  const filteredProducts = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return products;
-    return products.filter(
-      (product) =>
-        product.name.toLowerCase().includes(query) ||
-        product.sku.toLowerCase().includes(query)
-    );
-  }, [products, searchQuery]);
+  }, [isSubmitting, loadProducts, showReceipt, showSuccessOverlay]);
 
   function getSelectedVariant(product: Product) {
     const variantId = selectedVariantIds[product.id];
@@ -709,16 +743,8 @@ export default function POSPage() {
         })
       );
 
-      // Refresh product list from server in background
-      try {
-        const refreshed = await fetch("/api/admin/products");
-        const refreshedData = await refreshed.json();
-        if (refreshed.ok) {
-          setProducts(Array.isArray(refreshedData) ? refreshedData : []);
-        }
-      } catch {
-        // ignore background refresh errors
-      }
+      // Refresh the current lightweight, paginated POS result in the background.
+      await loadProducts();
 
       window.setTimeout(() => {
         setShowSuccessOverlay(false);
@@ -909,10 +935,10 @@ export default function POSPage() {
                 className="mx-auto max-h-[min(56dvh,34rem)] w-full max-w-[80mm] overflow-y-auto overscroll-contain border border-slate-200 bg-white p-[3mm] font-mono text-[10px] leading-[1.4] text-slate-900 shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
               >
                 <header className="mb-2 text-center">
-                  <h3 className="break-words text-[12px] font-bold leading-tight">
+                  <h3 className="wrap-break-word text-[12px] font-bold leading-tight">
                     {receiptHeader.registeredBusinessName.trim() || defaultReceiptHeader.registeredBusinessName}
                   </h3>
-                  <p className="mt-1 whitespace-pre-line break-words">
+                  <p className="mt-1 whitespace-pre-line wrap-break-word">
                     {receiptHeader.businessAddress.trim() || defaultReceiptHeader.businessAddress}
                   </p>
                   {receiptHeader.tinNumber.trim() && <p className="mt-1">TIN: {receiptHeader.tinNumber.trim()}</p>}
@@ -920,11 +946,11 @@ export default function POSPage() {
 
                 <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
                 <dl className="space-y-0.5">
-                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>DATE:</dt><dd className="break-words">{receiptDateToShow.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>DATE:</dt><dd className="wrap-break-word">{receiptDateToShow.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</dd></div>
                   <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TIME:</dt><dd>{receiptDateToShow.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</dd></div>
                   <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>ORDER NO.:</dt><dd className="break-all">{orderNumber}</dd></div>
-                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>CASHIER:</dt><dd className="break-words">{cashierName || "Unknown user"}</dd></div>
-                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TERMINAL:</dt><dd className="break-words">{terminalNumber || "POS-LOCAL"}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>CASHIER:</dt><dd className="wrap-break-word">{cashierName || "Unknown user"}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TERMINAL:</dt><dd className="wrap-break-word">{terminalNumber || "POS-LOCAL"}</dd></div>
                 </dl>
 
                 <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
@@ -935,7 +961,7 @@ export default function POSPage() {
                   {receiptItemsToShow.map((item) => (
                     <div key={item.id} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-x-1">
                       <span>{item.quantity}</span>
-                      <span className="break-words font-semibold">
+                      <span className="wrap-break-word font-semibold">
                         {item.name}{item.variantValueLabel ? ` (${item.variantValueLabel})` : ""}
                       </span>
                       <span className="text-right">PHP {(item.price * item.quantity).toFixed(2)}</span>
@@ -993,7 +1019,7 @@ export default function POSPage() {
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
                   <div className="min-w-0">
                     <p className="font-semibold">USB printing failed</p>
-                    <p className="mt-1 break-words">{usbPrintError}</p>
+                    <p className="mt-1 wrap-break-word">{usbPrintError}</p>
                     <button
                       type="button"
                       onClick={handleBrowserReceiptPrint}
@@ -1018,7 +1044,7 @@ export default function POSPage() {
             <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
               <h2 className="text-base font-semibold text-slate-950 dark:text-white">Product catalog</h2>
               <span className="font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
-                {isLoadingProducts ? "Loading…" : `${filteredProducts.length} items`}
+                {isLoadingProducts ? "Loading…" : `${productPagination.totalCount} items`}
               </span>
             </div>
             {/* Catalog Controls (Search, View Toggle, Item Counter) */}
@@ -1029,13 +1055,17 @@ export default function POSPage() {
                   type="text"
                   placeholder="Search products by name or SKU..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                  }}
                   className="h-9 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-8 text-xs text-slate-900 outline-hidden placeholder:text-slate-400 focus:border-slate-400 focus:bg-white dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-slate-600 dark:focus:bg-slate-900"
                 />
                 {searchQuery && (
                   <button
                     type="button"
-                    onClick={() => setSearchQuery("")}
+                    onClick={() => {
+                      setSearchQuery("");
+                    }}
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -1124,8 +1154,8 @@ export default function POSPage() {
                     )
                   )}
                 </div>
-              ) : filteredProducts.length > 0 ? (
-                filteredProducts.map((product) => {
+              ) : products.length > 0 ? (
+                products.map((product) => {
                   const selectedVariant = getSelectedVariant(product);
                   const variantOptions = product.variants ?? [];
                   const activeStock =
@@ -1324,6 +1354,31 @@ export default function POSPage() {
                 </div>
               )}
             </div>
+            {productPagination.totalPages > 1 && (
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 text-xs dark:border-slate-800">
+                <span className="text-slate-500 dark:text-slate-400">
+                  Page {productPage} of {productPagination.totalPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProductPage((page) => Math.max(1, page - 1))}
+                    disabled={productPage <= 1 || isLoadingProducts}
+                    className="rounded-md border border-slate-200 px-2.5 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductPage((page) => Math.min(productPagination.totalPages, page + 1))}
+                    disabled={productPage >= productPagination.totalPages || isLoadingProducts}
+                    className="rounded-md border border-slate-200 px-2.5 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 

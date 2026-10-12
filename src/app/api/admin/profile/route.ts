@@ -20,28 +20,26 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const userRecord = await prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { role: true, isBlocked: true },
-    });
-
-    if (!userRecord || userRecord.isBlocked || !canAccessAdminPortal(userRecord.role)) {
+    if (payload.isBlocked || !canAccessAdminPortal(payload.role)) {
       return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
     }
 
-    const user = await prisma.user.findUnique({
+    const userRecord = await prisma.user.findUnique({
       where: { id: payload.sub },
       select: { id: true, name: true, email: true, phone: true, address: true, imageUrl: true, role: true },
     });
 
-    if (!user) {
+    if (!userRecord) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
     }
+    if (!canAccessAdminPortal(userRecord.role)) {
+      return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
+    }
 
-    const rateLimitResponse = await enforceRateLimit(request, "admin:profile:get", { group: "admin", accountId: user.id });
+    const rateLimitResponse = await enforceRateLimit(request, "admin:profile:get", { group: "admin", accountId: userRecord.id });
     if (rateLimitResponse) return rateLimitResponse;
 
-    return NextResponse.json({ success: true, user });
+    return NextResponse.json({ success: true, user: userRecord });
   } catch (error) {
     return NextResponse.json({ success: false, message: getUserFacingErrorMessage(error, "Unable to load profile.") }, { status: 500 });
   }

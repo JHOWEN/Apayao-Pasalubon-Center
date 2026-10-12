@@ -158,6 +158,7 @@ model Order {
   inventoryTransactions InventoryTransaction[]
 
   @@index([status, createdAt])
+  @@index([status, updatedAt])
   @@index([paymentStatus, createdAt])
   @@index([status, paymentStatus, reservationExpiresAt])
   @@index([userId, createdAt])

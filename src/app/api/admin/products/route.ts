@@ -85,12 +85,83 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
+  if (searchParams.get("view") === "pos") {
+    const page = Math.max(1, Number(searchParams.get("page")) || 1);
+    const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit")) || 30));
+    const search = searchParams.get("search")?.trim().slice(0, 120) ?? "";
+    const where = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: "insensitive" as const } },
+            { sku: { contains: search, mode: "insensitive" as const } },
+            { variants: { some: { sku: { contains: search, mode: "insensitive" as const } } } },
+          ],
+        }
+      : {};
+    const [products, totalCount] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          sku: true,
+          price: true,
+          stock: true,
+          imageUrl: true,
+          hasVariants: true,
+          variants: {
+            select: { id: true, sku: true, price: true, stock: true, attributes: true },
+          },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.product.count({ where }),
+    ]);
+
+    return NextResponse.json(
+      {
+        products: products.map((product) => ({
+          ...product,
+          price: Number(product.price),
+          stock: Number(product.stock),
+          variants: product.variants.map((variant) => ({
+            ...variant,
+            price: Number(variant.price),
+            stock: Number(variant.stock),
+            attributes: typeof variant.attributes === "string"
+              ? (() => {
+                  try {
+                    const parsed = JSON.parse(variant.attributes);
+                    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+                  } catch {
+                    return {};
+                  }
+                })()
+              : {},
+          })),
+        })),
+        pagination: {
+          page,
+          limit,
+          totalCount,
+          totalPages: Math.max(1, Math.ceil(totalCount / limit)),
+        },
+      },
+      { headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
+  }
+
   if (searchParams.has("page")) {
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
     const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit")) || 10));
     const search = searchParams.get("search")?.trim().slice(0, 120) ?? "";
     const categoryId = searchParams.get("categoryId")?.trim() ?? "";
     const productType = searchParams.get("type");
+    const requestedStatus = searchParams.get("status");
+    const validStatuses = ["DRAFT", "PUBLISHED", "UNPUBLISHED", "ARCHIVED"] as const;
+    const statusFilter = validStatuses.find((value) => value === requestedStatus);
     const baseWhere = {
       ...(categoryId ? { categoryId } : {}),
       ...(search
@@ -100,19 +171,62 @@ export async function GET(request: Request) {
               { sku: { contains: search, mode: "insensitive" as const } },
               { description: { contains: search, mode: "insensitive" as const } },
               { category: { name: { contains: search, mode: "insensitive" as const } } },
+              { variants: { some: { sku: { contains: search, mode: "insensitive" as const } } } },
             ],
           }
         : {}),
     };
     const where = {
       ...baseWhere,
+      ...(statusFilter ? { status: statusFilter } : {}),
       ...(productType === "SIMPLE"
         ? { variants: { none: {} } }
         : productType === "VARIANT"
           ? { variants: { some: {} } }
           : {}),
     };
-    const [products, totalCount, simpleCount, variantCount, summaryRows] = await Promise.all([
+    const includeInventorySummary = searchParams.get("view") !== "management";
+    type ProductSummary = {
+      totalProducts: number;
+      totalStockUnits: number;
+      totalStockValue: number;
+      totalCostValue: number;
+      totalRetailValue: number;
+      lowStockCount: number;
+    };
+    const summaryQuery = includeInventorySummary
+      ? prisma.$queryRaw<ProductSummary[]>`
+          SELECT
+            (SELECT COUNT(*)::int FROM "Product") AS "totalProducts",
+            (
+              COALESCE((SELECT SUM(p."stock") FROM "Product" p
+                WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
+              + COALESCE((SELECT SUM(v."stock") FROM "ProductVariant" v), 0)
+            )::int AS "totalStockUnits",
+            (
+              COALESCE((SELECT SUM(p."cost" * p."stock") FROM "Product" p
+                WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
+              + COALESCE((SELECT SUM(v."cost" * v."stock") FROM "ProductVariant" v), 0)
+            )::double precision AS "totalStockValue",
+            (
+              COALESCE((SELECT SUM(p."cost" * p."stock") FROM "Product" p
+                WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
+              + COALESCE((SELECT SUM(v."cost" * v."stock") FROM "ProductVariant" v), 0)
+            )::double precision AS "totalCostValue",
+            (
+              COALESCE((SELECT SUM(p."price" * p."stock") FROM "Product" p
+                WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
+              + COALESCE((SELECT SUM(v."price" * v."stock") FROM "ProductVariant" v), 0)
+            )::double precision AS "totalRetailValue",
+            (
+              (SELECT COUNT(*) FROM "Product" p
+                WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")
+                  AND p."stock" <= p."minStock")
+              + (SELECT COUNT(*) FROM "ProductVariant" v WHERE v."stock" <= v."minStock")
+            )::int AS "lowStockCount"
+        `
+      : Promise.resolve([] as ProductSummary[]);
+    const [products, totalCount, simpleCount, variantCount, statusCountRows, summaryRows] = await Promise.all([
       prisma.product.findMany({
         where,
         include: { category: true, variants: true },
@@ -121,54 +235,47 @@ export async function GET(request: Request) {
         take: limit,
       }),
       prisma.product.count({ where }),
-      prisma.product.count({ where: { ...baseWhere, variants: { none: {} } } }),
-      prisma.product.count({ where: { ...baseWhere, variants: { some: {} } } }),
-      prisma.$queryRaw<Array<{ totalProducts: number; totalStockUnits: number; totalStockValue: number; totalCostValue: number; totalRetailValue: number; lowStockCount: number }>>`
-        SELECT
-          (SELECT COUNT(*)::int FROM "Product") AS "totalProducts",
-          (
-            COALESCE((SELECT SUM(p."stock") FROM "Product" p
-              WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
-            + COALESCE((SELECT SUM(v."stock") FROM "ProductVariant" v), 0)
-          )::int AS "totalStockUnits",
-          (
-            COALESCE((SELECT SUM(p."cost" * p."stock") FROM "Product" p
-              WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
-            + COALESCE((SELECT SUM(v."cost" * v."stock") FROM "ProductVariant" v), 0)
-          )::double precision AS "totalStockValue",
-          (
-            COALESCE((SELECT SUM(p."cost" * p."stock") FROM "Product" p
-              WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
-            + COALESCE((SELECT SUM(v."cost" * v."stock") FROM "ProductVariant" v), 0)
-          )::double precision AS "totalCostValue",
-          (
-            COALESCE((SELECT SUM(p."price" * p."stock") FROM "Product" p
-              WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
-            + COALESCE((SELECT SUM(v."price" * v."stock") FROM "ProductVariant" v), 0)
-          )::double precision AS "totalRetailValue",
-          (
-            (SELECT COUNT(*) FROM "Product" p
-              WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")
-                AND p."stock" <= p."minStock")
-            + (SELECT COUNT(*) FROM "ProductVariant" v WHERE v."stock" <= v."minStock")
-          )::int AS "lowStockCount"
-      `,
+      includeInventorySummary
+        ? prisma.product.count({ where: { ...baseWhere, variants: { none: {} } } })
+        : Promise.resolve(0),
+      includeInventorySummary
+        ? prisma.product.count({ where: { ...baseWhere, variants: { some: {} } } })
+        : Promise.resolve(0),
+      prisma.product.groupBy({ by: ["status"], where: baseWhere, _count: { id: true } }),
+      summaryQuery,
     ]);
     const summary = summaryRows[0] ?? { totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, totalCostValue: 0, totalRetailValue: 0, lowStockCount: 0 };
+    const statusCounts = statusCountRows.reduce(
+      (counts, row) => {
+        counts.all += row._count.id;
+        if (row.status === "PUBLISHED") counts.published = row._count.id;
+        if (row.status === "DRAFT") counts.draft = row._count.id;
+        if (row.status === "UNPUBLISHED") counts.unpublished = row._count.id;
+        return counts;
+      },
+      { all: 0, published: 0, draft: 0, unpublished: 0 },
+    );
 
     return NextResponse.json(
       {
         products: products.map((product) => serializeProduct(product)),
         pagination: { page, limit, totalCount, totalPages: Math.max(1, Math.ceil(totalCount / limit)) },
-        typeCounts: { ALL: simpleCount + variantCount, SIMPLE: simpleCount, VARIANT: variantCount },
-        summary: {
-          totalProducts: Number(summary.totalProducts),
-          totalStockUnits: Number(summary.totalStockUnits),
-          totalStockValue: Number(summary.totalStockValue),
-          totalCostValue: Number(summary.totalCostValue),
-          totalRetailValue: Number(summary.totalRetailValue),
-          lowStockCount: Number(summary.lowStockCount),
-        },
+        ...(includeInventorySummary
+          ? { typeCounts: { ALL: simpleCount + variantCount, SIMPLE: simpleCount, VARIANT: variantCount } }
+          : {}),
+        statusCounts,
+        ...(includeInventorySummary
+          ? {
+              summary: {
+                totalProducts: Number(summary.totalProducts),
+                totalStockUnits: Number(summary.totalStockUnits),
+                totalStockValue: Number(summary.totalStockValue),
+                totalCostValue: Number(summary.totalCostValue),
+                totalRetailValue: Number(summary.totalRetailValue),
+                lowStockCount: Number(summary.lowStockCount),
+              },
+            }
+          : {}),
       },
       { headers: { "Cache-Control": "no-store, max-age=0" } },
     );
