@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { ToastHost } from "@/components/toast-host";
 import "./globals.css";
 
 const themeInitScript = `
@@ -31,6 +32,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-full flex flex-col font-sans">
         {children}
+        <ToastHost />
         <SpeedInsights />
       </body>
     </html>
