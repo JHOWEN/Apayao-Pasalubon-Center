@@ -10,7 +10,7 @@ This guide keeps the current providers and application behavior: Vercel, Postgre
    - `profile-images`: public; profile uploads are limited to 2 MB.
    - `payment-qr`: public; QR uploads are limited to 5 MB.
    - `payment-proofs`: private; receipt uploads are limited to 5 MB and are viewed using short-lived signed URLs.
-3. Create or select the production Upstash Redis database. It is used for rate limits and cross-instance realtime event delivery.
+3. Create or select the production Upstash Redis database. It is used for rate limits and cross-instance realtime event delivery. PostgreSQL `RateLimitEntry` is the shared fallback for rate limits.
 4. Verify the sending domain in Resend and publish its required DNS records. Alternatively, configure SMTP. The current mailer prefers Resend when both `RESEND_API_KEY` and `RESEND_FROM` are present.
 5. Select the canonical production hostname and make sure it has HTTPS. This value must match the origin used in verification and password-reset emails.
 
@@ -51,7 +51,9 @@ Login stores only a hash of each rotating refresh token in PostgreSQL (7 days by
 1. From a clean release branch, run `npx prisma validate`.
 2. Review the pending migration files and take a database backup or snapshot.
 3. Apply already-created migrations to the production database with `npx prisma migrate deploy`. This creates the `AdminAuditLog` table. Do not use `prisma migrate dev` against production.
-4. Verify Vercel's production `DATABASE_URL` points to the intended database, then check `GET /api/health` after deployment. It should return HTTP 200 with the database check marked `ok`.
+4. In Supabase SQL Editor, run `docs/security/supabase-runtime-role-verify.sql`. Confirm `apc_runtime` exists, is not a superuser, does not bypass RLS or inherit roles, the expected 18 app tables have RLS and the `apc_runtime_full_access` policy, and there are no unexpected table grants or role memberships. The SQL Editor may show `postgres` as its connected user; inspect the separate runtime-role columns.
+5. Set Vercel Production `DATABASE_URL` to the same Supabase project using the shared transaction-pooler URI: username `apc_runtime.<project-ref>`, port `6543`, and the Prisma `?pgbouncer=true` parameter. Keep `DIRECT_URL` out of Vercel. Save the variables and redeploy Production.
+6. Check `GET /api/health` after deployment. It should return HTTP 200 with the database check marked `ok`.
 
 ## 4. Configure email and verify links
 
@@ -92,6 +94,13 @@ Login stores only a hash of each rotating refresh token in PostgreSQL (7 days by
 2. Set `CRON_SECRET` in Vercel. The cron route expects `Authorization: Bearer <CRON_SECRET>`; do not call it without that header or expose the secret in logs.
 3. Monitor `GET /api/health` for HTTP 200. Configure an uptime monitor. If `OPERATIONAL_ALERT_WEBHOOK_URL` is set, test that database failure alerts reach the right channel.
 4. Check Vercel function logs, Supabase Storage logs, Resend delivery logs, and Upstash metrics during the smoke tests. Confirm there are no DNS/connectivity failures or repeated 5xx responses.
+
+### Verify shared rate limiting in Production
+
+1. In Vercel Project Settings > Environment Variables, confirm `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` are set for **Production**. Redeploy after changing them; environment changes apply to new deployments.
+2. Check the configured auth request limit first (`RATE_LIMIT_AUTH_MAX_REQUESTS`, default `3`). Send one more than that number of invalid login attempts using a new disposable email address, not a real user's address. The excess request should return HTTP 429 with `Retry-After`.
+3. In Upstash's data browser, look for a short-lived `apc:rate-limit:v2:*:count` key. If Redis is unavailable or not configured, inspect recent `RateLimitEntry` rows in the Production database instead. Redis and PostgreSQL are shared across Vercel instances; process memory is not used as a Production fallback.
+4. Stop after the first 429 and let its cooldown expire. Do not use a real account or repeatedly retry; authentication backoff increases after further attempts.
 
 ## 9. Run release checks and smoke tests
 

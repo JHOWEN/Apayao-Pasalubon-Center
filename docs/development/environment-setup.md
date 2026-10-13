@@ -131,10 +131,14 @@ also be forwarded to Slack, Teams, PagerDuty, or another webhook receiver.
 Never expose `SUPABASE_SERVICE_ROLE_KEY` to the browser or prefix it with
 `NEXT_PUBLIC_`.
 
-Rate limiting uses Upstash Redis in production so multiple application
-instances share the same login and API limits. Keep the Redis credentials
-server-only. PostgreSQL remains the fallback when Redis is not configured or
-temporarily unavailable, with an in-memory fallback during database failure.
+Rate limiting uses Upstash Redis when configured and otherwise uses the shared
+PostgreSQL `RateLimitEntry` table. Keep Redis credentials server-only. In
+production, a Redis failure falls back to PostgreSQL; if both shared stores fail,
+the request is denied with HTTP 429 instead of using a per-instance memory
+counter. In-memory rate limits are development-only. Verify the production
+`UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` in Vercel, then check
+Upstash metrics or the `RateLimitEntry` table while making requests to confirm
+which shared store is active.
 
 `ADMIN_ROUTE_KEY` controls the opaque prefix for admin pages and admin APIs.
 Generate at least 32 random bytes encoded as URL-safe base64, configure the

@@ -6,6 +6,8 @@ import { getRequestId, logError } from "@/lib/logger";
 import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { customerUpdateSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -201,20 +203,9 @@ export async function PUT(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:customers:update", "admin");
     if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json();
-    const { id, name, email, phone, address, emailVerified, isBlocked } = body as {
-      id?: string;
-      name?: string;
-      email?: string;
-      phone?: string;
-      address?: string;
-      emailVerified?: boolean;
-      isBlocked?: boolean;
-    };
-
-    if (!id) {
-      return NextResponse.json({ success: false, message: "Customer id is required." }, { status: 400 });
-    }
+    const parsed = await parseJsonRequestBody(request, customerUpdateSchema, "Customer details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { id, name, email, phone, address, emailVerified, isBlocked } = parsed.data;
 
     const updateData = {
       ...(typeof name === "string" ? { name: name.trim() } : {}),

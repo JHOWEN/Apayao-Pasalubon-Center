@@ -5,18 +5,14 @@ import { clearAuthCookies } from "@/lib/cookies";
 import { enforceRateLimit, resetLoginRateLimit } from "@/lib/rate-limit";
 import { getRequestId, logError } from "@/lib/logger";
 import { getNewPasswordPolicyError } from "@/lib/password-policy";
+import { resetPasswordSchema } from "@/features/auth/validators/auth";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-    const token = typeof body?.token === "string" ? body.token.trim() : "";
-    const password = typeof body?.password === "string" ? body.password : "";
-    const confirmPassword = typeof body?.confirmPassword === "string" ? body.confirmPassword : "";
-
-    if (!email || !token || !password || !confirmPassword) {
-      return NextResponse.json({ success: false, message: "Missing reset details." }, { status: 400 });
-    }
+    const parsed = await parseJsonRequestBody(request, resetPasswordSchema, "Password reset details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { email, token, password, confirmPassword } = parsed.data;
 
     const rateLimitResponse = await enforceRateLimit(request, "auth:reset-password", {
       group: "auth",
@@ -31,10 +27,6 @@ export async function POST(request: Request) {
     const passwordError = getNewPasswordPolicyError(password);
     if (passwordError) {
       return NextResponse.json({ success: false, message: passwordError }, { status: 400 });
-    }
-
-    if (password !== confirmPassword) {
-      return NextResponse.json({ success: false, message: "Passwords do not match." }, { status: 400 });
     }
 
     const user = await prisma.user.findUnique({ where: { email } });

@@ -3,6 +3,14 @@
 Audit date: 2026-10-02
 Status: Remediation implemented; verification results and remaining risks recorded below.
 
+## 2026-10-14 Checkout, API Policy, and Runtime Database Addendum
+
+Checkout in `/api/admin/orders` and `/api/auth/orders` now reads prices from `Product` or `ProductVariant`, computes subtotals and totals with `Prisma.Decimal`, and uses any submitted price only to detect a stale cart and return `PRICE_CHANGED`. JSON request bodies across API routes use shared Zod parsing and route schemas. The Next.js Proxy applies an explicit STAFF method/path allowlist to every `/api/admin/*` route; unlisted routes and methods default to ADMIN. STAFF retain POS/order operations, product management and product uploads, personal profile/password/image operations, receipt-settings reads, and payment review. Category writes, inventory, customer management, store/team settings, users, analytics/reports, payment QR uploads, and delete operations remain ADMIN-only.
+
+The read-only audit of the database URL in local `.env` connected as `postgres`. On that target, `apc_runtime` does not exist; all 18 Prisma application tables have RLS enabled but have zero policies; `anon`, `authenticated`, and `service_role` have direct SELECT grants on all 18 tables. The connected `postgres` role is not marked superuser but has `BYPASSRLS`. This is not proof that Vercel Production uses the same URL. Vercel credentials were unavailable to this workspace, so verify the Production `DATABASE_URL` in Vercel and run `docs/security/supabase-runtime-role-verify.sql` against the project before relying on RLS. The runtime policy is full access for the trusted server role; application API authorization remains responsible for per-user and staff/admin access.
+
+The local `.env` Upstash endpoint responded to a read-only `PING`, but the first scan found no active rate-limit counter key. This does not confirm that Production uses that Redis database. Production rate-limit failures now fail closed if both Redis and the shared PostgreSQL store fail; Vercel Production variables and live counter activity still need confirmation after deployment.
+
 ## Scope and Architecture
 
 The project uses Next.js 16.3.5 App Router, Prisma/PostgreSQL, a custom `token` JWT cookie, plus a NextAuth route with no providers. There are 12 admin pages; all are client components. No admin `loading.tsx` or `error.tsx` exists. The original `middleware.ts` only assigned request IDs. Next 16 requires Proxy in `src/proxy.ts` when the app is under `src/app`.

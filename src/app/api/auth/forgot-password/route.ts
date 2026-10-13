@@ -6,17 +6,14 @@ import { buildPasswordResetUrl, createPasswordResetToken } from "@/lib/password-
 import { buildEmailVerificationUrl, createEmailVerificationToken } from "@/lib/email-verification";
 import { getAppBaseUrl } from "@/lib/app-url";
 import { getRequestId, logError } from "@/lib/logger";
-
-const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+import { forgotPasswordSchema } from "@/features/auth/validators/auth";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-
-    if (!email || !emailRegex.test(email)) {
-      return NextResponse.json({ success: false, message: "Please provide a valid email address." }, { status: 400 });
-    }
+    const parsed = await parseJsonRequestBody(request, forgotPasswordSchema, "Please provide a valid email address.");
+    if (!parsed.success) return parsed.response;
+    const { email } = parsed.data;
 
     const rateLimitResponse = await enforceRateLimit(request, "auth:forgot-password:v2", {
       group: "auth",

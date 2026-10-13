@@ -3,10 +3,10 @@
 import { useMemo } from "react";
 import { Check, X } from "lucide-react";
 import {
+  getNewPasswordPolicyChecks,
   getNewPasswordPolicyError,
-  getPasswordByteLength,
-  MIN_NEW_PASSWORD_CHARACTERS,
   MAX_BCRYPT_PASSWORD_BYTES,
+  MIN_NEW_PASSWORD_CHARACTERS,
 } from "@/lib/password-policy";
 
 interface PasswordStrengthIndicatorProps {
@@ -21,8 +21,7 @@ export function PasswordStrengthIndicator({
   showRules = true,
 }: PasswordStrengthIndicatorProps) {
   const analysis = useMemo(() => {
-    const hasMinLength = Array.from(password).length >= MIN_NEW_PASSWORD_CHARACTERS;
-    const withinByteLimit = getPasswordByteLength(password) <= MAX_BCRYPT_PASSWORD_BYTES;
+    const checks = getNewPasswordPolicyChecks(password);
     const policyError = password ? getNewPasswordPolicyError(password) : null;
 
     const matchesConfirm =
@@ -36,8 +35,7 @@ export function PasswordStrengthIndicator({
       password !== confirmPassword;
 
     return {
-      hasMinLength,
-      withinByteLimit,
+      ...checks,
       policyError,
       matchesConfirm,
       hasConfirmMismatch,
@@ -102,12 +100,37 @@ export function PasswordStrengthIndicator({
               Maximum {MAX_BCRYPT_PASSWORD_BYTES} UTF-8 bytes
             </span>
           </div>
+          {([
+            ["hasLowercase", "One lowercase letter"],
+            ["hasUppercase", "One uppercase letter"],
+            ["hasNumber", "One number"],
+            ["hasSymbol", "One symbol"],
+          ] as const).map(([check, label]) => (
+            <div key={check} className="flex items-center gap-1.5">
+              <span
+                className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full ${
+                  analysis[check]
+                    ? "bg-orange-100 text-orange-600"
+                    : "bg-slate-100 text-slate-400"
+                }`}
+              >
+                <Check className="h-2.5 w-2.5 stroke-[3]" />
+              </span>
+              <span
+                className={`text-[11px] ${
+                  analysis[check] ? "text-slate-800 font-medium" : "text-slate-500"
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+          ))}
         </div>
       ) : null}
 
       {showRules && password ? (
         <p className="text-[11px] text-slate-600">
-          Passphrases and spaces are allowed; no symbol or capitalization pattern is required.
+          Include uppercase and lowercase letters, a number, and a symbol. Spaces do not count as symbols.
         </p>
       ) : null}
 

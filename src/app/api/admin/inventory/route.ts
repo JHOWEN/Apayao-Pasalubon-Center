@@ -6,6 +6,8 @@ import { normalizeArchiveAction, normalizeArchiveFilter, normalizeArchiveIds } f
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { prisma } from "@/lib/prisma";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { inventoryArchiveSchema, inventoryMovementSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 async function ensureAdminOnly() {
   const token = (await cookies()).get("token")?.value;
@@ -193,7 +195,9 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, inventoryArchiveSchema, "Transaction archive details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
     const action = normalizeArchiveAction(body?.action);
     const ids = normalizeArchiveIds(body?.ids ?? body?.id);
 
@@ -266,7 +270,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, inventoryMovementSchema, "Inventory movement details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
 
     const { productId, variantId, type, quantity, remarks, minStock } = body;
 

@@ -10,19 +10,17 @@ import {
   InsufficientStockError,
   recordInventoryLifecycleEvent,
 } from "@/features/inventory/lib/inventory";
-import { canTransitionOrderStatus, isOrderStatus, normalizePickupDateInput, OrderStatus, resolveInitialOrderStatus } from "@/lib/order";
+import { canTransitionOrderStatus, normalizePickupDateInput, OrderStatus, resolveInitialOrderStatus } from "@/lib/order";
 import { resolvePaymentProofUrl } from "@/lib/storage";
 import { getRequestId, logError } from "@/lib/logger";
 import { apiError, getUserFacingErrorMessage } from "@/lib/api-response";
 import { emitOrderCreatedEvent, emitOrderUpdatedEvent } from "@/lib/realtime";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { getOrderItemSnapshot, getOrderStatusEventType, recordOrderEvent } from "@/lib/order-history";
+import { orderCreateSchema, orderStatusUpdateSchema, type OrderCreateInput, type OrderItemInput } from "@/features/orders/validators/orders";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 class OrderStateConflictError extends Error {}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function getPrismaErrorCode(error: unknown) {
   return error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
@@ -30,11 +28,11 @@ function getPrismaErrorCode(error: unknown) {
 
 function haveSameOrderItems(
   existingItems: Array<{ productId: string; variantId: string | null; quantity: number; price: unknown }>,
-  incomingItems: OrderItemForMutation[],
+  incomingItems: OrderItemInput[],
 ) {
-  const normalize = (items: Array<{ productId: string; variantId?: string | null; quantity: number; price: unknown }>) =>
+  const normalize = (items: Array<{ productId: string; variantId?: string | null; quantity: number }>) =>
     items
-      .map((item) => [item.productId, item.variantId ?? "", item.quantity, Math.round(Number(item.price) * 100) / 100])
+      .map((item) => [item.productId, item.variantId ?? "", item.quantity])
       .sort((a, b) => a.map(String).join("\u0000").localeCompare(b.map(String).join("\u0000")));
 
   return JSON.stringify(normalize(existingItems)) === JSON.stringify(normalize(incomingItems));
@@ -239,38 +237,15 @@ export async function GET(request: Request) {
   }
 }
 
-type OrderItemInput = {
-  productId?: string;
-  variantId?: string;
-  quantity?: number;
-  price?: number;
-  sku?: string;
-  unitLabel?: string;
-};
-
-type OrderItemForMutation = OrderItemInput & {
+type OrderItemForMutation = Omit<OrderItemInput, "price"> & {
   productId: string;
   quantity: number;
-  price: number;
-};
-
-type OrderPayload = {
-  items?: OrderItemInput[];
-  orderNumber?: string;
-  idempotencyKey?: string;
-  userId?: string;
-  customerName?: string;
-  customerPhone?: string;
-  pickupDate?: string;
-  pickupTime?: string;
-  paymentMethod?: string;
-  isWalkIn?: boolean;
-  status?: string;
+  price: Prisma.Decimal;
 };
 
 export async function POST(request: Request) {
-  let requestBody: OrderPayload | null = null;
-  let requestItems: OrderItemForMutation[] = [];
+  let requestBody: OrderCreateInput | null = null;
+  let requestItems: OrderItemInput[] = [];
   let requestOrderNumber: string | null = null;
   let requestIdempotencyKey: string | null = null;
   let requestIsWalkIn: boolean | null = null;
@@ -284,66 +259,12 @@ export async function POST(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:orders:create", "admin");
     if (rateLimitResponse) return rateLimitResponse;
 
-    const parsedBody: unknown = await request.json();
-    if (!isRecord(parsedBody)) {
-      return apiError(request, 400, "INVALID_CHECKOUT", "Checkout details must be provided as a valid object.");
-    }
-    requestBody = parsedBody as OrderPayload;
-    const body = requestBody;
-    const rawItems = body.items;
-
-    if (!Array.isArray(rawItems) || rawItems.length === 0) {
-      return apiError(request, 400, "INVALID_CHECKOUT", "Add at least one product before checkout.");
-    }
-    if (rawItems.length > 500) {
-      return apiError(request, 400, "TOO_MANY_ITEMS", "This checkout contains too many different items. Split it into smaller sales.");
-    }
-
-    const items: OrderItemForMutation[] = [];
-    for (const rawItem of rawItems as unknown[]) {
-      if (!isRecord(rawItem)) {
-        return apiError(request, 400, "INVALID_CHECKOUT_ITEM", "One of the checkout items is invalid. Refresh the cart and try again.");
-      }
-      const productId = typeof rawItem.productId === "string" ? rawItem.productId.trim() : "";
-      const variantId = typeof rawItem.variantId === "string" ? rawItem.variantId.trim() : undefined;
-      const quantity = rawItem.quantity;
-      const price = rawItem.price;
-      if (!productId || (rawItem.variantId != null && (!variantId || variantId.length > 128))) {
-        return apiError(request, 400, "INVALID_CHECKOUT_ITEM", "One of the checkout items has an invalid product selection. Refresh the cart and try again.");
-      }
-      if (typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity <= 0 || quantity > 10000) {
-        return apiError(request, 400, "INVALID_QUANTITY", "Each product quantity must be a whole number from 1 to 10,000.");
-      }
-      if (typeof price !== "number" || !Number.isFinite(price) || price < 0 || price > 99_999_999.99) {
-        return apiError(request, 400, "INVALID_PRICE", "One of the checkout prices is invalid. Refresh the cart and try again.");
-      }
-      items.push({
-        productId,
-        ...(variantId ? { variantId } : {}),
-        quantity,
-        price,
-        ...(typeof rawItem.sku === "string" ? { sku: rawItem.sku } : {}),
-        ...(typeof rawItem.unitLabel === "string" ? { unitLabel: rawItem.unitLabel } : {}),
-      });
-    }
-    requestItems = items;
-
-    if (body.orderNumber !== undefined && (typeof body.orderNumber !== "string" || !body.orderNumber.trim() || body.orderNumber.length > 100)) {
-      return apiError(request, 400, "INVALID_ORDER_NUMBER", "The checkout number is invalid. Try submitting the sale again.");
-    }
-    if (body.idempotencyKey !== undefined && (typeof body.idempotencyKey !== "string" || !body.idempotencyKey.trim() || body.idempotencyKey.length > 128)) {
-      return apiError(request, 400, "INVALID_CHECKOUT_KEY", "The checkout request is invalid. Refresh the POS page and try again.");
-    }
-
-    if (body.paymentMethod !== undefined && typeof body.paymentMethod !== "string") {
-      return apiError(request, 400, "INVALID_PAYMENT_METHOD", "Choose a supported payment method before checkout.");
-    }
-    const paymentMethodValue = (body.paymentMethod ?? "CASH").toUpperCase();
-    const validPaymentMethods: string[] = ["CASH", "GCASH", "PAYMAYA"];
-    if (!validPaymentMethods.includes(paymentMethodValue)) {
-      return apiError(request, 400, "INVALID_PAYMENT_METHOD", "Choose a supported payment method before checkout.");
-    }
-    const paymentMethod = paymentMethodValue as "CASH" | "GCASH" | "PAYMAYA";
+    const parsed = await parseJsonRequestBody(request, orderCreateSchema, "Checkout details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
+    requestBody = body;
+    requestItems = body.items;
+    const paymentMethod = body.paymentMethod ?? "CASH";
     requestPaymentMethod = paymentMethod;
 
     if (body.userId) {
@@ -352,22 +273,27 @@ export async function POST(request: Request) {
         select: { role: true, emailVerified: true, phone: true, address: true, isBlocked: true },
       });
 
-      if (customer?.role === "CUSTOMER") {
-        const isProfileComplete = Boolean(customer.phone?.trim()) && Boolean(customer.address?.trim());
+      if (!customer || customer.role !== "CUSTOMER") {
+        return NextResponse.json(
+          { success: false, message: "The selected POS customer is not available." },
+          { status: 400 },
+        );
+      }
 
-        if (!customer.emailVerified || !isProfileComplete) {
-          return NextResponse.json(
-            { success: false, message: "Please complete your phone number and address in your profile before placing an order." },
-            { status: 403 }
-          );
-        }
+      const isProfileComplete = Boolean(customer.phone?.trim()) && Boolean(customer.address?.trim());
 
-        if (customer.isBlocked) {
-          return NextResponse.json(
-            { success: false, message: "Your account has been blocked. Please contact the admin." },
-            { status: 403 }
-          );
-        }
+      if (!customer.emailVerified || !isProfileComplete) {
+        return NextResponse.json(
+          { success: false, message: "Please complete your phone number and address in your profile before placing an order." },
+          { status: 403 }
+        );
+      }
+
+      if (customer.isBlocked) {
+        return NextResponse.json(
+          { success: false, message: "Your account has been blocked. Please contact the admin." },
+          { status: 403 }
+        );
       }
     }
 
@@ -375,13 +301,6 @@ export async function POST(request: Request) {
     const idempotencyKey = body.idempotencyKey?.trim() ?? null;
     requestOrderNumber = orderNumber;
     requestIdempotencyKey = idempotencyKey;
-    const totalAmount = items.reduce(
-      (sum: number, item) => sum + Number(item.price ?? 0) * Number(item.quantity ?? 0),
-      0
-    );
-    if (!Number.isFinite(totalAmount) || totalAmount < 0 || totalAmount > 99_999_999.99) {
-      return apiError(request, 400, "INVALID_TOTAL", "The checkout total is outside the supported amount. Review the cart and try again.");
-    }
     const isWalkIn = body.isWalkIn === true;
     requestIsWalkIn = isWalkIn;
     const initialStatus = resolveInitialOrderStatus(isWalkIn);
@@ -398,7 +317,7 @@ export async function POST(request: Request) {
           existingOrder.isWalkIn !== isWalkIn ||
           existingOrder.orderNumber !== orderNumber ||
           existingOrder.paymentMethod !== paymentMethod ||
-          !haveSameOrderItems(existingOrder.items, items)
+          !haveSameOrderItems(existingOrder.items, requestItems)
         ) {
           return apiError(request, 409, "CHECKOUT_KEY_REUSED", "This checkout request was already used for a different sale. Refresh the cart before trying again.");
         }
@@ -406,15 +325,15 @@ export async function POST(request: Request) {
       }
     }
 
-    const productIds = [...new Set(items.map((item) => item.productId))];
+    const productIds = [...new Set(requestItems.map((item) => item.productId))];
     const existingProducts = await prisma.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, name: true, sku: true, stock: true, isActive: true, hasVariants: true },
+      select: { id: true, name: true, sku: true, price: true, stock: true, isActive: true, hasVariants: true },
     });
     const existingProductIds = new Set(existingProducts.map((product) => product.id));
     const existingProductMap = new Map(existingProducts.map((product) => [product.id, product]));
 
-    for (const item of items) {
+    for (const item of requestItems) {
       if (!existingProductIds.has(item.productId)) {
         return apiError(request, 409, "ITEM_UNAVAILABLE", `Product ${item.productId} no longer exists. Refresh the POS catalog and try again.`);
       }
@@ -423,27 +342,49 @@ export async function POST(request: Request) {
       if (product && !product.isActive) {
         return apiError(request, 409, "ITEM_UNAVAILABLE", `${product.name} is no longer available for sale. Refresh the POS catalog and try again.`);
       }
-
+      if (product?.hasVariants && !item.variantId) {
+        return apiError(request, 400, "INVALID_PRODUCT_OPTION", `${product.name} requires a product option. Refresh the POS catalog and try again.`);
+      }
     }
 
-    const variantIds = [...new Set(items.filter((item) => item.variantId).map((item) => item.variantId!))];
+    const variantIds = [...new Set(requestItems.flatMap((item) => item.variantId ? [item.variantId] : []))];
     const existingVariants = await prisma.productVariant.findMany({
       where: { id: { in: variantIds } },
-      select: { id: true, productId: true, sku: true, attributes: true, stock: true },
+      select: { id: true, productId: true, sku: true, attributes: true, price: true, stock: true, isActive: true },
     });
     const existingVariantMap = new Map(existingVariants.map((variant) => [variant.id, variant]));
 
-    for (const item of items) {
-      if (!item.variantId) continue;
-
-      const variant = existingVariantMap.get(item.variantId);
-      if (!variant) {
+    const items: OrderItemForMutation[] = [];
+    for (const item of requestItems) {
+      const product = existingProductMap.get(item.productId);
+      if (!product) continue;
+      const variant = item.variantId ? existingVariantMap.get(item.variantId) : null;
+      if (item.variantId && !variant) {
         return apiError(request, 409, "ITEM_UNAVAILABLE", `A selected product option is no longer available. Refresh the POS catalog and try again.`);
       }
 
-      if (variant.productId !== item.productId) {
+      if (variant && variant.productId !== item.productId) {
         return apiError(request, 400, "INVALID_PRODUCT_OPTION", "A selected product option does not match its product. Refresh the POS catalog and try again.");
       }
+
+      if (variant && !variant.isActive) {
+        return apiError(request, 409, "ITEM_UNAVAILABLE", "A selected product option is no longer available. Refresh the POS catalog and try again.");
+      }
+
+      const price = variant?.price ?? product.price;
+      if (item.price !== undefined && !new Prisma.Decimal(item.price).equals(price)) {
+        return apiError(request, 409, "PRICE_CHANGED", `${product.name} price changed. Refresh the cart and check the updated total before checkout.`);
+      }
+
+      items.push({ ...item, price });
+    }
+
+    const totalAmount = items.reduce(
+      (sum, item) => sum.plus(item.price.mul(item.quantity)),
+      new Prisma.Decimal(0),
+    );
+    if (totalAmount.lessThan(0) || totalAmount.greaterThan("99999999.99")) {
+      return apiError(request, 400, "INVALID_TOTAL", "The checkout total is outside the supported amount. Review the cart and try again.");
     }
 
     const order = await prisma.$transaction(async (tx) => {
@@ -473,9 +414,9 @@ export async function POST(request: Request) {
                 existingProductMap.get(item.productId),
                 item.variantId ? existingVariantMap.get(item.variantId) : null,
               ),
-              quantity: Number(item.quantity ?? 1),
-              price: Number(item.price ?? 0),
-              subtotal: Number(item.price ?? 0) * Number(item.quantity ?? 1),
+              quantity: item.quantity,
+              price: item.price,
+              subtotal: item.price.mul(item.quantity),
             })),
           },
         },
@@ -606,23 +547,10 @@ export async function PUT(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:orders:update", "admin");
     if (rateLimitResponse) return rateLimitResponse;
 
-    requestBody = await request.json();
-    const body = requestBody;
-    const { id, status } = body as { id?: string; status?: string };
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, message: "Order id is required." },
-        { status: 400 }
-      );
-    }
-
-    if (!status || !isOrderStatus(status)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid order status." },
-        { status: 400 }
-      );
-    }
+    const parsed = await parseJsonRequestBody(request, orderStatusUpdateSchema, "Order status update is invalid.");
+    if (!parsed.success) return parsed.response;
+    requestBody = parsed.data;
+    const { id, status } = parsed.data;
 
     const existingOrder = await prisma.order.findUnique({
       where: { id },

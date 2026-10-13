@@ -9,35 +9,13 @@ import { createAuthSession } from "@/lib/auth-sessions";
 import bcrypt from "bcryptjs";
 import { getRequestId, logError } from "@/lib/logger";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function POST(request: Request) {
   try {
-    // Parse request body
-    let body: unknown;
-
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "Invalid JSON payload." },
-        { status: 400 }
-      );
-    }
-
-    // Validate input
-    const result = registerSchema.safeParse(body);
-
-    if (!result.success) {
-      return NextResponse.json(
-        {
-          success: false,
-          errors: result.error.flatten().fieldErrors,
-        },
-        { status: 400 }
-      );
-    }
-
-    const { name, email, password, gdprConsent } = result.data;
+    const parsed = await parseJsonRequestBody(request, registerSchema, "Registration details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { name, email, password, gdprConsent, role, phone: submittedPhone, address: submittedAddress } = parsed.data;
 
     const rateLimitResponse = await enforceRateLimit(request, "auth:register", {
       group: "auth",
@@ -49,11 +27,10 @@ export async function POST(request: Request) {
       return rateLimitResponse;
     }
 
-    const payload = body as { role?: string; phone?: string; address?: string; gdprConsent?: boolean };
-    const phone = payload.phone?.trim() || null;
-    const address = payload.address?.trim() || null;
+    const phone = submittedPhone.trim() || null;
+    const address = submittedAddress.trim() || null;
     const isProfileComplete = Boolean(phone) && Boolean(address);
-    const consented = Boolean(gdprConsent ?? payload.gdprConsent ?? false);
+    const consented = gdprConsent;
 
     if (!consented) {
       return NextResponse.json(
@@ -65,7 +42,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (payload.role && payload.role !== "CUSTOMER") {
+    if (role && role !== "CUSTOMER") {
       return NextResponse.json(
         {
           success: false,

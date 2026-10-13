@@ -1,3 +1,5 @@
+import { orderCreateSchema, type OrderItemInput } from "@/features/orders/validators/orders";
+
 export const orderStatuses = [
   "PENDING",
   "CONFIRMED",
@@ -30,16 +32,7 @@ export const orderStatusSteps = [
   { key: "CANCELLED", label: "Cancelled" },
 ] as const;
 
-export type OrderItemInput = {
-  productId?: string;
-  variantId?: string;
-  quantity?: number;
-  price?: number;
-  sku?: string;
-  unitLabel?: string;
-};
-
-export type OrderItemPayload = Record<string, unknown>;
+export type { OrderItemInput };
 
 export type OrderPayload = {
   userId?: string | null;
@@ -54,20 +47,18 @@ export type OrderPayload = {
   isWalkIn?: boolean;
 };
 
-const validPaymentMethods = ["CASH", "GCASH", "PAYMAYA"] as const;
-export type SupportedPaymentMethod = (typeof validPaymentMethods)[number];
-
 export type ValidatedOrderItem = {
   productId: string;
   variantId?: string;
   quantity: number;
-  price: number;
+  price?: number;
   sku?: string;
   unitLabel?: string;
 };
 
-export type ValidatedOrderPayload = Omit<OrderPayload, "items"> & {
+export type ValidatedOrderPayload = Omit<OrderPayload, "items" | "paymentMethod"> & {
   items: ValidatedOrderItem[];
+  paymentMethod?: "CASH" | "GCASH" | "PAYMAYA";
 };
 
 export const isOrderStatus = (value: unknown): value is OrderStatus =>
@@ -209,48 +200,22 @@ export const validateOrderPayload = (
     allowWalkIn?: boolean;
   }
 ): { success: true; payload: ValidatedOrderPayload } | { success: false; message: string } => {
-  const body = payload as Record<string, unknown> | null;
-
-  if (!body || typeof body !== "object") {
-    return { success: false, message: "Invalid order payload." };
+  const result = orderCreateSchema.safeParse(payload);
+  if (!result.success) {
+    return { success: false, message: result.error.issues[0]?.message ?? "Invalid order payload." };
   }
 
-  const itemsValue = body.items;
-  if (!Array.isArray(itemsValue) || itemsValue.length === 0) {
-    return { success: false, message: "Order items are required." };
-  }
-
-  const items: ValidatedOrderItem[] = [];
-  for (const item of itemsValue) {
-    if (!item || typeof item !== "object") {
-      return { success: false, message: "Each order item must be an object." };
-    }
-
-    const itemObject = item as OrderItemPayload;
-    const productId = typeof itemObject.productId === "string" ? itemObject.productId.trim() : "";
-    const variantId = typeof itemObject.variantId === "string" ? itemObject.variantId.trim() : undefined;
-    const sku = typeof itemObject.sku === "string" ? itemObject.sku.trim() : undefined;
-    const unitLabel = typeof itemObject.unitLabel === "string" ? itemObject.unitLabel.trim() : undefined;
-    const quantity = Number(itemObject.quantity ?? 0);
-    const price = Number(itemObject.price ?? 0);
-
-    if (!productId) {
-      return { success: false, message: "Each order item must include a productId." };
-    }
-
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return { success: false, message: "Each order item must include a valid quantity." };
-    }
-
-    if (!Number.isFinite(price) || price < 0) {
-      return { success: false, message: "Each order item must include a valid price." };
-    }
-
-    items.push({ productId, variantId, quantity, price, sku, unitLabel });
-  }
-
-  const pickupDate = typeof body.pickupDate === "string" ? body.pickupDate.trim() : undefined;
-  const pickupTime = typeof body.pickupTime === "string" ? body.pickupTime.trim() : undefined;
+  const body = result.data;
+  const items: ValidatedOrderItem[] = body.items.map((item) => ({
+    productId: item.productId,
+    ...(typeof item.variantId === "string" ? { variantId: item.variantId } : {}),
+    quantity: item.quantity,
+    ...(typeof item.price === "number" ? { price: item.price } : {}),
+    ...(typeof item.sku === "string" ? { sku: item.sku } : {}),
+    ...(typeof item.unitLabel === "string" ? { unitLabel: item.unitLabel } : {}),
+  }));
+  const pickupDate = body.pickupDate?.trim() || undefined;
+  const pickupTime = body.pickupTime?.trim() || undefined;
 
   if (pickupTime && !/^([01]?\d|2[0-3]):[0-5]\d$/.test(pickupTime)) {
     return { success: false, message: "Invalid pickup time." };
@@ -267,22 +232,17 @@ export const validateOrderPayload = (
     }
   }
 
-  const rawPaymentMethod = typeof body.paymentMethod === "string" ? body.paymentMethod.trim().toUpperCase() : undefined;
-  if (rawPaymentMethod && !validPaymentMethods.includes(rawPaymentMethod as SupportedPaymentMethod)) {
-    return { success: false, message: "Invalid payment method." };
-  }
-
   const validated: ValidatedOrderPayload = {
-    userId: typeof body.userId === "string" ? body.userId : null,
+    userId: body.userId ?? null,
     items,
-    orderNumber: typeof body.orderNumber === "string" ? body.orderNumber : undefined,
-    idempotencyKey: typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : undefined,
-    customerName: typeof body.customerName === "string" ? body.customerName : undefined,
-    customerPhone: typeof body.customerPhone === "string" ? body.customerPhone : undefined,
+    orderNumber: body.orderNumber,
+    idempotencyKey: body.idempotencyKey,
+    customerName: body.customerName,
+    customerPhone: body.customerPhone,
     pickupDate,
     pickupTime,
-    paymentMethod: rawPaymentMethod as SupportedPaymentMethod | undefined,
-    isWalkIn: Boolean(body.isWalkIn) && options?.allowWalkIn,
+    paymentMethod: body.paymentMethod,
+    isWalkIn: Boolean(body.isWalkIn) && options?.allowWalkIn === true,
   };
 
   return { success: true, payload: validated };

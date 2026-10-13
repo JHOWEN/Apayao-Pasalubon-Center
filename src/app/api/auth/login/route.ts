@@ -7,30 +7,13 @@ import { checkLoginRateLimit, getLoginRateLimitStatus, resetLoginRateLimit } fro
 import { loginSchema } from "@/features/auth/validators/auth";
 import { getRequestId, logError } from "@/lib/logger";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function POST(request: Request) {
   try {
-    let body: unknown;
-
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "Invalid JSON payload." },
-        { status: 400 }
-      );
-    }
-
-    const result = loginSchema.safeParse(body);
-
-    if (!result.success) {
-      return NextResponse.json(
-        { success: false, errors: result.error.flatten().fieldErrors },
-        { status: 400 }
-      );
-    }
-
-    const { email, password, rememberMe } = result.data;
+    const parsed = await parseJsonRequestBody(request, loginSchema, "Login details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { email, password, rememberMe } = parsed.data;
 
     const rateLimit = await getLoginRateLimitStatus(request, email);
     if (!rateLimit.allowed) {

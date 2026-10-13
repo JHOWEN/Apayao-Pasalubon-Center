@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { randomBytes } from "crypto";
+import { randomInt } from "crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -7,6 +7,8 @@ import { getUserForToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { clearAuthCookies } from "@/lib/cookies";
+import { idBodySchema, userCreateSchema, userUpdateSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 async function requireAdmin() {
   const token = (await cookies()).get("token")?.value;
@@ -26,6 +28,31 @@ async function requireAdmin() {
 
 function publicUser(user: { id: string; name: string; email: string; role: string; isBlocked: boolean; emailVerified: boolean; createdAt: Date }) {
   return { ...user, createdAt: user.createdAt.toISOString() };
+}
+
+function generateTemporaryPassword() {
+  const lowercase = "abcdefghijklmnopqrstuvwxyz";
+  const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const numbers = "0123456789";
+  const symbols = "!@#$%^&*()-_=+[]{};:,.?";
+  const allCharacters = lowercase + uppercase + numbers + symbols;
+  const characters = [
+    lowercase[randomInt(lowercase.length)],
+    uppercase[randomInt(uppercase.length)],
+    numbers[randomInt(numbers.length)],
+    symbols[randomInt(symbols.length)],
+  ];
+
+  while (characters.length < 16) {
+    characters.push(allCharacters[randomInt(allCharacters.length)]);
+  }
+
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomInt(index + 1);
+    [characters[index], characters[swapIndex]] = [characters[swapIndex], characters[index]];
+  }
+
+  return characters.join("");
 }
 
 export async function GET(request: Request) {
@@ -54,27 +81,16 @@ export async function POST(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:users:create", "admin");
     if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json() as { name?: string; email?: string; role?: string };
-    const name = body.name?.trim() ?? "";
-    const email = body.email?.trim().toLowerCase() ?? "";
-    const role = body.role === "ADMIN" ? "ADMIN" : body.role === "STAFF" ? "STAFF" : null;
-
-    if (!name || name.length < 2) {
-      return NextResponse.json({ success: false, message: "A valid name is required." }, { status: 400 });
-    }
-    if (!email || !email.includes("@")) {
-      return NextResponse.json({ success: false, message: "A valid email is required." }, { status: 400 });
-    }
-    if (!role) {
-      return NextResponse.json({ success: false, message: "Choose STAFF or ADMIN." }, { status: 400 });
-    }
+    const parsed = await parseJsonRequestBody(request, userCreateSchema, "Team account details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { name, email, role } = parsed.data;
 
     const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
     if (existing) {
       return NextResponse.json({ success: false, message: "That email is already registered." }, { status: 409 });
     }
 
-    const temporaryPassword = randomBytes(15).toString("base64url");
+    const temporaryPassword = generateTemporaryPassword();
     const user = await prisma.user.create({
       data: {
         name,
@@ -103,8 +119,9 @@ export async function PATCH(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:users:update", "admin");
     if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json() as { id?: string; role?: string; isBlocked?: boolean };
-    if (!body.id) return NextResponse.json({ success: false, message: "Account id is required." }, { status: 400 });
+    const parsed = await parseJsonRequestBody(request, userUpdateSchema, "Team account changes are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
 
     const existing = await prisma.user.findUnique({
       where: { id: body.id },
@@ -114,7 +131,7 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ success: false, message: "Team account not found." }, { status: 404 });
     }
 
-    const nextRole = body.role === "ADMIN" || body.role === "STAFF" ? body.role : undefined;
+    const nextRole = body.role;
     if (existing.role === "ADMIN" && nextRole === "STAFF") {
       const adminCount = await prisma.user.count({ where: { role: "ADMIN", isBlocked: false } });
       if (adminCount <= 1) {
@@ -163,10 +180,9 @@ export async function DELETE(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:users:delete", "admin");
     if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json() as { id?: string };
-    if (!body.id) {
-      return NextResponse.json({ success: false, message: "Account id is required." }, { status: 400 });
-    }
+    const parsed = await parseJsonRequestBody(request, idBodySchema, "Account id is required.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
 
     if (body.id === auth.adminId) {
       return NextResponse.json({ success: false, message: "You cannot delete your own account." }, { status: 400 });

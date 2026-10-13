@@ -21,9 +21,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, name: true } });
+    const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, name: true, role: true } });
     if (!user) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
+    }
+    if (user.role !== "CUSTOMER") {
+      return NextResponse.json({ success: false, message: "Customer account required." }, { status: 403 });
     }
 
     const rateLimitResponse = await enforceRateLimit(request, "user:payment-proof:upload", {

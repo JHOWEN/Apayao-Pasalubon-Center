@@ -7,6 +7,8 @@ import { deleteProductImageUrls } from "@/lib/storage";
 import { parseImageUrls } from "@/features/catalog/utils/product-images";
 import { getRequestId, logError } from "@/lib/logger";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { productCreateSchema, productUpdateSchema } from "@/features/catalog/validators/products";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 function serializeProduct(product: {
   price: number | string | null | { toNumber(): number };
@@ -315,7 +317,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, productCreateSchema, "Product details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
     const nextImageUrls = typeof body.imageUrls !== "undefined"
       ? (Array.isArray(body.imageUrls) ? body.imageUrls.filter((value: unknown): value is string => typeof value === "string" && value.trim().length > 0).map((value: string) => value.trim()) : [])
       : parseImageUrls(body.imageUrl ?? null);
@@ -328,15 +332,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "At least one variant is required." }, { status: 400 });
     }
 
-    const normalizedVariants: NormalizedVariant[] = submittedVariants.map((variant: Record<string, unknown>) => ({
-      sku: typeof variant.sku === "string" ? variant.sku.trim() : "",
+    const normalizedVariants: NormalizedVariant[] = submittedVariants.map((variant) => ({
+      sku: variant.sku.trim(),
       price: Number(variant.price ?? 0),
       cost: Number(variant.cost ?? 0),
       stock: Number(variant.stock ?? 0),
       minStock: Number(variant.minStock ?? body.minStock ?? 5),
       isActive: variant.isActive !== false,
-      attributes: JSON.stringify(variant.attributeValues && typeof variant.attributeValues === "object" && !Array.isArray(variant.attributeValues) ? variant.attributeValues : {}),
-      imageUrl: Array.isArray(variant.imageUrls) ? JSON.stringify(variant.imageUrls.filter((value): value is string => typeof value === "string" && Boolean(value.trim())).map((value) => value.trim())) : null,
+      attributes: JSON.stringify(variant.attributeValues ?? {}),
+      imageUrl: variant.imageUrls ? JSON.stringify(variant.imageUrls) : null,
     }));
 
     if (hasVariants && normalizedVariants.some((variant) => !variant.sku || !Number.isFinite(variant.price) || !Number.isFinite(variant.cost) || !Number.isInteger(variant.stock) || variant.stock < 0)) {
@@ -468,7 +472,9 @@ export async function PUT(request: Request) {
     }
     const actor = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } });
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, productUpdateSchema, "Product changes are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
     if (!body.id) {
       return NextResponse.json({ success: false, message: "Product id is required." }, { status: 400 });
     }
@@ -512,16 +518,16 @@ export async function PUT(request: Request) {
       updateData.optionValues = normalizeOptionValues(body.optionValues);
     }
 
-    const submittedVariants = Array.isArray(body.variants) ? body.variants : [];
-    const productVariantUpdates: Array<{ id: string; sku?: string; price?: number; cost?: number; minStock?: number; attributes?: string; imageUrl?: string }> = submittedVariants.filter((variant: unknown): variant is Record<string, unknown> => Boolean(variant) && typeof variant === "object").map((variant: Record<string, unknown>) => ({
-      id: typeof variant.id === "string" ? variant.id : "",
+    const submittedVariants = body.variants ?? [];
+    const productVariantUpdates: Array<{ id: string; sku?: string; price?: number; cost?: number; minStock?: number; attributes?: string; imageUrl?: string }> = submittedVariants.map((variant) => ({
+      id: variant.id,
       sku: typeof variant.sku === "string" ? variant.sku.trim() : undefined,
       price: typeof variant.price !== "undefined" ? Number(variant.price) : undefined,
       cost: typeof variant.cost !== "undefined" ? Number(variant.cost) : undefined,
       minStock: typeof variant.minStock !== "undefined" ? Number(variant.minStock) : undefined,
-      attributes: variant.attributeValues && typeof variant.attributeValues === "object" && !Array.isArray(variant.attributeValues) ? JSON.stringify(variant.attributeValues) : undefined,
-      imageUrl: Array.isArray(variant.imageUrls) ? JSON.stringify(variant.imageUrls.filter((value: unknown): value is string => typeof value === "string" && Boolean(value.trim())).map((value: string) => value.trim())) : undefined,
-    })).filter((variant: { id: string }) => variant.id);
+      attributes: variant.attributeValues ? JSON.stringify(variant.attributeValues) : undefined,
+      imageUrl: variant.imageUrls ? JSON.stringify(variant.imageUrls) : undefined,
+    }));
 
     if (productVariantUpdates.some((variant) => typeof variant.minStock === "number" && (!Number.isInteger(variant.minStock) || variant.minStock < 0))) {
       return NextResponse.json({ success: false, message: "Variant minimum stock must be a non-negative whole number." }, { status: 400 });

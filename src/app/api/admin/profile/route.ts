@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { profileUpdateSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function GET(request: Request) {
   try {
@@ -72,7 +74,9 @@ export async function PUT(request: Request) {
     const rateLimitResponse = await enforceRateLimit(request, "admin:profile:update", { group: "admin", accountId: payload.sub });
     if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, profileUpdateSchema, "Profile details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
     const updateData: Record<string, string | null> = {};
 
     if (typeof body.name === "string") updateData.name = body.name.trim();

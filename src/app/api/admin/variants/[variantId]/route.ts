@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { getRequestId, logError } from "@/lib/logger";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { variantUpdateSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function PUT(
   request: Request,
@@ -20,7 +22,9 @@ export async function PUT(
     }
 
     const { variantId } = await params;
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, variantUpdateSchema, "Product option changes are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
 
     const variant = await prisma.productVariant.findUnique({
       where: { id: variantId },

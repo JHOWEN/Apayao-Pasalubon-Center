@@ -215,7 +215,9 @@ async function getDatabaseRateLimitStatus(keys: string[]) {
 
     return { allowed: true, retryAfterSeconds: null };
   } catch {
-    return getLocalRateLimitStatus(keys);
+    return process.env.NODE_ENV === "production"
+      ? { allowed: false, retryAfterSeconds: 60 }
+      : getLocalRateLimitStatus(keys);
   }
 }
 
@@ -307,7 +309,9 @@ async function checkDatabaseRateLimit(keys: string[], policy: RateLimitPolicy) {
         : { allowed: true, retryAfterSeconds: null };
     }, { isolationLevel: "Serializable" });
   } catch {
-    return checkLocalRateLimit(normalizedKeys, policy);
+    return process.env.NODE_ENV === "production"
+      ? { allowed: false, retryAfterSeconds: 60 }
+      : checkLocalRateLimit(normalizedKeys, policy);
   }
 }
 

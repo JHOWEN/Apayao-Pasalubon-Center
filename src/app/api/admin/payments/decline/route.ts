@@ -8,6 +8,8 @@ import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { recordOrderEvent } from "@/lib/order-history";
 import { emitOrderUpdatedEvent } from "@/lib/realtime";
 import { sendPaymentDecisionEmail } from "@/lib/mailer";
+import { paymentDecisionSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -33,12 +35,9 @@ export async function POST(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:payments:decline", "admin");
     if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json();
-    const orderId = typeof body.orderId === "string" ? body.orderId.trim() : "";
-
-    if (!orderId) {
-      return NextResponse.json({ success: false, message: "Order id is required." }, { status: 400 });
-    }
+    const parsed = await parseJsonRequestBody(request, paymentDecisionSchema, "Payment decline details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { orderId } = parsed.data;
 
     const order = await prisma.order.findUnique({
       where: { id: orderId },

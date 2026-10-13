@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
+import { staffMayAccessAdminApi } from "@/lib/admin-api-policy";
 
 const adminPageRoots = [
   "/dashboard",
@@ -130,6 +131,17 @@ export async function proxy(request: NextRequest) {
         );
       }
       return redirectToLogin(request, "access-denied", requestId);
+    }
+
+    if (
+      (keyedAdminApi || directAdminApi) &&
+      user.role === "STAFF" &&
+      !staffMayAccessAdminApi(internalPath, request.method)
+    ) {
+      return NextResponse.json(
+        { success: false, message: "Admin access is required for this operation." },
+        { status: 403, headers: { "Cache-Control": "no-store", "x-request-id": requestId } },
+      );
     }
 
     if (

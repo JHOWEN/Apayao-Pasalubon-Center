@@ -1,4 +1,4 @@
-import { PaymentStatus } from "@prisma/client";
+import { PaymentStatus, Prisma } from "@prisma/client";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -21,8 +21,22 @@ import {
   ONLINE_PAYMENT_RESERVATION_TTL_MS,
   validateOrderPayload,
 } from "@/lib/order";
+import { orderCreateSchema, orderStatusUpdateSchema, type OrderItemInput } from "@/features/orders/validators/orders";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 class OrderStateConflictError extends Error {}
+
+function haveSameOrderItems(
+  existingItems: Array<{ productId: string; variantId: string | null; quantity: number }>,
+  requestedItems: OrderItemInput[],
+) {
+  const normalize = (items: Array<{ productId: string; variantId?: string | null; quantity: number }>) =>
+    items
+      .map((item) => [item.productId, item.variantId ?? "", item.quantity])
+      .sort((left, right) => left.map(String).join("\u0000").localeCompare(right.map(String).join("\u0000")));
+
+  return JSON.stringify(normalize(existingItems)) === JSON.stringify(normalize(requestedItems));
+}
 
 async function requireAuthenticatedUser() {
   const cookieStore = await cookies();
@@ -114,6 +128,9 @@ export async function GET(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    if (authCheck.user.role !== "CUSTOMER") {
+      return NextResponse.json({ success: false, message: "Customer account required." }, { status: 403 });
+    }
     const rateLimitResponse = await enforceRateLimit(request, "user:orders:get", {
       group: "user",
       accountId: authCheck.user.id,
@@ -166,16 +183,20 @@ export async function POST(request: Request) {
     if (rateLimitResponse) return rateLimitResponse;
 
     const { payload, user } = authCheck;
+    if (user.role !== "CUSTOMER") {
+      return NextResponse.json({ success: false, message: "Customer account required." }, { status: 403 });
+    }
     await expireWalletReservations(new Date(), 10);
-    const parsedBody = await request.json();
-    const validation = validateOrderPayload(parsedBody, { allowWalkIn: false });
+    const parsed = await parseJsonRequestBody(request, orderCreateSchema, "Order details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const validation = validateOrderPayload(parsed.data, { allowWalkIn: false });
 
     if (!validation.success) {
       return NextResponse.json({ success: false, message: validation.message }, { status: 400 });
     }
 
     const body = validation.payload;
-    const items = body.items;
+    const requestedItems = body.items;
 
     if (body.userId && body.userId !== payload.sub) {
       return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
@@ -201,6 +222,11 @@ export async function POST(request: Request) {
 
     const orderNumber = body.orderNumber ?? `ORD-${Date.now()}`;
     requestIdempotencyKey = body.idempotencyKey?.trim() ?? "";
+    const isWalkIn = body.isWalkIn ?? false;
+    const initialStatus = resolveInitialOrderStatus(isWalkIn);
+    const paymentMethod = body.paymentMethod ?? "CASH";
+    const proofOfPaymentUrl = null;
+    const paymentStatus: PaymentStatus = resolveInitialPaymentStatus(paymentMethod);
 
     if (requestIdempotencyKey) {
       const existingOrder = await prisma.order.findUnique({
@@ -213,6 +239,10 @@ export async function POST(request: Request) {
           return NextResponse.json({ success: false, message: "This order request is not available." }, { status: 409 });
         }
 
+        if (existingOrder.paymentMethod !== paymentMethod || !haveSameOrderItems(existingOrder.items, requestedItems)) {
+          return NextResponse.json({ success: false, message: "This checkout request was already used for a different order." }, { status: 409 });
+        }
+
         if (existingOrder.status === "CANCELLED") {
           return NextResponse.json(
             { success: false, message: "This reservation has expired or was cancelled. Review your cart and place a new order." },
@@ -223,24 +253,17 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true, order: existingOrder, idempotent: true }, { status: 200 });
       }
     }
-    const totalAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const isWalkIn = body.isWalkIn ?? false;
-    const initialStatus = resolveInitialOrderStatus(isWalkIn);
-    const paymentMethod = (body.paymentMethod ?? "CASH") as "CASH" | "GCASH" | "PAYMAYA";
-    const proofOfPaymentUrl = null;
-    const paymentStatus: PaymentStatus = resolveInitialPaymentStatus(paymentMethod);
-
     const effectiveInitialStatus = initialStatus;
 
-    const productIds = [...new Set(items.map((item) => item.productId))];
+    const productIds = [...new Set(requestedItems.map((item) => item.productId))];
     const existingProducts = await prisma.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, name: true, sku: true, stock: true, isActive: true, status: true },
+      select: { id: true, name: true, sku: true, price: true, stock: true, isActive: true, status: true, hasVariants: true },
     });
     const existingProductIds = new Set(existingProducts.map((product) => product.id));
     const existingProductMap = new Map(existingProducts.map((product) => [product.id, product]));
 
-    for (const item of items) {
+    for (const item of requestedItems) {
       if (!existingProductIds.has(item.productId)) {
         return NextResponse.json({ success: false, message: `Product ${item.productId} no longer exists.` }, { status: 400 });
       }
@@ -249,26 +272,47 @@ export async function POST(request: Request) {
       if (product && (!product.isActive || product.status !== "PUBLISHED")) {
         return NextResponse.json({ success: false, message: `Product ${item.productId} is no longer available.` }, { status: 400 });
       }
+      if (product?.hasVariants && !item.variantId) {
+        return NextResponse.json({ success: false, message: `${product.name} requires a product option.` }, { status: 400 });
+      }
     }
 
-    const variantIds = [...new Set(items.filter((item) => item.variantId).map((item) => item.variantId!))];
+    const variantIds = [...new Set(requestedItems.flatMap((item) => item.variantId ? [item.variantId] : []))];
     const existingVariants = await prisma.productVariant.findMany({
       where: { id: { in: variantIds } },
-      select: { id: true, productId: true, sku: true, attributes: true, stock: true },
+      select: { id: true, productId: true, sku: true, price: true, attributes: true, stock: true, isActive: true },
     });
     const existingVariantMap = new Map(existingVariants.map((variant) => [variant.id, variant]));
 
-    for (const item of items) {
-      if (!item.variantId) continue;
-
-      const variant = existingVariantMap.get(item.variantId);
-      if (!variant) {
-        return NextResponse.json({ success: false, message: `Variant ${item.variantId} no longer exists.` }, { status: 400 });
+    const items: Array<Omit<(typeof requestedItems)[number], "price"> & { price: Prisma.Decimal }> = [];
+    for (const item of requestedItems) {
+      const product = existingProductMap.get(item.productId);
+      if (!product) continue;
+      const variant = item.variantId ? existingVariantMap.get(item.variantId) : null;
+      if (item.variantId && !variant) {
+        return NextResponse.json({ success: false, message: "A selected product option is no longer available. Refresh your cart." }, { status: 400 });
       }
 
-      if (variant.productId !== item.productId) {
+      if (variant && variant.productId !== item.productId) {
         return NextResponse.json({ success: false, message: `Variant ${item.variantId} does not belong to the selected product.` }, { status: 400 });
       }
+      if (variant && !variant.isActive) {
+        return NextResponse.json({ success: false, message: "A selected product option is no longer available. Refresh your cart." }, { status: 400 });
+      }
+
+      const price = variant?.price ?? product.price;
+      if (item.price !== undefined && !new Prisma.Decimal(item.price).equals(price)) {
+        return NextResponse.json({ success: false, code: "PRICE_CHANGED", message: `${product.name} price changed. Refresh your cart and review the updated total.` }, { status: 409 });
+      }
+      items.push({ ...item, price });
+    }
+
+    const totalAmount = items.reduce(
+      (sum, item) => sum.plus(item.price.mul(item.quantity)),
+      new Prisma.Decimal(0),
+    );
+    if (totalAmount.lessThan(0) || totalAmount.greaterThan("99999999.99")) {
+      return NextResponse.json({ success: false, message: "The order total is outside the supported amount." }, { status: 400 });
     }
 
     const order = await prisma.$transaction(async (tx) => {
@@ -303,7 +347,7 @@ export async function POST(request: Request) {
               ),
               quantity: item.quantity,
               price: item.price,
-              subtotal: item.price * item.quantity,
+              subtotal: item.price.mul(item.quantity),
             })),
           },
         },
@@ -378,6 +422,9 @@ export async function PUT(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    if (authCheck.user.role !== "CUSTOMER") {
+      return NextResponse.json({ success: false, message: "Customer account required." }, { status: 403 });
+    }
     const rateLimitResponse = await enforceRateLimit(request, "user:orders:update", {
       group: "user",
       accountId: authCheck.user.id,
@@ -385,16 +432,9 @@ export async function PUT(request: Request) {
     if (rateLimitResponse) return rateLimitResponse;
 
     const { payload, user } = authCheck;
-    const body = await request.json();
-    const { id, status } = body as { id?: string; status?: string };
-
-    if (!id) {
-      return NextResponse.json({ success: false, message: "Order id is required." }, { status: 400 });
-    }
-
-    if (!status || !isOrderStatus(status)) {
-      return NextResponse.json({ success: false, message: "Invalid order status." }, { status: 400 });
-    }
+    const parsed = await parseJsonRequestBody(request, orderStatusUpdateSchema, "Order update details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { id, status } = parsed.data;
 
     if (status !== "CANCELLED" && status !== "COMPLETED") {
       return NextResponse.json(

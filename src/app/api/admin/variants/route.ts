@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { variantCreateSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function POST(request: Request) {
   try {
@@ -10,10 +12,10 @@ export async function POST(request: Request) {
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
 
-    const body = await request.json();
-    const productId = typeof body.productId === "string" ? body.productId.trim() : "";
-    const sku = typeof body.sku === "string" ? body.sku.trim() : "";
-    if (!productId || !sku) return NextResponse.json({ success: false, message: "Product and product code are required." }, { status: 400 });
+    const parsed = await parseJsonRequestBody(request, variantCreateSchema, "Product option details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
+    const { productId, sku } = body;
 
     const stock = Math.max(0, Math.trunc(Number(body.stock ?? 0)));
     const actor = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } });

@@ -3,6 +3,8 @@ import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { categoryCreateSchema, categoryUpdateSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function GET(request: Request) {
   const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:categories:get", "admin");
@@ -28,7 +30,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, categoryCreateSchema, "Category details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
 
     if (!body.name?.trim()) {
       return NextResponse.json(
@@ -77,7 +81,9 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, categoryUpdateSchema, "Category details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
 
     if (!body.id || !body.name?.trim()) {
       return NextResponse.json(

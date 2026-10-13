@@ -5,6 +5,8 @@ import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { clearAuthCookies } from "@/lib/cookies";
 import { getNewPasswordPolicyError } from "@/lib/password-policy";
+import { profilePasswordSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function POST(request: Request) {
   try {
@@ -15,13 +17,9 @@ export async function POST(request: Request) {
     const rateLimitResponse = await enforceRateLimit(request, "admin:profile:password", { group: "admin", accountId: userId });
     if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json();
-    const currentPassword = typeof body?.currentPassword === "string" ? body.currentPassword : "";
-    const newPassword = typeof body?.newPassword === "string" ? body.newPassword : "";
-
-    if (!currentPassword || !newPassword) {
-      return NextResponse.json({ success: false, message: "Current and new password are required." }, { status: 400 });
-    }
+    const parsed = await parseJsonRequestBody(request, profilePasswordSchema, "Current and new password are required.");
+    if (!parsed.success) return parsed.response;
+    const { currentPassword, newPassword } = parsed.data;
 
     const passwordError = getNewPasswordPolicyError(newPassword);
     if (passwordError) {

@@ -1396,7 +1396,7 @@ export default function AdminSettingsPage() {
                 className="mt-2 h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
               <p className="mt-2 text-xs leading-relaxed text-slate-500">
-                Use at least {MIN_NEW_PASSWORD_CHARACTERS} characters and no more than 72 UTF-8 bytes. Passphrases and spaces are allowed.
+                Use at least {MIN_NEW_PASSWORD_CHARACTERS} characters, including uppercase and lowercase letters, a number, and a symbol. Maximum 72 UTF-8 bytes.
               </p>
             </div>
 
