@@ -72,7 +72,7 @@ export async function GET(request: Request) {
       : {}),
   };
 
-  const [orders, channelGroups, paymentGroups, revenueAggregate, completedOrderCount, lowStockProducts, allProducts, completedOrderItems, categories] = await Promise.all([
+  const [orders, lowStockProducts, allProducts, completedOrderItems, categories] = await Promise.all([
     prisma.order.findMany({
       where: recentOrdersWhere,
       select: {
@@ -96,10 +96,10 @@ export async function GET(request: Request) {
             variantSkuSnapshot: true,
             variantAttributesSnapshot: true,
             product: {
-              select: { name: true, sku: true },
+              select: { name: true, sku: true, cost: true },
             },
             variant: {
-              select: { sku: true, attributes: true },
+              select: { sku: true, attributes: true, cost: true },
             },
           },
         },
@@ -107,23 +107,6 @@ export async function GET(request: Request) {
       orderBy: { updatedAt: "desc" },
       take: 50,
     }),
-    prisma.order.groupBy({
-      by: ["isWalkIn"],
-      where: recentOrdersWhere,
-      _count: { id: true },
-      _sum: { totalAmount: true },
-    }),
-    prisma.order.groupBy({
-      by: ["paymentMethod"],
-      where: recentOrdersWhere,
-      _count: { id: true },
-      _sum: { totalAmount: true },
-    }),
-    prisma.order.aggregate({
-      where: whereClause,
-      _sum: { totalAmount: true },
-    }),
-    prisma.order.count({ where: whereClause }),
     prisma.product.findMany({
       where: productWhere,
       select: { id: true, name: true, stock: true, minStock: true, sku: true, price: true, cost: true, hasVariants: true, variants: { where: { isActive: true }, select: { id: true, sku: true, stock: true, minStock: true, price: true, cost: true, attributes: true } } },
@@ -139,11 +122,14 @@ export async function GET(request: Request) {
         ...(category ? { product: { categoryId: category } } : {}),
       },
       select: {
+        orderId: true,
         productId: true,
         variantId: true,
         quantity: true,
         subtotal: true,
-        variant: { select: { sku: true, attributes: true } },
+        product: { select: { cost: true } },
+        variant: { select: { sku: true, attributes: true, cost: true } },
+        order: { select: { isWalkIn: true, paymentMethod: true } },
       },
     }),
     prisma.category.findMany({ orderBy: { name: "asc" } }),
@@ -170,7 +156,42 @@ export async function GET(request: Request) {
     revenue: number;
   };
 
-  const totalItemsSold = completedOrderItems.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+  const completedOrderIds = new Set<string>();
+  const salesByChannel = new Map<string, { orderIds: Set<string>; revenueCents: number }>();
+  const salesByPaymentMethod = new Map<string, { orderIds: Set<string>; revenueCents: number }>();
+  let totalRevenueCents = 0;
+  let grossProfitCents = 0;
+  let totalItemsSold = 0;
+
+  for (const item of completedOrderItems) {
+    const quantity = Number(item.quantity ?? 0);
+    const revenueCents = Math.round(Number(item.subtotal ?? 0) * 100);
+    const unitCostCents = Math.round(Number(item.variant?.cost ?? item.product.cost ?? 0) * 100);
+    const grossProfitCentsForItem = revenueCents - quantity * unitCostCents;
+    const channel = item.order.isWalkIn ? "Walk-in / POS" : "Online orders";
+    const paymentMethod = item.order.paymentMethod === "PAYMAYA"
+      ? "Maya"
+      : item.order.paymentMethod === "GCASH"
+        ? "GCash"
+        : "Cash";
+
+    completedOrderIds.add(item.orderId);
+    totalItemsSold += quantity;
+    totalRevenueCents += revenueCents;
+    grossProfitCents += grossProfitCentsForItem;
+
+    const channelSales = salesByChannel.get(channel) ?? { orderIds: new Set<string>(), revenueCents: 0 };
+    channelSales.orderIds.add(item.orderId);
+    channelSales.revenueCents += revenueCents;
+    salesByChannel.set(channel, channelSales);
+
+    const paymentSales = salesByPaymentMethod.get(paymentMethod) ?? { orderIds: new Set<string>(), revenueCents: 0 };
+    paymentSales.orderIds.add(item.orderId);
+    paymentSales.revenueCents += revenueCents;
+    salesByPaymentMethod.set(paymentMethod, paymentSales);
+  }
+
+  const grossProfit = grossProfitCents / 100;
   const lowStockItems = lowStockProducts.flatMap((product) => product.hasVariants
     ? product.variants.filter((variant) => Number(variant.stock) <= Number(variant.minStock)).map((variant) => ({ id: variant.id, name: `${product.name} (${getVariantLabel(variant.attributes, variant.sku)})`, stock: Number(variant.stock), minStock: Number(variant.minStock), sku: variant.sku, price: variant.price, cost: variant.cost, stockValue: Number(variant.cost ?? 0) * Number(variant.stock ?? 0) }))
     : Number(product.stock) <= Number(product.minStock) ? [{ id: product.id, name: product.name, stock: Number(product.stock), minStock: Number(product.minStock), sku: product.sku, price: product.price, cost: product.cost, stockValue: Number(product.cost ?? 0) * Number(product.stock ?? 0) }] : []);
@@ -205,23 +226,24 @@ export async function GET(request: Request) {
     });
 
   const channelBreakdown = Object.fromEntries(
-    channelGroups.map((group) => [
-      group.isWalkIn ? "Walk-in / POS" : "Online orders",
-      { count: group._count.id, revenue: Number(group._sum.totalAmount ?? 0) },
+    Array.from(salesByChannel, ([label, values]) => [
+      label,
+      { count: values.orderIds.size, revenue: values.revenueCents / 100 },
     ]),
   );
 
   const paymentBreakdown = Object.fromEntries(
-    paymentGroups.map((group) => [
-      group.paymentMethod === "PAYMAYA" ? "Maya" : group.paymentMethod === "GCASH" ? "GCash" : "Cash",
-      { count: group._count.id, revenue: Number(group._sum.totalAmount ?? 0) },
+    Array.from(salesByPaymentMethod, ([label, values]) => [
+      label,
+      { count: values.orderIds.size, revenue: values.revenueCents / 100 },
     ]),
   );
 
   return NextResponse.json({
     summary: {
-      totalRevenue: Number(revenueAggregate._sum.totalAmount ?? 0),
-      completedOrders: completedOrderCount,
+      totalRevenue: totalRevenueCents / 100,
+      grossProfit,
+      completedOrders: completedOrderIds.size,
       totalItemsSold,
       lowStockCount: lowStockItems.length,
       stockValue: Number(stockValue.toFixed(2)),
@@ -236,6 +258,12 @@ export async function GET(request: Request) {
       totalAmount: order.items
         .reduce((sum, item) => sum + Number(item.subtotal ?? 0), 0)
         .toFixed(2),
+      grossProfit: order.items.reduce(
+        (sum, item) => sum
+          + Math.round(Number(item.subtotal ?? 0) * 100)
+          - Number(item.quantity ?? 0) * Math.round(Number(item.variant?.cost ?? item.product?.cost ?? 0) * 100),
+        0,
+      ) / 100,
       completedAt: order.updatedAt,
       itemCount: order.items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0),
       items: order.items.map((item) => ({

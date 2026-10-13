@@ -61,6 +61,7 @@ function escapeHtml(value: unknown) {
 
 type ReportSummary = {
   totalRevenue: number;
+  grossProfit: number;
   completedOrders: number;
   totalItemsSold: number;
   stockValue: number;
@@ -80,6 +81,7 @@ type RecentOrder = {
   id: string;
   orderNumber: string;
   totalAmount: string;
+  grossProfit: number;
   completedAt: string;
   itemCount: number;
   items: RecentOrderItem[];
@@ -172,6 +174,7 @@ type PrintPreview = {
 const initialState: ReportState = {
   summary: {
     totalRevenue: 0,
+    grossProfit: 0,
     completedOrders: 0,
     totalItemsSold: 0,
     stockValue: 0,
@@ -803,10 +806,11 @@ export default function ReportsPage() {
               <td>${itemsSummary || "-"}</td>
               <td class="right">${totalQty}</td>
               <td class="right"><strong>₱${Number(order.totalAmount).toFixed(2)}</strong></td>
+              <td class="right">₱${Number(order.grossProfit).toFixed(2)}</td>
             </tr>
           `;
           }).join("")
-        : `<tr><td colspan="5" style="text-align:center;color:#64748b;">No sales transactions for this period.</td></tr>`;
+        : `<tr><td colspan="6" style="text-align:center;color:#64748b;">No sales transactions for this period.</td></tr>`;
 
       const channelRows = Object.entries(data.channelBreakdown)
         .map(
@@ -819,6 +823,7 @@ export default function ReportsPage() {
         <div class="kpi-grid">
           <div class="kpi-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-val">₱${Number(data.summary.totalRevenue).toFixed(2)}</div></div>
           <div class="kpi-card"><div class="kpi-label">Completed Transactions</div><div class="kpi-val">${data.summary.completedOrders} orders</div></div>
+          <div class="kpi-card"><div class="kpi-label">Gross Profit (current costs)</div><div class="kpi-val">${formatCurrency(data.summary.grossProfit)}</div></div>
           <div class="kpi-card"><div class="kpi-label">Units Sold</div><div class="kpi-val">${data.summary.totalItemsSold} units</div></div>
           <div class="kpi-card"><div class="kpi-label">Avg. Order Value</div><div class="kpi-val">₱${data.summary.completedOrders > 0 ? (data.summary.totalRevenue / data.summary.completedOrders).toFixed(2) : "0.00"}</div></div>
         </div>
@@ -838,6 +843,7 @@ export default function ReportsPage() {
               <th>Items Purchased</th>
               <th class="right">Qty</th>
               <th class="right">Order Amount</th>
+              <th class="right">Gross Profit</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
@@ -1061,12 +1067,17 @@ export default function ReportsPage() {
       filename = "sales-orders-report.csv";
       addSection("Sales Channels", ["Channel", "Orders", "Revenue"], Object.entries(data.channelBreakdown).map(([label, v]) => [label, v.count, v.revenue]));
       addSection("Payment Methods", ["Payment Method", "Orders", "Revenue"], Object.entries(data.paymentBreakdown).map(([label, v]) => [label, v.count, v.revenue]));
-      addSection("Completed Sales Orders", ["Order Number", "Completed Date", "Items", "Quantity", "Total Amount"], data.recentOrders.map((order) => [
+      addSection("Sales Summary", ["Metric", "Amount"], [
+        ["Gross Revenue", data.summary.totalRevenue],
+        ["Gross Profit (current costs)", data.summary.grossProfit],
+      ]);
+      addSection("Completed Sales Orders", ["Order Number", "Completed Date", "Items", "Quantity", "Total Amount", "Gross Profit"], data.recentOrders.map((order) => [
         order.orderNumber,
         new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }),
         order.items.map((i) => `${i.productName} (Qty. ${i.quantity})`).join("; "),
         order.items.reduce((sum, i) => sum + Number(i.quantity ?? 0), 0),
         order.totalAmount,
+        order.grossProfit,
       ]));
     } else if (reportType === "LOW_STOCK") {
       filename = "low-stock-report.csv";
@@ -1749,7 +1760,7 @@ export default function ReportsPage() {
                 </h2>
               </div>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Audited record of all completed orders across the evaluated timeframe
+                Completed orders for this period. Gross profit uses current product and variant costs.
               </p>
             </div>
             <div className="relative w-64">
@@ -1773,6 +1784,7 @@ export default function ReportsPage() {
                   <th className="px-4 py-3">Items Purchased</th>
                   <th className="px-4 py-3 text-right">Total Units</th>
                   <th className="px-4 py-3 text-right">Order Amount</th>
+                  <th className="px-4 py-3 text-right">Gross Profit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1804,12 +1816,15 @@ export default function ReportsPage() {
                         <td className="px-4 py-3 text-right font-bold text-slate-900 dark:text-white">
                           {formatCurrency(Number(order.totalAmount))}
                         </td>
+                        <td className={`px-4 py-3 text-right font-semibold ${order.grossProfit < 0 ? "text-rose-700 dark:text-rose-300" : "text-emerald-700 dark:text-emerald-400"}`}>
+                          {formatCurrency(order.grossProfit)}
+                        </td>
                       </tr>
                     );
                   })
                 ) : (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-xs text-slate-500">
+                    <td colSpan={6} className="py-12 text-center text-xs text-slate-500">
                       No completed orders recorded in this period.
                     </td>
                   </tr>
@@ -1819,9 +1834,12 @@ export default function ReportsPage() {
           </div>
           <div className="flex items-center justify-between border-t border-slate-100 p-3.5 text-xs text-slate-500 dark:border-slate-800">
             <span>Showing {filteredOrders.length} completed transactions</span>
-            <span className="font-bold text-slate-900 dark:text-white">
-              Gross Volume: {formatCurrency(report.summary.totalRevenue)}
-            </span>
+            <div className="flex flex-wrap gap-x-5 gap-y-1 font-bold text-slate-900 dark:text-white">
+              <span>Gross Volume: {formatCurrency(report.summary.totalRevenue)}</span>
+              <span className={report.summary.grossProfit < 0 ? "text-rose-700 dark:text-rose-300" : "text-emerald-700 dark:text-emerald-400"}>
+                Gross Profit: {formatCurrency(report.summary.grossProfit)}
+              </span>
+            </div>
           </div>
         </section>
       )}
@@ -2076,6 +2094,12 @@ export default function ReportsPage() {
                         <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Revenue</dt>
                         <dd className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{formatCurrency(printPreview.summary.totalRevenue)}</dd>
                       </div>
+                      {printPreview.reportTitle === "Sales Report" && (
+                        <div>
+                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Gross profit (current costs)</dt>
+                          <dd className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{formatCurrency(printPreview.summary.grossProfit)}</dd>
+                        </div>
+                      )}
                     </dl>
                   </div>
                 ) : (

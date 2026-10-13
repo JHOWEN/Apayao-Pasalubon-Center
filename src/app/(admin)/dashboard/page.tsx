@@ -139,6 +139,7 @@ export default function DashboardPage() {
     cancelledOrders: 0,
     completedOrders: 0,
     revenue: 0,
+    grossProfit: 0,
     lowStock: [] as LowStockItem[],
     totalCost: 0,
     totalPrice: 0,
@@ -154,11 +155,15 @@ export default function DashboardPage() {
   });
 
   const loadSystemStatus = useCallback(async (forceRefresh = false) => {
+    const response = await adminFetch("/api/admin/system-status", { cache: forceRefresh ? "reload" : "no-store" });
+    if (!response.ok) throw new Error("Unable to load system status.");
+    return (await response.json()) as SystemStatusData;
+  }, []);
+
+  const refreshSystemStatus = useCallback(async () => {
     setIsSystemStatusLoading(true);
     try {
-      const response = await adminFetch("/api/admin/system-status", { cache: forceRefresh ? "reload" : "no-store" });
-      if (!response.ok) throw new Error("Unable to load system status.");
-      const data = (await response.json()) as SystemStatusData;
+      const data = await loadSystemStatus(true);
       setSystemStatus(data);
       setSystemStatusLoadError(false);
     } catch {
@@ -166,10 +171,26 @@ export default function DashboardPage() {
     } finally {
       setIsSystemStatusLoading(false);
     }
-  }, []);
+  }, [loadSystemStatus]);
 
   useEffect(() => {
-    void loadSystemStatus();
+    let isActive = true;
+    void loadSystemStatus()
+      .then((data) => {
+        if (!isActive) return;
+        setSystemStatus(data);
+        setSystemStatusLoadError(false);
+      })
+      .catch(() => {
+        if (isActive) setSystemStatusLoadError(true);
+      })
+      .finally(() => {
+        if (isActive) setIsSystemStatusLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
   }, [loadSystemStatus]);
 
   useEffect(() => {
@@ -224,6 +245,7 @@ export default function DashboardPage() {
           cancelledOrders: Number(summaryData?.cancelledOrders ?? 0),
           completedOrders: Number(summaryData?.completedOrders ?? 0),
           revenue: Number(summaryData?.revenue ?? 0),
+          grossProfit: Number(summaryData?.grossProfit ?? 0),
           lowStock: Array.isArray(summaryData?.lowStock) ? summaryData.lowStock : [],
           totalCost: Number(summaryData?.totalCost ?? 0),
           totalPrice: Number(summaryData?.totalPrice ?? 0),
@@ -411,6 +433,7 @@ export default function DashboardPage() {
         </div>
         <div class="summary">
           <div class="metric"><div class="metric-label">Revenue</div><div class="metric-value">${formatReportCurrency(stats.revenue)}</div></div>
+          <div class="metric"><div class="metric-label">Gross Profit (current costs)</div><div class="metric-value">${formatReportCurrency(stats.grossProfit)}</div></div>
           <div class="metric"><div class="metric-label">Orders</div><div class="metric-value">${escapeHtml(stats.orders)}</div></div>
           <div class="metric"><div class="metric-label">Completed Orders</div><div class="metric-value">${escapeHtml(stats.completedOrders)}</div></div>
           <div class="metric"><div class="metric-label">Active Products</div><div class="metric-value">${escapeHtml(stats.products)}</div></div>
@@ -655,6 +678,12 @@ export default function DashboardPage() {
               </p>
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
                 {stats.completedOrders} completed sales in selected period
+              </p>
+              <p className={`mt-4 text-sm font-medium ${stats.grossProfit < 0 ? "text-rose-700 dark:text-rose-300" : "text-emerald-800 dark:text-emerald-300"}`}>
+                Gross profit: {formatCurrency(stats.grossProfit)}
+              </p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Completed orders, using current item costs
               </p>
             </div>
           </div>
@@ -1115,7 +1144,7 @@ export default function DashboardPage() {
               </span>
               <button
                 type="button"
-                onClick={() => void loadSystemStatus(true)}
+                onClick={() => void refreshSystemStatus()}
                 disabled={isSystemStatusLoading}
                 aria-label="Refresh system status"
                 title="Refresh system status"

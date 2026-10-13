@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
   const todayStart = getStoreDayStart(new Date());
   const tomorrowStart = shiftStoreDays(todayStart, 1);
 
-  const [productCount, statusBreakdown, completedSalesRows, todayStatusBreakdown, todayCompletedCount, topProductGroups, lowStockItems, inventoryValueRows, salesByCategoryRows] = await Promise.all([
+  const [productCount, statusBreakdown, completedSalesRows, completedGrossProfitRows, todayStatusBreakdown, todayCompletedCount, topProductGroups, lowStockItems, inventoryValueRows, salesByCategoryRows] = await Promise.all([
     prisma.product.count(),
     prisma.order.groupBy({ by: ["status"], where: orderDateFilter, _count: { id: true } }),
     prisma.$queryRaw<Array<{
@@ -95,6 +95,19 @@ export async function GET(request: NextRequest) {
       WHERE "status" = 'COMPLETED'
         AND "updatedAt" >= ${rangeStart}
         AND (${customEnd}::timestamptz IS NULL OR "updatedAt" < ${customEnd})
+    `,
+    prisma.$queryRaw<Array<{ grossProfit: number }>>`
+      SELECT COALESCE(
+        SUM(item."subtotal" - (item."quantity" * COALESCE(variant."cost", product."cost"))),
+        0
+      )::double precision AS "grossProfit"
+      FROM "OrderItem" AS item
+      INNER JOIN "Order" AS orders ON orders."id" = item."orderId"
+      INNER JOIN "Product" AS product ON product."id" = item."productId"
+      LEFT JOIN "ProductVariant" AS variant ON variant."id" = item."variantId"
+      WHERE orders."status" = 'COMPLETED'
+        AND orders."updatedAt" >= ${rangeStart}
+        AND (${customEnd}::timestamptz IS NULL OR orders."updatedAt" < ${customEnd})
     `,
     prisma.order.groupBy({
       by: ["status"],
@@ -185,6 +198,7 @@ export async function GET(request: NextRequest) {
     ecommerceOrders: 0,
     ecommerceRevenue: 0,
   };
+  const completedGrossProfit = Number(completedGrossProfitRows[0]?.grossProfit ?? 0);
   const activeOrderCount = [...statusCounts.entries()]
     .filter(([status]) => status !== "CANCELLED" && status !== "COMPLETED")
     .reduce((sum, [, count]) => sum + count, 0);
@@ -203,6 +217,7 @@ export async function GET(request: NextRequest) {
         minStock: Number(item.minStock),
       })),
       revenue: Number(completedSales.revenue),
+      grossProfit: completedGrossProfit,
       totalCost: Number(inventoryValue.totalCost),
       totalPrice: Number(inventoryValue.totalPrice),
       topProducts,
