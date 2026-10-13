@@ -115,7 +115,8 @@ export async function applyOrderInventoryMovement(
   if (type === "STOCK_OUT" && aggregatedItems.size > 0) {
     const productItems = [...aggregatedItems.values()].filter((item) => !item.variantId);
     const variantItems = [...aggregatedItems.values()].filter((item) => Boolean(item.variantId));
-    const productIds = [...new Set(productItems.map((item) => item.productId))];
+    // Variant sales also need their parent product loaded for the active-state check below.
+    const productIds = [...new Set([...aggregatedItems.values()].map((item) => item.productId))];
     const variantIds = [...new Set(variantItems.map((item) => item.variantId!))];
     const [products, variants] = await Promise.all([
       productIds.length
