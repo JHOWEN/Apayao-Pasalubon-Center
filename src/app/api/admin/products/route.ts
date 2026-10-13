@@ -89,15 +89,26 @@ export async function GET(request: Request) {
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
     const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit")) || 30));
     const search = searchParams.get("search")?.trim().slice(0, 120) ?? "";
-    const where = search
-      ? {
+    const where = {
+      isActive: true,
+      AND: [
+        {
           OR: [
-            { name: { contains: search, mode: "insensitive" as const } },
-            { sku: { contains: search, mode: "insensitive" as const } },
-            { variants: { some: { sku: { contains: search, mode: "insensitive" as const } } } },
+            { variants: { none: {} } },
+            { variants: { some: { isActive: true } } },
           ],
-        }
-      : {};
+        },
+        ...(search
+          ? [{
+              OR: [
+                { name: { contains: search, mode: "insensitive" as const } },
+                { sku: { contains: search, mode: "insensitive" as const } },
+                { variants: { some: { isActive: true, sku: { contains: search, mode: "insensitive" as const } } } },
+              ],
+            }]
+          : []),
+      ],
+    };
     const [products, totalCount] = await Promise.all([
       prisma.product.findMany({
         where,
@@ -110,6 +121,7 @@ export async function GET(request: Request) {
           imageUrl: true,
           hasVariants: true,
           variants: {
+            where: { isActive: true },
             select: { id: true, sku: true, price: true, stock: true, attributes: true },
           },
         },

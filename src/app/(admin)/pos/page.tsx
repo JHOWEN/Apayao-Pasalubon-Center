@@ -100,6 +100,7 @@ export default function POSPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [warningMessage, setWarningMessage] = useState("");
+  const [warningType, setWarningType] = useState<"stock" | "unavailable">("stock");
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [tenderAmount, setTenderAmount] = useState("");
@@ -742,6 +743,7 @@ export default function POSPage() {
 
       if (!response.ok || data.success !== true) {
         if (data.code === "INSUFFICIENT_STOCK" || data.code === "ITEM_UNAVAILABLE") {
+          setWarningType(data.code === "ITEM_UNAVAILABLE" ? "unavailable" : "stock");
           setWarningMessage(data.message ?? "A product in the cart is no longer available. Refresh the cart and try again.");
           setStatusMessage("");
         } else {
@@ -947,7 +949,9 @@ export default function POSPage() {
             <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400">
               <AlertTriangle className="h-6 w-6" />
             </div>
-            <h3 className="mt-3 text-base font-bold text-slate-900 dark:text-white">Insufficient Stock</h3>
+            <h3 className="mt-3 text-base font-bold text-slate-900 dark:text-white">
+              {warningType === "unavailable" ? "Item Unavailable" : "Insufficient Stock"}
+            </h3>
             <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">{warningMessage}</p>
             <button
               type="button"
