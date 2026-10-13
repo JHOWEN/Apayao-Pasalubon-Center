@@ -13,6 +13,8 @@ import {
   Sun,
 } from "lucide-react";
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
+import { AdminQueryProvider, getAdminQueryClient } from "@/components/providers/admin-query-provider";
+import { adminFetch, invalidateAdminDataForEvent } from "@/lib/admin-data-cache";
 import { notifyAdminOfNewOrder } from "@/lib/admin-notifications";
 import { getPickupDateKey } from "@/lib/order";
 
@@ -22,8 +24,17 @@ const ADMIN_ACTIVITY_STORAGE_KEY = "apc-admin-last-activity";
 type ThemeMode = "light" | "dark" | "system";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
+  return (
+    <AdminQueryProvider>
+      <AdminLayoutContent>{children}</AdminLayoutContent>
+    </AdminQueryProvider>
+  );
+}
+
+function AdminLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const queryClient = getAdminQueryClient();
 
   const [avatarSrc, setAvatarSrc] = useState(fallbackAvatarSrc);
   const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
@@ -40,6 +51,10 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   const notificationMenuRef = useRef<HTMLDivElement>(null);
   const isDarkAppearance = theme === "dark" || (theme === "system" && systemPrefersDark);
+
+  useEffect(() => {
+    if (sessionStatus !== "verified") queryClient.clear();
+  }, [queryClient, sessionStatus]);
 
   useEffect(() => {
     if (!isMobileNavOpen) return;
@@ -60,11 +75,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       isCheckingSession = true;
 
       try {
-        let response = await fetch("/api/admin/profile", { cache: "no-store" });
+        let response = await adminFetch("/api/admin/profile", { cache: "reload" });
         if (response.status === 401) {
-          const refreshResponse = await fetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+          const refreshResponse = await adminFetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
           if (refreshResponse.ok || refreshResponse.status === 409) {
-            response = await fetch("/api/admin/profile", { cache: "no-store" });
+            response = await adminFetch("/api/admin/profile", { cache: "reload" });
           }
         }
         if (response.status === 401) {
@@ -138,11 +153,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       if (isRefreshing) return;
       isRefreshing = true;
       try {
-        const response = await fetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+        const response = await adminFetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
         if (response.status === 401) {
           window.location.replace("/login?reason=session-expired");
         } else if (response.status === 409) {
-          const profileResponse = await fetch("/api/admin/profile", { cache: "no-store" });
+          const profileResponse = await adminFetch("/api/admin/profile", { cache: "reload" });
           if (profileResponse.status === 401) {
             window.location.replace("/login?reason=session-expired");
           }
@@ -188,18 +203,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       activityRequestInFlight = true;
 
       try {
-        let response = await fetch("/api/auth/activity", {
+        let response = await adminFetch("/api/auth/activity", {
           method: "POST",
           cache: "no-store",
         });
 
         if (response.status === 401) {
-          const refreshResponse = await fetch("/api/auth/refresh", {
+          const refreshResponse = await adminFetch("/api/auth/refresh", {
             method: "POST",
             cache: "no-store",
           });
           if (!refreshResponse.ok && refreshResponse.status !== 409) return;
-          response = await fetch("/api/auth/activity", {
+          response = await adminFetch("/api/auth/activity", {
             method: "POST",
             cache: "no-store",
           });
@@ -335,7 +350,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
     async function loadPickupNotifications() {
       try {
-        const response = await fetch("/api/admin/orders?status=ACTIVE&filterDate=NEXT_7_DAYS&limit=50");
+        const response = await adminFetch("/api/admin/orders?status=ACTIVE&filterDate=NEXT_7_DAYS&limit=50");
         if (!response.ok) {
           setNotifications([]);
           return;
@@ -390,13 +405,25 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
     const handleSseMessage = (event: MessageEvent) => {
       try {
-        const message = JSON.parse(event.data) as { type?: string; payload?: { orderId?: string } };
-        if (message?.type === "order-created" || message?.type === "order-updated" || message?.type === "inventory-updated") {
+        const message = JSON.parse(event.data) as {
+          type?: "order-created" | "order-updated" | "inventory-updated" | "catalog-updated" | "customer-updated";
+          payload?: { orderId?: string };
+        };
+        if (
+          message?.type === "order-created" ||
+          message?.type === "order-updated" ||
+          message?.type === "inventory-updated" ||
+          message?.type === "catalog-updated" ||
+          message?.type === "customer-updated"
+        ) {
+          invalidateAdminDataForEvent(queryClient, message.type);
           if (message.type === "order-created" && message.payload?.orderId) {
             notifyAdminOfNewOrder(message.payload.orderId);
           }
           window.dispatchEvent(new CustomEvent("apc-admin-live-event", { detail: message }));
-          void loadPickupNotifications();
+          if (message.type === "order-created" || message.type === "order-updated") {
+            void loadPickupNotifications();
+          }
         }
       } catch {
         // Ignore invalid SSE payloads.
@@ -404,21 +431,34 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     };
 
     const eventSource = new EventSource("/api/admin/live");
+    let hasConnectedOnce = false;
+    const invalidateAfterReconnect = () => {
+      if (!hasConnectedOnce) {
+        hasConnectedOnce = true;
+        return;
+      }
+      invalidateAdminDataForEvent(queryClient, "admin-data-invalidated");
+      window.dispatchEvent(new CustomEvent("apc-admin-live-event", { detail: { type: "admin-data-invalidated" } }));
+    };
+    const invalidateAfterNetworkRestore = () => {
+      invalidateAdminDataForEvent(queryClient, "admin-data-invalidated");
+      window.dispatchEvent(new CustomEvent("apc-admin-live-event", { detail: { type: "admin-data-invalidated" } }));
+    };
+    eventSource.addEventListener("open", invalidateAfterReconnect);
     eventSource.addEventListener("order-created", handleSseMessage);
     eventSource.addEventListener("order-updated", handleSseMessage);
     eventSource.addEventListener("inventory-updated", handleSseMessage);
+    eventSource.addEventListener("catalog-updated", handleSseMessage);
+    eventSource.addEventListener("customer-updated", handleSseMessage);
+    window.addEventListener("online", invalidateAfterNetworkRestore);
 
     void loadPickupNotifications();
 
-    const refreshInterval = window.setInterval(() => {
-      void loadPickupNotifications();
-    }, 30000);
-
     return () => {
-      window.clearInterval(refreshInterval);
       eventSource.close();
+      window.removeEventListener("online", invalidateAfterNetworkRestore);
     };
-  }, [sessionStatus]);
+  }, [queryClient, sessionStatus]);
 
   if (sessionStatus !== "verified" || userRole === null) {
     const sessionUnavailable = sessionStatus === "unavailable";

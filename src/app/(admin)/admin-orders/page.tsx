@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -417,59 +418,46 @@ export default function AdminOrdersPage() {
     });
   }
 
-  const loadOrders = useCallback(async (showLoading = false) => {
-    if (showLoading) {
-      setIsLoading(true);
+  const loadOrders = useCallback(async () => {
+    const params = new URLSearchParams({
+      page: String(currentPage),
+      limit: String(pageSize),
+      search,
+      status: filterStatus,
+      filterDate,
+      customPickupDate,
+    });
+    const response = await adminFetch(`/api/admin/orders?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error("Unable to load orders.");
     }
 
-    try {
-      const params = new URLSearchParams({
-        page: String(currentPage),
-        limit: String(pageSize),
-        search,
-        status: filterStatus,
-        filterDate,
-        customPickupDate,
-      });
-      const response = await fetch(`/api/admin/orders?${params.toString()}`);
-      if (!response.ok) {
-        throw new Error("Unable to load orders.");
-      }
+    const data = await response.json();
+    const responseOrders = Array.isArray(data?.orders) ? data.orders : Array.isArray(data) ? data : [];
+    const normalizedOrders = responseOrders.map((order: Partial<OrderData>) => ({
+      ...order,
+      id: order.id ?? "",
+      orderNumber: order.orderNumber ?? "",
+      customerName: order.customerName ?? "Unknown customer",
+      customerPhone: order.customerPhone ?? "",
+      customerEmail: order.customerEmail ?? "",
+      customerAddress: order.customerAddress ?? "",
+      pickupDate: order.pickupDate ?? null,
+      createdAt: order.createdAt ?? new Date().toISOString(),
+      status: order.status ?? "PENDING",
+      totalAmount: Number(order.totalAmount ?? 0),
+      paymentMethod: order.paymentMethod ?? "CASH",
+      paymentStatus: order.paymentStatus ?? undefined,
+      proofOfPaymentUrl: order.proofOfPaymentUrl ?? null,
+      items: Array.isArray(order.items) ? order.items : [],
+      events: [],
+    }));
 
-      const data = await response.json();
-      const responseOrders = Array.isArray(data?.orders) ? data.orders : Array.isArray(data) ? data : [];
-      const normalizedOrders = responseOrders.map((order: Partial<OrderData>) => ({
-            ...order,
-            id: order.id ?? "",
-            orderNumber: order.orderNumber ?? "",
-            customerName: order.customerName ?? "Unknown customer",
-            customerPhone: order.customerPhone ?? "",
-            customerEmail: order.customerEmail ?? "",
-            customerAddress: order.customerAddress ?? "",
-            pickupDate: order.pickupDate ?? null,
-            createdAt: order.createdAt ?? new Date().toISOString(),
-            status: order.status ?? "PENDING",
-            totalAmount: Number(order.totalAmount ?? 0),
-            paymentMethod: order.paymentMethod ?? "CASH",
-            paymentStatus: order.paymentStatus ?? undefined,
-            proofOfPaymentUrl: order.proofOfPaymentUrl ?? null,
-            items: Array.isArray(order.items) ? order.items : [],
-            events: [],
-          }));
-      setOrders(normalizedOrders as OrderData[]);
-        setTotalOrderCount(Number(data?.pagination?.totalCount ?? normalizedOrders.length));
-        setStatusCounts(data?.statusCounts && typeof data.statusCounts === "object" ? data.statusCounts : {});
-    } catch {
-      if (showLoading) {
-        setOrders([]);
-          setTotalOrderCount(0);
-          setStatusCounts({});
-      }
-    } finally {
-      if (showLoading) {
-        setIsLoading(false);
-      }
-    }
+    return {
+      orders: normalizedOrders as OrderData[],
+      totalOrderCount: Number(data?.pagination?.totalCount ?? normalizedOrders.length),
+      statusCounts: data?.statusCounts && typeof data.statusCounts === "object" ? data.statusCounts : {},
+    };
   }, [currentPage, customPickupDate, filterDate, filterStatus, pageSize, search]);
 
   async function handleStatusChange(orderId: string, nextStatus: string) {
@@ -481,7 +469,7 @@ export default function AdminOrdersPage() {
         return false;
       }
 
-      const response = await fetch("/api/admin/orders", {
+      const response = await adminFetch("/api/admin/orders", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: orderId, status: nextStatus }),
@@ -543,7 +531,7 @@ export default function AdminOrdersPage() {
   async function handlePaymentApproval(orderId: string) {
     setIsProcessingPaymentAction(true);
 
-    const response = await fetch("/api/admin/payments/approve", {
+    const response = await adminFetch("/api/admin/payments/approve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderId }),
@@ -584,7 +572,7 @@ export default function AdminOrdersPage() {
   async function handlePaymentDecline(orderId: string) {
     setIsProcessingPaymentAction(true);
 
-    const response = await fetch("/api/admin/payments/decline", {
+    const response = await adminFetch("/api/admin/payments/decline", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderId }),
@@ -747,22 +735,42 @@ export default function AdminOrdersPage() {
   }
 
   useEffect(() => {
-    let isMounted = true;
+    let isActive = true;
 
-    const runLoad = async () => {
-      await loadOrders(true);
-      if (!isMounted) return;
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        void loadOrders()
+          .then((result) => {
+            if (!isActive) return;
+            setOrders(result.orders);
+            setTotalOrderCount(result.totalOrderCount);
+            setStatusCounts(result.statusCounts);
+          })
+          .catch(() => {});
+      }
     };
 
-    void runLoad();
-
-    const intervalId = window.setInterval(() => {
-      void loadOrders();
-    }, 10000);
+    void loadOrders()
+      .then((result) => {
+        if (!isActive) return;
+        setOrders(result.orders);
+        setTotalOrderCount(result.totalOrderCount);
+        setStatusCounts(result.statusCounts);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (isActive) setIsLoading(false);
+      });
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
 
     return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
+      isActive = false;
+      window.removeEventListener("apc-admin-live-event", handleLiveEvent);
     };
   }, [loadOrders]);
 
@@ -777,7 +785,7 @@ export default function AdminOrdersPage() {
     async function loadOrderHistory() {
       try {
         const params = new URLSearchParams({ historyFor: orderId });
-        const response = await fetch(`/api/admin/orders?${params.toString()}`, {
+        const response = await adminFetch(`/api/admin/orders?${params.toString()}`, {
           cache: "no-store",
           signal: controller.signal,
         });

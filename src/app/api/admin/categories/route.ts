@@ -5,6 +5,7 @@ import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { categoryCreateSchema, categoryUpdateSchema } from "@/features/admin/validators/admin";
 import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitCatalogUpdatedEvent } from "@/lib/realtime";
 
 export async function GET(request: Request) {
   const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:categories:get", "admin");
@@ -59,6 +60,7 @@ export async function POST(request: Request) {
     });
 
     revalidateTag("public-categories", "max");
+    emitCatalogUpdatedEvent({ categoryId: category.id });
 
     return NextResponse.json(
       { success: true, category },
@@ -114,6 +116,7 @@ export async function PUT(request: Request) {
     });
 
     revalidateTag("public-categories", "max");
+    emitCatalogUpdatedEvent({ categoryId: category.id });
 
     return NextResponse.json({ success: true, category });
   } catch {
@@ -145,6 +148,7 @@ export async function DELETE(request: Request) {
 
     await prisma.category.delete({ where: { id } });
     revalidateTag("public-categories", "max");
+    emitCatalogUpdatedEvent({ categoryId: id });
 
     return NextResponse.json({ success: true, message: "Category deleted." });
   } catch {

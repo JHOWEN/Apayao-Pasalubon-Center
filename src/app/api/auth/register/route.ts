@@ -10,6 +10,7 @@ import bcrypt from "bcryptjs";
 import { getRequestId, logError } from "@/lib/logger";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitCustomerUpdatedEvent } from "@/lib/realtime";
 
 export async function POST(request: Request) {
   try {
@@ -89,6 +90,8 @@ export async function POST(request: Request) {
         role: "CUSTOMER",
       },
     });
+
+    emitCustomerUpdatedEvent({ customerId: user.id });
 
     const session = await createAuthSession(user.id, user.sessionVersion, false);
     await setAuthCookies(session.accessToken, session.refreshToken, session.refreshExpiresAt);

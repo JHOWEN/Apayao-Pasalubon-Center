@@ -1,5 +1,6 @@
 "use client";
 
+import { adminFetch } from "@/lib/admin-data-cache";
 import Image from "@/components/safe-image";
 import { useState } from "react";
 import type { Attribute } from "./AttributeManager";
@@ -109,7 +110,7 @@ export default function VariantGenerator({
     compressedFiles.forEach((file) => uploadFormData.append("files", file));
 
     try {
-      const response = await fetch("/api/admin/products/upload", {
+      const response = await adminFetch("/api/admin/products/upload", {
         method: "POST",
         body: uploadFormData,
         credentials: "same-origin",

@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -38,7 +39,6 @@ export default function CategoriesPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const initialLoadDone = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   // Lock body scroll when delete confirmation dialog is open
@@ -55,9 +55,13 @@ export default function CategoriesPage() {
 
   // Auto-dismiss status toast after 3 seconds
   async function loadCategories(isManualRefresh = false) {
-    if (isManualRefresh) setIsRefreshing(true);
+    if (isManualRefresh) {
+      setIsRefreshing(true);
+    }
     try {
-      const response = await fetch("/api/admin/categories", { cache: "no-store" });
+      const response = await adminFetch("/api/admin/categories", {
+        cache: isManualRefresh ? "reload" : "no-store",
+      });
       if (!response.ok) return;
       const data = (await response.json()) as Category[];
       setCategories(Array.isArray(data) ? data : []);
@@ -75,20 +79,18 @@ export default function CategoriesPage() {
   }
 
   useEffect(() => {
-    if (initialLoadDone.current) return;
-    initialLoadDone.current = true;
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (message?.type === "catalog-updated" || message?.type === "admin-data-invalidated") {
+        void loadCategories();
+      }
+    };
 
-    const timer = window.setTimeout(() => {
-      void loadCategories();
-    }, 0);
-
-    const refreshInterval = window.setInterval(() => {
-      void loadCategories();
-    }, 5000);
+    void loadCategories();
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
 
     return () => {
-      window.clearTimeout(timer);
-      window.clearInterval(refreshInterval);
+      window.removeEventListener("apc-admin-live-event", handleLiveEvent);
     };
   }, []);
 
@@ -106,7 +108,7 @@ export default function CategoriesPage() {
       : { name: form.name.trim(), description: form.description.trim() };
 
     try {
-      const response = await fetch("/api/admin/categories", {
+      const response = await adminFetch("/api/admin/categories", {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -162,7 +164,7 @@ export default function CategoriesPage() {
     setStatus(null);
 
     try {
-      const response = await fetch(`/api/admin/categories?id=${categoryToDelete.id}`, {
+      const response = await adminFetch(`/api/admin/categories?id=${categoryToDelete.id}`, {
         method: "DELETE",
       });
 
@@ -234,7 +236,7 @@ export default function CategoriesPage() {
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            Auto-syncs every 5s
+            Live catalog updates
           </span>
           <button
             type="button"

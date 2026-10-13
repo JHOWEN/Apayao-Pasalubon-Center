@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 import { AdminToast } from "@/components/admin/admin-toast";
 
 import {
@@ -67,6 +68,7 @@ export default function CustomersPage() {
   const [pagination, setPagination] = useState({ page: 1, limit: 15, totalCount: 0, totalPages: 1 });
   const [summary, setSummary] = useState({ total: 0, verified: 0, blocked: 0, withOrders: 0 });
   const customerRequestSequence = useRef(0);
+  const hasLoadedCustomers = useRef(false);
 
   // Modal states
   const [viewingCustomer, setViewingCustomer] = useState<CustomerRow | null>(null);
@@ -117,9 +119,9 @@ export default function CustomersPage() {
     const params = new URLSearchParams({ page: String(currentPage), limit: String(pageSize), filter });
     if (debouncedSearchQuery) params.set("search", debouncedSearchQuery);
 
-    setLoading(true);
+    if (!hasLoadedCustomers.current) setLoading(true);
     try {
-      const response = await fetch(`/api/admin/customers?${params.toString()}`, { cache: "no-store" });
+      const response = await adminFetch(`/api/admin/customers?${params.toString()}`, { cache: "no-store" });
       const text = await response.text();
       let data: {
         customers?: unknown;
@@ -151,10 +153,11 @@ export default function CustomersPage() {
       setPagination(nextPagination);
       setSummary(data.summary ?? { total: 0, verified: 0, blocked: 0, withOrders: 0 });
       setApiError(null);
+      hasLoadedCustomers.current = true;
     } catch (error) {
       if (requestSequence === customerRequestSequence.current) {
         console.error("Failed to load customers", error);
-        setCustomers([]);
+        if (!hasLoadedCustomers.current) setCustomers([]);
         setApiError(error instanceof Error ? error.message : "Unable to load customers.");
       }
     } finally {
@@ -173,6 +176,19 @@ export default function CustomersPage() {
 
   useEffect(() => {
     void loadCustomers();
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "customer-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        void loadCustomers();
+      }
+    };
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
+    return () => window.removeEventListener("apc-admin-live-event", handleLiveEvent);
   }, [loadCustomers]);
 
   // Metric counts
@@ -246,7 +262,7 @@ export default function CustomersPage() {
 
     setSaving(true);
     try {
-      const response = await fetch("/api/admin/customers", {
+      const response = await adminFetch("/api/admin/customers", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: editingCustomer.id, ...formData }),
@@ -285,7 +301,7 @@ export default function CustomersPage() {
 
     setActionLoading(true);
     try {
-      const response = await fetch("/api/admin/customers", {
+      const response = await adminFetch("/api/admin/customers", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: blockingCustomer.id, isBlocked: nextBlocked }),

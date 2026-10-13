@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
 import NextImage from "@/components/safe-image";
 import { AdminToast } from "@/components/admin/admin-toast";
@@ -161,7 +162,7 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     async function loadSettings() {
       try {
-        const response = await fetch("/api/admin/settings");
+        const response = await adminFetch("/api/admin/settings");
         const data = await response.json();
         const nextSettings = {
           appName: "APC Inventory",
@@ -183,7 +184,7 @@ export default function AdminSettingsPage() {
 
     async function loadProfile() {
       try {
-        const response = await fetch("/api/admin/profile");
+        const response = await adminFetch("/api/admin/profile");
         const data = await response.json();
 
         if (response.ok && data.user) {
@@ -213,7 +214,7 @@ export default function AdminSettingsPage() {
 
     async function loadTeamUsers() {
       try {
-        const response = await fetch("/api/admin/users");
+        const response = await adminFetch("/api/admin/users");
         if (response.ok) {
           const data = await response.json();
           setTeamUsers(Array.isArray(data) ? data : []);
@@ -238,7 +239,7 @@ export default function AdminSettingsPage() {
     setIsSavingProfile(true);
 
     try {
-      const response = await fetch("/api/admin/profile", {
+      const response = await adminFetch("/api/admin/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(profileForm),
@@ -334,7 +335,7 @@ export default function AdminSettingsPage() {
       const formData = new FormData();
       formData.append("file", blob, file.name.replace(/\.[^.]+$/, ".png"));
 
-      const response = await fetch("/api/admin/profile/upload", {
+      const response = await adminFetch("/api/admin/profile/upload", {
         method: "POST",
         body: formData,
       });
@@ -349,7 +350,7 @@ export default function AdminSettingsPage() {
       setProfileForm(updatedProfile);
       setPreviewImage(data.url);
 
-      const saveResponse = await fetch("/api/admin/profile", {
+      const saveResponse = await adminFetch("/api/admin/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedProfile),
@@ -380,7 +381,7 @@ export default function AdminSettingsPage() {
     setIsSavingSettings(true);
 
     try {
-      const response = await fetch("/api/admin/settings", {
+      const response = await adminFetch("/api/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settingsForm),
@@ -410,7 +411,7 @@ export default function AdminSettingsPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const response = await fetch("/api/admin/payment-qr/upload", {
+      const response = await adminFetch("/api/admin/payment-qr/upload", {
         method: "POST",
         body: formData,
       });
@@ -426,7 +427,7 @@ export default function AdminSettingsPage() {
       setSettingsForm(updatedForm);
 
       // Auto-save settings with new QR code
-      await fetch("/api/admin/settings", {
+      await adminFetch("/api/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedForm),
@@ -457,7 +458,7 @@ export default function AdminSettingsPage() {
     setIsChangingPassword(true);
 
     try {
-      const response = await fetch("/api/admin/profile/password", {
+      const response = await adminFetch("/api/admin/profile/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -490,7 +491,7 @@ export default function AdminSettingsPage() {
     setCopiedTempPass(false);
 
     try {
-      const response = await fetch("/api/admin/users", {
+      const response = await adminFetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(teamForm),
@@ -519,7 +520,7 @@ export default function AdminSettingsPage() {
     changes: { role?: TeamUser["role"]; isBlocked?: boolean }
   ) {
     try {
-      const response = await fetch("/api/admin/users", {
+      const response = await adminFetch("/api/admin/users", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: user.id, ...changes }),
@@ -552,7 +553,7 @@ export default function AdminSettingsPage() {
     setIsDeletingUser(true);
 
     try {
-      const response = await fetch("/api/admin/users", {
+      const response = await adminFetch("/api/admin/users", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: userToDelete.id }),

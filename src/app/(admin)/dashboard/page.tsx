@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
 import Link from "next/link";
 import Image from "@/components/safe-image";
@@ -152,10 +153,10 @@ export default function DashboardPage() {
     completedOrders: 0,
   });
 
-  const loadSystemStatus = useCallback(async () => {
+  const loadSystemStatus = useCallback(async (forceRefresh = false) => {
     setIsSystemStatusLoading(true);
     try {
-      const response = await fetch("/api/admin/system-status", { cache: "no-store" });
+      const response = await adminFetch("/api/admin/system-status", { cache: forceRefresh ? "reload" : "no-store" });
       if (!response.ok) throw new Error("Unable to load system status.");
       const data = (await response.json()) as SystemStatusData;
       setSystemStatus(data);
@@ -168,32 +169,13 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    const initialLoad = window.setTimeout(() => {
-      void loadSystemStatus();
-    }, 3000);
-
-    const refreshInterval = window.setInterval(() => {
-      void loadSystemStatus();
-    }, 5 * 60_000);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void loadSystemStatus();
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      window.clearTimeout(initialLoad);
-      window.clearInterval(refreshInterval);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
+    void loadSystemStatus();
   }, [loadSystemStatus]);
 
   useEffect(() => {
     let isActive = true;
 
-    fetch("/api/admin/profile", { cache: "no-store" })
+    adminFetch("/api/admin/profile", { cache: "no-store" })
       .then((response) => response.json())
       .then((profileData) => {
         if (
@@ -227,7 +209,7 @@ export default function DashboardPage() {
         params.set("to", endDate);
       }
 
-      const summaryRequest = fetch(`/api/admin/dashboard?${params.toString()}`);
+      const summaryRequest = adminFetch(`/api/admin/dashboard?${params.toString()}`);
 
       try {
         const summaryResponse = await summaryRequest;
@@ -269,34 +251,26 @@ export default function DashboardPage() {
 
     void loadDashboardData();
 
-    const refreshIfVisible = () => {
-      if (document.visibilityState === "visible") void loadDashboardData();
-    };
     let liveRefreshTimeout: number | undefined;
     const handleAdminLiveEvent = (event: Event) => {
       const message = (event as CustomEvent<{ type?: string }>).detail;
       if (
         message?.type === "inventory-updated" ||
         message?.type === "order-created" ||
-        message?.type === "order-updated"
+        message?.type === "order-updated" ||
+        message?.type === "catalog-updated" ||
+        message?.type === "admin-data-invalidated"
       ) {
         if (liveRefreshTimeout) window.clearTimeout(liveRefreshTimeout);
-        liveRefreshTimeout = window.setTimeout(refreshIfVisible, 500);
+        liveRefreshTimeout = window.setTimeout(() => {
+          if (document.visibilityState === "visible") void loadDashboardData();
+        }, 500);
       }
     };
-    const refreshInterval = window.setInterval(refreshIfVisible, 60000);
-
-    const handleVisibilityChange = () => {
-      refreshIfVisible();
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("apc-admin-live-event", handleAdminLiveEvent);
 
     return () => {
-      window.clearInterval(refreshInterval);
       if (liveRefreshTimeout) window.clearTimeout(liveRefreshTimeout);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("apc-admin-live-event", handleAdminLiveEvent);
     };
   }, [range, startDate, endDate]);
@@ -1141,7 +1115,7 @@ export default function DashboardPage() {
               </span>
               <button
                 type="button"
-                onClick={() => void loadSystemStatus()}
+                onClick={() => void loadSystemStatus(true)}
                 disabled={isSystemStatusLoading}
                 aria-label="Refresh system status"
                 title="Refresh system status"

@@ -8,6 +8,7 @@ import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { customerUpdateSchema } from "@/features/admin/validators/admin";
 import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitCustomerUpdatedEvent } from "@/lib/realtime";
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -250,6 +251,7 @@ export async function PUT(request: Request) {
       return updated;
     });
 
+    emitCustomerUpdatedEvent({ customerId: updatedCustomer.id });
     return NextResponse.json({ success: true, customer: updatedCustomer });
   } catch (error) {
     return NextResponse.json({ success: false, message: getUserFacingErrorMessage(error, "Unable to update customer.") }, { status: 500 });

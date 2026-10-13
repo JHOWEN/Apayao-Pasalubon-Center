@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch, invalidateCurrentAdminApiPaths } from "@/lib/admin-data-cache";
 
 import Image from "@/components/safe-image";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
@@ -145,6 +146,7 @@ export default function InventoryPage() {
   const [inventorySummary, setInventorySummary] = useState({ totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, totalCostValue: 0, totalRetailValue: 0, lowStockCount: 0 });
   const [refreshKey, setRefreshKey] = useState(0);
   const inventoryRequestSequence = useRef(0);
+  const hasLoadedInventoryData = useRef(false);
   const [movementProductId, setMovementProductId] = useState("");
   const [isLoadingMovementProducts, setIsLoadingMovementProducts] = useState(false);
   const [movementVariantId, setMovementVariantId] = useState("");
@@ -158,9 +160,9 @@ export default function InventoryPage() {
 
   const isAdmin = userRole === "ADMIN";
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (forceRefresh = false) => {
     const requestSequence = ++inventoryRequestSequence.current;
-    setIsLoading(true);
+    if (!hasLoadedInventoryData.current) setIsLoading(true);
     try {
       const params = new URLSearchParams({
         page: String(currentPage),
@@ -170,8 +172,8 @@ export default function InventoryPage() {
         type: productTypeFilter,
       });
       const [productsResponse, categoriesResponse] = await Promise.all([
-        fetch(`/api/admin/products?${params.toString()}`, { cache: "no-store" }),
-        fetch("/api/admin/categories", { cache: "no-store" }),
+        adminFetch(`/api/admin/products?${params.toString()}`, { cache: forceRefresh ? "reload" : "no-store" }),
+        adminFetch("/api/admin/categories", { cache: forceRefresh ? "reload" : "no-store" }),
       ]);
       const productData = await productsResponse.json();
       const categoriesData = await categoriesResponse.json();
@@ -186,6 +188,7 @@ export default function InventoryPage() {
       setTypeCounts(productData?.typeCounts ?? { ALL: 0, SIMPLE: 0, VARIANT: 0 });
       setInventorySummary(productData?.summary ?? { totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, totalCostValue: 0, totalRetailValue: 0, lowStockCount: 0 });
       setCategories(Array.isArray(categoriesData) ? categoriesData : []);
+      hasLoadedInventoryData.current = true;
     } catch {
       // Kept silent
     } finally {
@@ -196,7 +199,7 @@ export default function InventoryPage() {
   async function loadMovementProducts() {
     setIsLoadingMovementProducts(true);
     try {
-      const response = await fetch("/api/admin/products", { cache: "no-store" });
+      const response = await adminFetch("/api/admin/products", { cache: "no-store" });
       const data = await response.json();
       setMovementProducts(Array.isArray(data) ? data : []);
       setHasLoadedMovementProducts(true);
@@ -212,7 +215,7 @@ export default function InventoryPage() {
 
     async function loadUserRole() {
       try {
-        const response = await fetch("/api/auth/profile");
+        const response = await adminFetch("/api/auth/profile");
         const data = await response.json();
         if (isMounted && (data?.user?.role === "ADMIN" || data?.user?.role === "STAFF")) {
           setUserRole(data.user.role);
@@ -229,7 +232,13 @@ export default function InventoryPage() {
 
     const handleLiveEvent = (event: Event) => {
       const message = (event as CustomEvent<{ type?: string }>).detail;
-      if (message?.type === "inventory-updated" || message?.type === "order-created" || message?.type === "order-updated") {
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "catalog-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
         setRefreshKey((value) => value + 1);
       }
     };
@@ -342,7 +351,7 @@ export default function InventoryPage() {
             quantity,
             remarks: movementRemarks.trim() || (action === "stock-out" ? "Stock out entry" : "Stock in entry"),
           };
-      const response = await fetch("/api/admin/inventory", {
+      const response = await adminFetch("/api/admin/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -457,7 +466,7 @@ export default function InventoryPage() {
     const compressedFiles = await compressUploadImages(selectedFiles, PRODUCT_IMAGE_COMPRESSION);
     const uploadFormData = new FormData();
     compressedFiles.forEach((file) => uploadFormData.append("files", file));
-    const response = await fetch("/api/admin/products/upload", { method: "POST", body: uploadFormData, credentials: "same-origin" });
+    const response = await adminFetch("/api/admin/products/upload", { method: "POST", body: uploadFormData, credentials: "same-origin" });
     const data = await response.json();
     if (!response.ok || !Array.isArray(data?.urls)) {
       setProductFormMessage(data?.message ?? "Unable to upload variant images.");
@@ -476,7 +485,7 @@ export default function InventoryPage() {
       return;
     }
     try {
-      const response = await fetch("/api/admin/variants", {
+      const response = await adminFetch("/api/admin/variants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -519,7 +528,7 @@ export default function InventoryPage() {
       const uploadFormData = new FormData();
       uploadFormData.append("file", compressedFile);
 
-      const uploadResponse = await fetch("/api/admin/products/upload", {
+      const uploadResponse = await adminFetch("/api/admin/products/upload", {
         method: "POST",
         credentials: "same-origin",
         body: uploadFormData,
@@ -627,7 +636,7 @@ export default function InventoryPage() {
       ...(formImageUrl && { imageUrls: [formImageUrl] }),
     };
 
-    const response = await fetch("/api/admin/products", {
+    const response = await adminFetch("/api/admin/products", {
       method: productForm.id ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -656,7 +665,7 @@ export default function InventoryPage() {
 
     try {
       setIsDeletingProductId(productToDelete.id);
-      const res = await fetch(`/api/admin/products?id=${encodeURIComponent(productToDelete.id)}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/products?id=${encodeURIComponent(productToDelete.id)}`, { method: "DELETE" });
       const data = await res.json();
       setIsDeletingProductId(null);
       if (!res.ok) {
@@ -675,7 +684,7 @@ export default function InventoryPage() {
   async function confirmDeleteVariant() {
     if (!variantToDelete) return;
     try {
-      const response = await fetch(`/api/admin/variants/${variantToDelete.id}`, { method: "DELETE" });
+      const response = await adminFetch(`/api/admin/variants/${variantToDelete.id}`, { method: "DELETE" });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.message ?? "Unable to remove variant.");
       setVariantToDelete(null);
@@ -1043,7 +1052,10 @@ export default function InventoryPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => void loadData()}
+                    onClick={() => {
+                      invalidateCurrentAdminApiPaths(["/api/admin/products", "/api/admin/categories"]);
+                      void loadData(true);
+                    }}
                     className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:translate-y-px dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                     title="Refresh data"
                   >

@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
 import Image from "@/components/safe-image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -127,7 +128,7 @@ export default function POSPage() {
     if (debouncedSearchQuery) params.set("search", debouncedSearchQuery);
 
     try {
-      const response = await fetch(`/api/admin/products?${params.toString()}`, { cache: "no-store" });
+      const response = await adminFetch(`/api/admin/products?${params.toString()}`, { cache: "no-store" });
       if (!response.ok) return;
 
       const data = await response.json();
@@ -179,7 +180,7 @@ export default function POSPage() {
 
     async function loadCashierProfile() {
       try {
-        const response = await fetch("/api/auth/profile");
+        const response = await adminFetch("/api/auth/profile");
         const data = await response.json();
         if (response.ok && typeof data?.user?.name === "string") {
           setCashierName(data.user.name);
@@ -191,7 +192,7 @@ export default function POSPage() {
 
     async function loadReceiptHeader() {
       try {
-        const response = await fetch("/api/admin/receipt-settings", { cache: "no-store" });
+        const response = await adminFetch("/api/admin/receipt-settings", { cache: "no-store" });
         const data = await response.json();
         if (response.ok && data?.settings) {
           setReceiptHeader({
@@ -230,32 +231,27 @@ export default function POSPage() {
     return () => window.clearTimeout(timeoutId);
   }, [loadProducts]);
 
-  // Refresh the visible POS page when inventory changes, with a slower fallback.
+  // Refresh the catalog only when an order or catalog event changes it.
   useEffect(() => {
     if (isSubmitting || showReceipt || showSuccessOverlay) return;
 
-    const refreshIfVisible = () => {
-      if (document.visibilityState === "visible") void loadProducts();
-    };
     const handleAdminLiveEvent = (event: Event) => {
       const message = (event as CustomEvent<{ type?: string }>).detail;
       if (
         message?.type === "inventory-updated" ||
         message?.type === "order-created" ||
-        message?.type === "order-updated"
+        message?.type === "order-updated" ||
+        message?.type === "catalog-updated" ||
+        message?.type === "admin-data-invalidated"
       ) {
-        refreshIfVisible();
+        if (document.visibilityState === "visible") void loadProducts();
       }
     };
 
-    const fallbackRefresh = window.setInterval(refreshIfVisible, 60_000);
     window.addEventListener("apc-admin-live-event", handleAdminLiveEvent);
-    document.addEventListener("visibilitychange", refreshIfVisible);
 
     return () => {
-      window.clearInterval(fallbackRefresh);
       window.removeEventListener("apc-admin-live-event", handleAdminLiveEvent);
-      document.removeEventListener("visibilitychange", refreshIfVisible);
     };
   }, [isSubmitting, loadProducts, showReceipt, showSuccessOverlay]);
 
@@ -721,7 +717,7 @@ export default function POSPage() {
     setOrderNumber(attempt.orderNumber);
 
     try {
-      const response = await fetch("/api/admin/orders", {
+      const response = await adminFetch("/api/admin/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

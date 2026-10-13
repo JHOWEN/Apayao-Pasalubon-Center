@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
 import Image from "@/components/safe-image";
 import { FormEvent, useEffect, useState } from "react";
@@ -36,7 +37,7 @@ export default function AddProductPage() {
   });
 
   useEffect(() => {
-    fetch("/api/admin/categories")
+    adminFetch("/api/admin/categories")
       .then((response) => response.json())
       .then((data) => setCategories(Array.isArray(data) ? data : []))
       .catch(() => setStatus("Unable to load categories."));
@@ -59,7 +60,7 @@ export default function AddProductPage() {
       const compressedFile = await compressUploadImage(file, PRODUCT_IMAGE_COMPRESSION);
       const uploadFormData = new FormData();
       uploadFormData.append("file", compressedFile);
-      const response = await fetch("/api/admin/products/upload", { method: "POST", body: uploadFormData, credentials: "same-origin" });
+      const response = await adminFetch("/api/admin/products/upload", { method: "POST", body: uploadFormData, credentials: "same-origin" });
       const data = await response.json();
       if (!response.ok || !data?.url) throw new Error(data?.message ?? "Unable to upload image.");
       setImageUrl(data.url);
@@ -113,7 +114,7 @@ export default function AddProductPage() {
         }));
       }
 
-      const response = await fetch("/api/admin/products", {
+      const response = await adminFetch("/api/admin/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

@@ -1,7 +1,7 @@
 import { Redis } from "@upstash/redis";
 
 type RealtimeEvent = {
-  type: "order-created" | "inventory-updated" | "order-updated" | "ping";
+  type: "order-created" | "inventory-updated" | "order-updated" | "catalog-updated" | "customer-updated" | "ping";
   payload?: Record<string, unknown>;
   sentAt?: string;
 };
@@ -219,6 +219,20 @@ export function emitInventoryUpdatedEvent(payload: Record<string, unknown> = {})
 export function emitOrderUpdatedEvent(payload: Record<string, unknown> = {}) {
   broadcastAdminEvent({
     type: "order-updated",
+    payload,
+  });
+}
+
+export function emitCatalogUpdatedEvent(payload: Record<string, unknown> = {}) {
+  broadcastAdminEvent({
+    type: "catalog-updated",
+    payload,
+  });
+}
+
+export function emitCustomerUpdatedEvent(payload: Record<string, unknown> = {}) {
+  broadcastAdminEvent({
+    type: "customer-updated",
     payload,
   });
 }

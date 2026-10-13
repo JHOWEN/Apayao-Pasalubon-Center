@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "@/components/safe-image";
@@ -201,7 +202,7 @@ export default function ProductsPage() {
       const uploadFormData = new FormData();
       uploadFormData.append("file", compressedFile);
 
-      const uploadResponse = await fetch("/api/admin/products/upload", {
+      const uploadResponse = await adminFetch("/api/admin/products/upload", {
         method: "POST",
         body: uploadFormData,
         credentials: "same-origin",
@@ -239,7 +240,7 @@ export default function ProductsPage() {
       const uploadFormData = new FormData();
       compressedFiles.forEach((file) => uploadFormData.append("files", file));
 
-      const uploadResponse = await fetch("/api/admin/products/upload", {
+      const uploadResponse = await adminFetch("/api/admin/products/upload", {
         method: "POST",
         credentials: "same-origin",
         body: uploadFormData,
@@ -263,7 +264,7 @@ export default function ProductsPage() {
   async function saveImageUrls(productId: string, imageUrls: string[], successMessage: string) {
     setStatus("");
 
-    const response = await fetch("/api/admin/products", {
+    const response = await adminFetch("/api/admin/products", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id: productId, imageUrls }),
@@ -289,7 +290,7 @@ export default function ProductsPage() {
     if (statusFilter) params.set("status", statusFilter);
 
     try {
-      const productsResponse = await fetch(`/api/admin/products?${params.toString()}`, {
+      const productsResponse = await adminFetch(`/api/admin/products?${params.toString()}`, {
         credentials: "same-origin",
         cache: "no-store",
       });
@@ -343,6 +344,18 @@ export default function ProductsPage() {
 
   useEffect(() => {
     void loadData();
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "catalog-updated" ||
+        message?.type === "inventory-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        void loadData();
+      }
+    };
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
+    return () => window.removeEventListener("apc-admin-live-event", handleLiveEvent);
   }, [loadData]);
 
   useEffect(() => {
@@ -366,7 +379,7 @@ export default function ProductsPage() {
 
   async function updateProductStatus(productId: string, nextStatus: ProductStatus) {
     try {
-      const response = await fetch("/api/admin/products", {
+      const response = await adminFetch("/api/admin/products", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -391,7 +404,7 @@ export default function ProductsPage() {
 
   async function updateVariantStatus(productId: string, variantId: string, isActive: boolean) {
     try {
-      const response = await fetch(`/api/admin/variants/${variantId}`, {
+      const response = await adminFetch(`/api/admin/variants/${variantId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive }),
@@ -451,7 +464,7 @@ export default function ProductsPage() {
     setStatus("");
 
     try {
-      const res = await fetch("/api/admin/products", {
+      const res = await adminFetch("/api/admin/products", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

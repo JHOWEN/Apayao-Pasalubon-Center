@@ -1,6 +1,7 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
@@ -203,9 +204,10 @@ export default function InventoryTransactionsPage() {
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const hasLoadedRecords = useRef(false);
 
   const loadRecords = useCallback(async () => {
-    setIsLoading(true);
+    if (!hasLoadedRecords.current) setIsLoading(true);
     setErrorMessage(null);
     const params = new URLSearchParams({
       page: String(page),
@@ -218,7 +220,7 @@ export default function InventoryTransactionsPage() {
       archiveMode: archiveFilter,
     });
     try {
-      const response = await fetch(`/api/admin/inventory?${params.toString()}`);
+      const response = await adminFetch(`/api/admin/inventory?${params.toString()}`);
       const data = await response.json().catch(() => null);
       if (!response.ok)
         throw new Error(
@@ -229,10 +231,13 @@ export default function InventoryTransactionsPage() {
       setCounts(
         data?.counts && typeof data.counts === "object" ? data.counts : {},
       );
+      hasLoadedRecords.current = true;
     } catch (error) {
-      setRecords([]);
-      setTotalCount(0);
-      setCounts({});
+      if (!hasLoadedRecords.current) {
+        setRecords([]);
+        setTotalCount(0);
+        setCounts({});
+      }
       setErrorMessage(
         error instanceof Error
           ? error.message
@@ -247,7 +252,23 @@ export default function InventoryTransactionsPage() {
     const loadTimeout = window.setTimeout(() => {
       void loadRecords();
     }, 0);
-    return () => window.clearTimeout(loadTimeout);
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "catalog-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        void loadRecords();
+      }
+    };
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
+    return () => {
+      window.clearTimeout(loadTimeout);
+      window.removeEventListener("apc-admin-live-event", handleLiveEvent);
+    };
   }, [loadRecords]);
 
   useEffect(() => {
@@ -356,7 +377,7 @@ export default function InventoryTransactionsPage() {
     }
 
     try {
-      const response = await fetch("/api/admin/inventory", {
+      const response = await adminFetch("/api/admin/inventory", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids, action, reason: reason.trim() }),
@@ -389,7 +410,7 @@ export default function InventoryTransactionsPage() {
       export: "1",
     });
     try {
-      const response = await fetch(`/api/admin/inventory?${params.toString()}`);
+      const response = await adminFetch(`/api/admin/inventory?${params.toString()}`);
       const data = await response.json().catch(() => null);
       if (!response.ok)
         throw new Error(data?.message || "Unable to export transactions.");

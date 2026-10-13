@@ -5,6 +5,7 @@ import { getRequestId, logError } from "@/lib/logger";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { variantUpdateSchema } from "@/features/admin/validators/admin";
 import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitCatalogUpdatedEvent } from "@/lib/realtime";
 
 export async function PUT(
   request: Request,
@@ -122,6 +123,7 @@ export async function PUT(
       return updated;
     });
 
+    emitCatalogUpdatedEvent({ variantId });
     return NextResponse.json({
       success: true,
       variant: {
@@ -160,6 +162,7 @@ export async function DELETE(
       await tx.productVariant.delete({ where: { id: variantId } });
     });
 
+    emitCatalogUpdatedEvent({ variantId });
     return NextResponse.json({ success: true, message: `Variant ${variant.sku} permanently deleted.` });
   } catch (error) {
     return NextResponse.json({ success: false, message: error instanceof Error ? error.message : "Unable to remove variant." }, { status: 500 });

@@ -9,6 +9,7 @@ import { getRequestId, logError } from "@/lib/logger";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { productCreateSchema, productUpdateSchema } from "@/features/catalog/validators/products";
 import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitCatalogUpdatedEvent } from "@/lib/realtime";
 
 function serializeProduct(product: {
   price: number | string | null | { toNumber(): number };
@@ -449,6 +450,7 @@ export async function POST(request: Request) {
       include: { category: true, variants: true },
     });
 
+    emitCatalogUpdatedEvent({ productId: product.id });
     return NextResponse.json({ success: true, product: updatedProduct ? serializeProduct(updatedProduct) : serializeProduct(product) }, { status: 201 });
   } catch (error: unknown) {
     logError("admin.products.create_failed", error, { requestId: getRequestId(request) });
@@ -660,6 +662,7 @@ export async function PUT(request: Request) {
       return tx.product.findUnique({ where: { id: updated.id }, include: { category: true, variants: true } });
     });
 
+    emitCatalogUpdatedEvent({ productId: body.id });
     return NextResponse.json({ success: true, product: product ? serializeProduct(product) : null });
   } catch (error: unknown) {
     logError("admin.products.update_failed", error, { requestId: getRequestId(request) });
@@ -701,6 +704,7 @@ export async function DELETE(request: Request) {
     ]);
 
     await prisma.product.delete({ where: { id } });
+    emitCatalogUpdatedEvent({ productId: id });
     return NextResponse.json({ success: true, message: "Product deleted." });
   } catch (error: unknown) {
     logError("admin.products.delete_failed", error, { requestId: getRequestId(request) });

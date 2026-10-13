@@ -4,6 +4,7 @@ import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { variantCreateSchema } from "@/features/admin/validators/admin";
 import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitCatalogUpdatedEvent } from "@/lib/realtime";
 
 export async function POST(request: Request) {
   try {
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
       return created;
     });
 
+    emitCatalogUpdatedEvent({ productId, variantId: variant.id });
     return NextResponse.json({ success: true, variant }, { status: 201 });
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {

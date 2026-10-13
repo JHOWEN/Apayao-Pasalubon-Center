@@ -1,6 +1,8 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
 import Image from "@/components/safe-image";
+import { getAdminQueryClient } from "@/components/providers/admin-query-provider";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -99,7 +101,7 @@ export function AdminSidebar({
   useEffect(() => {
     async function loadSidebarProfile() {
       try {
-        const response = await fetch("/api/auth/profile");
+        const response = await adminFetch("/api/auth/profile");
         if (!response.ok) return;
         const data = await response.json();
 
@@ -166,8 +168,9 @@ export function AdminSidebar({
 
   async function handleSignOut() {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      await adminFetch("/api/auth/logout", { method: "POST" });
     } finally {
+      getAdminQueryClient().clear();
       router.push("/login");
     }
   }

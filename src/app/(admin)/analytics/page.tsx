@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch, invalidateCurrentAdminApiPaths } from "@/lib/admin-data-cache";
 
 import { useEffect, useMemo, useState } from "react";
 import Image from "@/components/safe-image";
@@ -138,7 +139,7 @@ export default function AnalyticsPage() {
           params.set("from", appliedCustomFrom);
           params.set("to", appliedCustomTo);
         }
-        const response = await fetch(`/api/admin/analytics?${params.toString()}`);
+        const response = await adminFetch(`/api/admin/analytics?${params.toString()}`);
         if (!response.ok) throw new Error("Failed to fetch analytics");
         const data = await response.json();
         if (!ignore) {
@@ -160,8 +161,26 @@ export default function AnalyticsPage() {
     };
   }, [range, appliedCustomFrom, appliedCustomTo, refreshIndex]);
 
+  useEffect(() => {
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "catalog-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        setRefreshIndex((current) => current + 1);
+      }
+    };
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
+    return () => window.removeEventListener("apc-admin-live-event", handleLiveEvent);
+  }, []);
+
   const handleManualRefresh = () => {
     setLoading(true);
+    invalidateCurrentAdminApiPaths(["/api/admin/analytics"]);
     setRefreshIndex((prev) => prev + 1);
   };
 

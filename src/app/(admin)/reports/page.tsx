@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch, invalidateCurrentAdminApiPaths } from "@/lib/admin-data-cache";
 
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -224,7 +225,7 @@ export default function ReportsPage() {
       if (selectedEndDate) params.set("endDate", selectedEndDate);
       if (selectedCategory) params.set("category", selectedCategory);
 
-      const response = await fetch(`/api/admin/reports?${params.toString()}`, {
+      const response = await adminFetch(`/api/admin/reports?${params.toString()}`, {
         cache: "no-store",
         signal,
       });
@@ -284,7 +285,25 @@ export default function ReportsPage() {
     };
   }, [category, endDate, fetchReportData, reportRequestKey, startDate]);
 
+  useEffect(() => {
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "catalog-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        void loadReport();
+      }
+    };
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
+    return () => window.removeEventListener("apc-admin-live-event", handleLiveEvent);
+  }, [loadReport]);
+
   const handleRetryReportLoad = () => {
+    invalidateCurrentAdminApiPaths(["/api/admin/reports"]);
     setReportRequestVersion((version) => version + 1);
   };
 
