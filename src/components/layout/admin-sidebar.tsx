@@ -69,7 +69,7 @@ export function AdminSidebar({
 }: {
   isMobile?: boolean;
   onCloseMobile?: () => void;
-  userRole: "ADMIN" | "STAFF";
+  userRole: "ADMIN" | "STAFF" | null;
 }) {
   const pathname = usePathname();
   const normalizedPathname = normalizeSidebarPathname(pathname);
@@ -99,6 +99,8 @@ export function AdminSidebar({
   ];
 
   useEffect(() => {
+    if (!userRole) return;
+
     async function loadSidebarProfile() {
       try {
         const response = await adminFetch("/api/auth/profile");
@@ -158,7 +160,7 @@ export function AdminSidebar({
       window.removeEventListener("apc-admin-notifications-updated", handleCustomNotificationUpdate);
       window.removeEventListener("apc-admin-live-event", handleLiveEvent);
     };
-  }, [pathname]);
+  }, [pathname, userRole]);
 
   const handleLinkClick = () => {
     if (isMobile && onCloseMobile) {
@@ -176,7 +178,7 @@ export function AdminSidebar({
   }
 
   const effectiveCollapsed = !isMobile && isCollapsed;
-  const accountName = adminName.trim() || adminEmail.split("@")[0] || "Admin account";
+  const accountName = adminName.trim() || adminEmail.split("@")[0] || (userRole ? "Admin account" : "Account");
 
   return (
     <aside

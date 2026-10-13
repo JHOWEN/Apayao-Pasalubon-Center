@@ -75,6 +75,11 @@ type ReportBreakdown = Record<string, { count: number; revenue: number }>;
 type RecentOrderItem = {
   quantity: number;
   productName: string;
+  sku: string;
+  unitPrice: number;
+  unitCost: number;
+  subtotal: number;
+  grossProfit: number;
 };
 
 type RecentOrder = {
@@ -117,6 +122,10 @@ type InventoryItem = {
 };
 
 type ReportState = {
+  business: {
+    name: string;
+    address: string;
+  };
   summary: ReportSummary;
   recentOrders: RecentOrder[];
   lowStock: LowStockItem[];
@@ -130,10 +139,18 @@ type ReportState = {
 function escapeReportStrings(report: ReportState): ReportState {
   return {
     ...report,
+    business: {
+      name: escapeHtml(report.business.name),
+      address: escapeHtml(report.business.address),
+    },
     recentOrders: report.recentOrders.map((order) => ({
       ...order,
       orderNumber: escapeHtml(order.orderNumber),
-      items: order.items.map((item) => ({ ...item, productName: escapeHtml(item.productName) })),
+      items: order.items.map((item) => ({
+        ...item,
+        productName: escapeHtml(item.productName),
+        sku: escapeHtml(item.sku),
+      })),
     })),
     lowStock: report.lowStock.map((item) => ({
       ...item,
@@ -162,6 +179,8 @@ function escapeReportStrings(report: ReportState): ReportState {
 type PrintScope = {
   periodLabel: string;
   categoryLabel: string;
+  businessName: string;
+  businessAddress: string;
 };
 
 type PrintPreview = {
@@ -172,6 +191,10 @@ type PrintPreview = {
 };
 
 const initialState: ReportState = {
+  business: {
+    name: "APAYAO PASALUBONG CENTER",
+    address: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+  },
   summary: {
     totalRevenue: 0,
     grossProfit: 0,
@@ -357,15 +380,32 @@ export default function ReportsPage() {
     );
   }, [report.inventoryItems, searchQuery]);
 
-  const filteredOrders = useMemo(() => {
-    if (!searchQuery.trim()) return report.recentOrders;
-    const q = searchQuery.toLowerCase();
-    return report.recentOrders.filter(
-      (order) =>
-        order.orderNumber.toLowerCase().includes(q) ||
-        order.items.some((item) => item.productName.toLowerCase().includes(q))
+  const filteredSalesLines = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return report.recentOrders.flatMap((order) =>
+      order.items
+        .filter((item) =>
+          !query ||
+          order.orderNumber.toLowerCase().includes(query) ||
+          item.productName.toLowerCase().includes(query) ||
+          item.sku.toLowerCase().includes(query),
+        )
+        .map((item, index) => ({
+          ...item,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          completedAt: order.completedAt,
+          lineKey: `${order.id}:${index}`,
+        })),
     );
   }, [report.recentOrders, searchQuery]);
+
+  const salesTotals = useMemo(() => ({
+    totalRevenue: filteredSalesLines.reduce((sum, line) => sum + line.subtotal, 0),
+    grossProfit: filteredSalesLines.reduce((sum, line) => sum + line.grossProfit, 0),
+    completedOrders: new Set(filteredSalesLines.map((line) => line.orderId)).size,
+    totalItemsSold: filteredSalesLines.reduce((sum, line) => sum + line.quantity, 0),
+  }), [filteredSalesLines]);
 
   const filteredLowStock = useMemo(() => {
     if (!searchQuery.trim()) return report.lowStock;
@@ -419,17 +459,17 @@ export default function ReportsPage() {
     const safeSubCategory = escapeHtml(subCategory);
     const safePeriodLabel = escapeHtml(scope.periodLabel);
     const safeCategoryLabel = escapeHtml(scope.categoryLabel);
+    const safeBusinessName = escapeHtml(scope.businessName);
+    const safeBusinessAddress = escapeHtml(scope.businessAddress);
 
     const header = `
       <header class="report-header">
+        <h1 class="report-title">${safeTitle}</h1>
         <div class="business-block">
-          <div class="brand-name">Apayao Pasalubong Center</div>
-          <div class="brand-location">San Isidro Sur, Luna, Apayao, Philippines</div>
+          <div class="brand-name">${safeBusinessName}</div>
+          <div class="brand-location">${safeBusinessAddress}</div>
         </div>
-        <div class="report-meta">
-          <span class="meta-badge">${safeSubCategory}</span>
-          <h1 class="report-title">${safeTitle}</h1>
-        </div>
+        <div class="meta-badge">${safeSubCategory}</div>
       </header>
 
       <div class="meta-strip">
@@ -455,30 +495,25 @@ export default function ReportsPage() {
         line-height: 1.4;
       }
       .report-header {
-        display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        gap: 20px;
-        padding-bottom: 12px;
+        display: block;
+        padding-bottom: 14px;
         border-bottom: 2px solid #047857;
-        margin-bottom: 14px;
+        margin-bottom: 12px;
+        text-align: center;
       }
-      .business-block { min-width: 0; }
+      .business-block { min-width: 0; margin-top: 4px; }
       .brand-name {
         color: #111827;
-        font-size: 15pt;
+        font-size: 12pt;
         font-weight: 700;
       }
       .brand-location {
-        margin-top: 3px;
+        margin-top: 2px;
         color: #4b5563;
         font-size: 8.5pt;
       }
-      .report-meta {
-        flex: 0 0 auto;
-        text-align: right;
-      }
       .meta-badge {
+        margin-top: 5px;
         color: #047857;
         font-size: 8pt;
         font-weight: 700;
@@ -486,9 +521,9 @@ export default function ReportsPage() {
         text-transform: uppercase;
       }
       .report-title {
-        margin: 3px 0 0;
+        margin: 0;
         color: #111827;
-        font-size: 16pt;
+        font-size: 17pt;
         font-weight: 700;
       }
       .meta-strip {
@@ -511,7 +546,7 @@ export default function ReportsPage() {
       }
       .kpi-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 0;
         margin: 0 0 16px;
         border-top: 1px solid #cbd5e1;
@@ -748,7 +783,12 @@ export default function ReportsPage() {
 
       setPrintPreview({ reportTitle, periodLabel, categoryLabel, summary: loadedReport.summary });
       setPrintStatus("preparing");
-      const printScope = { periodLabel, categoryLabel };
+      const printScope = {
+        periodLabel,
+        categoryLabel,
+        businessName: loadedReport.business.name,
+        businessAddress: loadedReport.business.address,
+      };
 
       if (selectedReportType === "INVENTORY") {
       const rows = data.inventoryItems.length > 0
@@ -793,24 +833,21 @@ export default function ReportsPage() {
         throw new Error("The print preview could not be created.");
       }
     } else if (selectedReportType === "SALES") {
-      const rows = data.recentOrders.length > 0
-        ? data.recentOrders.map((order) => {
-            const itemsSummary = order.items
-              .map((i) => `${i.productName} (x${i.quantity})`)
-              .join(", ");
-            const totalQty = order.items.reduce((sum, i) => sum + Number(i.quantity ?? 0), 0);
-            return `
-            <tr>
-              <td><strong>${order.orderNumber}</strong></td>
-              <td>${new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</td>
-              <td>${itemsSummary || "-"}</td>
-              <td class="right">${totalQty}</td>
-              <td class="right"><strong>₱${Number(order.totalAmount).toFixed(2)}</strong></td>
-              <td class="right">₱${Number(order.grossProfit).toFixed(2)}</td>
-            </tr>
-          `;
-          }).join("")
-        : `<tr><td colspan="6" style="text-align:center;color:#64748b;">No sales transactions for this period.</td></tr>`;
+      const rows = data.recentOrders.flatMap((order) =>
+        order.items.map((item) =>
+          '<tr>' +
+          '<td><strong>' + order.orderNumber + '</strong></td>' +
+          '<td>' + new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }) + '</td>' +
+          '<td>' + item.productName + '</td>' +
+          '<td><code>' + item.sku + '</code></td>' +
+          '<td style="text-align:right">' + item.quantity + '</td>' +
+          '<td style="text-align:right">' + formatCurrency(item.unitPrice) + '</td>' +
+          '<td style="text-align:right">' + formatCurrency(item.unitCost) + '</td>' +
+          '<td style="text-align:right"><strong>' + formatCurrency(item.subtotal) + '</strong></td>' +
+          '<td style="text-align:right">' + formatCurrency(item.grossProfit) + '</td>' +
+          '</tr>',
+        ),
+      ).join("") || '<tr><td colspan="9" style="text-align:center;color:#64748b;">No sales transactions for this period.</td></tr>';
 
       const channelRows = Object.entries(data.channelBreakdown)
         .map(
@@ -821,11 +858,11 @@ export default function ReportsPage() {
 
       const content = `
         <div class="kpi-grid">
-          <div class="kpi-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-val">₱${Number(data.summary.totalRevenue).toFixed(2)}</div></div>
-          <div class="kpi-card"><div class="kpi-label">Completed Transactions</div><div class="kpi-val">${data.summary.completedOrders} orders</div></div>
+          <div class="kpi-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-val">${formatCurrency(data.summary.totalRevenue)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Cost of Goods (current costs)</div><div class="kpi-val">${formatCurrency(data.summary.totalRevenue - data.summary.grossProfit)}</div></div>
           <div class="kpi-card"><div class="kpi-label">Gross Profit (current costs)</div><div class="kpi-val">${formatCurrency(data.summary.grossProfit)}</div></div>
-          <div class="kpi-card"><div class="kpi-label">Units Sold</div><div class="kpi-val">${data.summary.totalItemsSold} units</div></div>
-          <div class="kpi-card"><div class="kpi-label">Avg. Order Value</div><div class="kpi-val">₱${data.summary.completedOrders > 0 ? (data.summary.totalRevenue / data.summary.completedOrders).toFixed(2) : "0.00"}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Completed Orders</div><div class="kpi-val">${data.summary.completedOrders}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Units Sold</div><div class="kpi-val">${data.summary.totalItemsSold}</div></div>
         </div>
 
         <h2 class="section-title">Sales by channel</h2>
@@ -840,9 +877,12 @@ export default function ReportsPage() {
             <tr>
               <th>Order Number</th>
               <th>Completed Date</th>
-              <th>Items Purchased</th>
+              <th>Product / Variant</th>
+              <th>SKU</th>
               <th class="right">Qty</th>
-              <th class="right">Order Amount</th>
+              <th class="right">Unit Price</th>
+              <th class="right">Unit Cost</th>
+              <th class="right">Line Total</th>
               <th class="right">Gross Profit</th>
             </tr>
           </thead>
@@ -935,13 +975,19 @@ export default function ReportsPage() {
       }
     } else {
       // ALL-IN-ONE SUMMARY
-      const salesRows = data.recentOrders.map((order) => {
-        const products = order.items
-          .map((item) => `${item.productName} (x${item.quantity})`)
-          .join("<br>");
-        const quantity = order.items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
-        return `<tr><td>${order.orderNumber}</td><td>${new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</td><td>${products || "-"}</td><td class="right">${quantity}</td><td class="right">₱${Number(order.totalAmount).toFixed(2)}</td></tr>`;
-      }).join("");
+      const salesRows = data.recentOrders.flatMap((order) => order.items.map((item) =>
+        '<tr>' +
+        '<td>' + order.orderNumber + '</td>' +
+        '<td>' + new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }) + '</td>' +
+        '<td>' + item.productName + '</td>' +
+        '<td><code>' + item.sku + '</code></td>' +
+        '<td style="text-align:right">' + item.quantity + '</td>' +
+        '<td style="text-align:right">' + formatCurrency(item.unitPrice) + '</td>' +
+        '<td style="text-align:right">' + formatCurrency(item.unitCost) + '</td>' +
+        '<td style="text-align:right">' + formatCurrency(item.subtotal) + '</td>' +
+        '<td style="text-align:right">' + formatCurrency(item.grossProfit) + '</td>' +
+        '</tr>',
+      )).join("");
 
       const inventoryRows = data.inventoryItems.map(
         (item) =>
@@ -974,10 +1020,11 @@ export default function ReportsPage() {
 
       const content = `
         <div class="kpi-grid">
-          <div class="kpi-card"><div class="kpi-label">Total Revenue</div><div class="kpi-val">₱${Number(data.summary.totalRevenue).toFixed(2)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-val">${formatCurrency(data.summary.totalRevenue)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Cost of Goods (current costs)</div><div class="kpi-val">${formatCurrency(data.summary.totalRevenue - data.summary.grossProfit)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Gross Profit (current costs)</div><div class="kpi-val">${formatCurrency(data.summary.grossProfit)}</div></div>
           <div class="kpi-card"><div class="kpi-label">Completed Orders</div><div class="kpi-val">${data.summary.completedOrders}</div></div>
           <div class="kpi-card"><div class="kpi-label">Units Sold</div><div class="kpi-val">${data.summary.totalItemsSold}</div></div>
-          <div class="kpi-card"><div class="kpi-label">Cost Valuation</div><div class="kpi-val">₱${Number(data.summary.stockValue).toFixed(2)}</div></div>
         </div>
 
         <h2 class="section-title">Sales and payments</h2>
@@ -990,10 +1037,10 @@ export default function ReportsPage() {
           <tbody>${paymentRows || `<tr><td colspan="3">No payment records.</td></tr>`}</tbody>
         </table>
 
-        <h2 class="section-title">Completed orders</h2>
+        <h2 class="section-title">Itemized sales</h2>
         <table>
-          <thead><tr><th>Order #</th><th>Completed Date</th><th>Items</th><th class="right">Units</th><th class="right">Total</th></tr></thead>
-          <tbody>${salesRows || `<tr><td colspan="5">No completed sales.</td></tr>`}</tbody>
+          <thead><tr><th>Order #</th><th>Completed Date</th><th>Product / Variant</th><th>SKU</th><th class="right">Qty</th><th class="right">Unit Price</th><th class="right">Unit Cost</th><th class="right">Line Total</th><th class="right">Gross Profit</th></tr></thead>
+          <tbody>${salesRows || '<tr><td colspan="9">No completed sales.</td></tr>'}</tbody>
         </table>
 
         <h2 class="section-title">Inventory</h2>
@@ -1047,6 +1094,8 @@ export default function ReportsPage() {
 
     addSection("Report Header", ["Field", "Value"], [
       ["Report Type", reportType],
+      ["Business Name", data.business.name],
+      ["Business Address", data.business.address],
       ["Period Start", startDate || "All time"],
       ["Period End", endDate || "All time"],
       ["Category", category ? data.categories.find((item) => item.id === category)?.name ?? "Selected" : "All categories"],
@@ -1069,16 +1118,23 @@ export default function ReportsPage() {
       addSection("Payment Methods", ["Payment Method", "Orders", "Revenue"], Object.entries(data.paymentBreakdown).map(([label, v]) => [label, v.count, v.revenue]));
       addSection("Sales Summary", ["Metric", "Amount"], [
         ["Gross Revenue", data.summary.totalRevenue],
+        ["Cost of Goods (current costs)", data.summary.totalRevenue - data.summary.grossProfit],
         ["Gross Profit (current costs)", data.summary.grossProfit],
+        ["Completed Orders", data.summary.completedOrders],
+        ["Units Sold", data.summary.totalItemsSold],
+        ["Average Order Value", data.summary.completedOrders > 0 ? data.summary.totalRevenue / data.summary.completedOrders : 0],
       ]);
-      addSection("Completed Sales Orders", ["Order Number", "Completed Date", "Items", "Quantity", "Total Amount", "Gross Profit"], data.recentOrders.map((order) => [
+      addSection("Itemized Sales", ["Order Number", "Completed Date", "Product / Variant", "SKU", "Quantity", "Unit Price", "Unit Cost", "Line Total", "Gross Profit"], data.recentOrders.flatMap((order) => order.items.map((item) => [
         order.orderNumber,
         new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }),
-        order.items.map((i) => `${i.productName} (Qty. ${i.quantity})`).join("; "),
-        order.items.reduce((sum, i) => sum + Number(i.quantity ?? 0), 0),
-        order.totalAmount,
-        order.grossProfit,
-      ]));
+        item.productName,
+        item.sku,
+        item.quantity,
+        item.unitPrice,
+        item.unitCost,
+        item.subtotal,
+        item.grossProfit,
+      ])));
     } else if (reportType === "LOW_STOCK") {
       filename = "low-stock-report.csv";
       addSection("Low Stock Alerts", ["Product / Variant", "SKU", "Current Stock", "Minimum Threshold", "Deficit"], data.lowStock.map((item) => [
@@ -1102,13 +1158,24 @@ export default function ReportsPage() {
       filename = "complete-business-summary-report.csv";
       addSection("Sales Breakdown", ["Channel", "Orders", "Revenue"], Object.entries(data.channelBreakdown).map(([l, v]) => [l, v.count, v.revenue]));
       addSection("Payment Breakdown", ["Payment method", "Orders", "Revenue"], Object.entries(data.paymentBreakdown).map(([l, v]) => [l, v.count, v.revenue]));
-      addSection("Sales Orders", ["Order", "Completed Date", "Items", "Quantity", "Total"], data.recentOrders.map((order) => [
+      addSection("Sales Totals", ["Metric", "Amount"], [
+        ["Gross Revenue", data.summary.totalRevenue],
+        ["Cost of Goods (current costs)", data.summary.totalRevenue - data.summary.grossProfit],
+        ["Gross Profit (current costs)", data.summary.grossProfit],
+        ["Completed Orders", data.summary.completedOrders],
+        ["Units Sold", data.summary.totalItemsSold],
+      ]);
+      addSection("Itemized Sales", ["Order", "Completed Date", "Product / Variant", "SKU", "Quantity", "Unit Price", "Unit Cost", "Line Total", "Gross Profit"], data.recentOrders.flatMap((order) => order.items.map((item) => [
         order.orderNumber,
         new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }),
-        order.items.map((i) => `${i.productName} (Qty. ${i.quantity})`).join("; "),
-        order.items.reduce((sum, i) => sum + Number(i.quantity ?? 0), 0),
-        order.totalAmount,
-      ]));
+        item.productName,
+        item.sku,
+        item.quantity,
+        item.unitPrice,
+        item.unitCost,
+        item.subtotal,
+        item.grossProfit,
+      ])));
       addSection("Inventory Snapshot", ["Product / Variant", "SKU", "Stock", "Cost", "Price", "Stock Value"], data.inventoryItems.map((item) => [
         item.name,
         item.sku,
@@ -1164,11 +1231,11 @@ export default function ReportsPage() {
         ? data.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
         : "All catalog categories";
       const reportTitle = {
-        INVENTORY: "Generate Report",
-        SALES: "Generate Report",
-        LOW_STOCK: "Generate Report",
-        TOP_PRODUCTS: "Generate Report",
-        ALL: "Generate Report",
+        INVENTORY: "Inventory Report",
+        SALES: "Sales Report",
+        LOW_STOCK: "Low Stock Alerts Report",
+        TOP_PRODUCTS: "Top Products Report",
+        ALL: "Business Summary Report",
       }[selectedReportType];
 
       const [{ pdf }, { default: ReportPdfDocument }] = await Promise.all([
@@ -1217,16 +1284,21 @@ export default function ReportsPage() {
     <div className="space-y-6 pb-16 text-slate-900 dark:text-slate-100">
       {/* 1. Header & Quick Actions */}
       <header className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex gap-3 flex-row items-center justify-between">
+        <div className="border-b border-slate-100 pb-4 text-center dark:border-slate-800">
+          <h1 className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
+            {currentReportLabel}
+          </h1>
+          <p className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
+            {report.business.name}
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            {report.business.address}
+          </p>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-bold tracking-tight text-slate-950 dark:text-white text-2xl">
-                Reports
-              </h1>
-              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-                {currentReportLabel}
-              </span>
-            </div>
+            <p className="text-sm font-semibold text-slate-900 dark:text-white">Reports</p>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
               Generate, preview, and export audited financial, sales, and inventory reports.
             </p>
@@ -1775,57 +1847,106 @@ export default function ReportsPage() {
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3 border-b border-slate-100 p-4 sm:grid-cols-3 xl:grid-cols-5 dark:border-slate-800">
+            {[
+              {
+                label: "Gross Revenue",
+                value: formatCurrency(salesTotals.totalRevenue),
+                detail: "Completed sales",
+                valueClass: "text-slate-900 dark:text-white",
+              },
+              {
+                label: "Cost of Goods",
+                value: formatCurrency(salesTotals.totalRevenue - salesTotals.grossProfit),
+                detail: "At current costs",
+                valueClass: "text-slate-700 dark:text-slate-200",
+              },
+              {
+                label: "Gross Profit",
+                value: formatCurrency(salesTotals.grossProfit),
+                detail: "At current costs",
+                valueClass: salesTotals.grossProfit < 0
+                  ? "text-rose-700 dark:text-rose-300"
+                  : "text-emerald-700 dark:text-emerald-400",
+              },
+              {
+                label: "Completed Orders",
+                value: salesTotals.completedOrders.toLocaleString(),
+                detail: "In this period",
+                valueClass: "text-slate-900 dark:text-white",
+              },
+              {
+                label: "Units Sold",
+                value: salesTotals.totalItemsSold.toLocaleString(),
+                detail: "In this period",
+                valueClass: "text-slate-900 dark:text-white",
+              },
+            ].map((total) => (
+              <div key={total.label} className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/50">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{total.label}</p>
+                <p className={`mt-1 text-sm font-bold ${total.valueClass}`}>{total.value}</p>
+                <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-500">{total.detail}</p>
+              </div>
+            ))}
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-3">Order Number</th>
                   <th className="px-4 py-3">Completed Date</th>
-                  <th className="px-4 py-3">Items Purchased</th>
-                  <th className="px-4 py-3 text-right">Total Units</th>
-                  <th className="px-4 py-3 text-right">Order Amount</th>
+                  <th className="px-4 py-3">Product / Variant</th>
+                  <th className="px-4 py-3">SKU</th>
+                  <th className="px-4 py-3 text-right">Qty</th>
+                  <th className="px-4 py-3 text-right">Unit Price</th>
+                  <th className="px-4 py-3 text-right">Unit Cost</th>
+                  <th className="px-4 py-3 text-right">Line Total</th>
                   <th className="px-4 py-3 text-right">Gross Profit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredOrders.length > 0 ? (
-                  filteredOrders.map((order) => {
-                    const totalQty = order.items.reduce((s, i) => s + Number(i.quantity ?? 0), 0);
-                    return (
-                      <tr
-                        key={order.id}
-                        className="transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                      >
-                        <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
-                          {order.orderNumber}
-                        </td>
-                        <td className="px-4 py-3 text-slate-500">
-                          {new Date(order.completedAt).toLocaleDateString("en-PH", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                            timeZone: "Asia/Manila",
-                          })}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300 max-w-xs truncate">
-                          {order.items.map((i) => `${i.productName} (x${i.quantity})`).join(", ")}
-                        </td>
-                        <td className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">
-                          {totalQty}
-                        </td>
-                        <td className="px-4 py-3 text-right font-bold text-slate-900 dark:text-white">
-                          {formatCurrency(Number(order.totalAmount))}
-                        </td>
-                        <td className={`px-4 py-3 text-right font-semibold ${order.grossProfit < 0 ? "text-rose-700 dark:text-rose-300" : "text-emerald-700 dark:text-emerald-400"}`}>
-                          {formatCurrency(order.grossProfit)}
-                        </td>
-                      </tr>
-                    );
-                  })
+                {filteredSalesLines.length > 0 ? (
+                  filteredSalesLines.map((line) => (
+                    <tr key={line.lineKey} className="transition hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
+                        {line.orderNumber}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-500">
+                        {new Date(line.completedAt).toLocaleDateString("en-PH", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          timeZone: "Asia/Manila",
+                        })}
+                      </td>
+                      <td className="min-w-48 px-4 py-3 font-medium text-slate-800 dark:text-slate-200">
+                        {line.productName}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] text-slate-500">
+                        {line.sku}
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">
+                        {line.quantity}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600 dark:text-slate-400">
+                        {formatCurrency(line.unitPrice)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600 dark:text-slate-400">
+                        {formatCurrency(line.unitCost)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-900 dark:text-white">
+                        {formatCurrency(line.subtotal)}
+                      </td>
+                      <td className={`whitespace-nowrap px-4 py-3 text-right font-semibold ${line.grossProfit < 0 ? "text-rose-700 dark:text-rose-300" : "text-emerald-700 dark:text-emerald-400"}`}>
+                        {formatCurrency(line.grossProfit)}
+                      </td>
+                    </tr>
+                  ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-xs text-slate-500">
-                      No completed orders recorded in this period.
+                    <td colSpan={9} className="py-12 text-center text-xs text-slate-500">
+                      No completed sale items found for this period.
                     </td>
                   </tr>
                 )}
@@ -1833,13 +1954,8 @@ export default function ReportsPage() {
             </table>
           </div>
           <div className="flex items-center justify-between border-t border-slate-100 p-3.5 text-xs text-slate-500 dark:border-slate-800">
-            <span>Showing {filteredOrders.length} completed transactions</span>
-            <div className="flex flex-wrap gap-x-5 gap-y-1 font-bold text-slate-900 dark:text-white">
-              <span>Gross Volume: {formatCurrency(report.summary.totalRevenue)}</span>
-              <span className={report.summary.grossProfit < 0 ? "text-rose-700 dark:text-rose-300" : "text-emerald-700 dark:text-emerald-400"}>
-                Gross Profit: {formatCurrency(report.summary.grossProfit)}
-              </span>
-            </div>
+            <span>Showing {filteredSalesLines.length} itemized sale lines</span>
+            <span>Totals reflect the current search results and selected dates.</span>
           </div>
         </section>
       )}

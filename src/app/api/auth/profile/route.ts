@@ -66,7 +66,7 @@ export async function PUT(request: Request) {
     const body = parsed.data;
     const existingUser = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { role: true, phone: true, address: true, emailVerified: true },
+      select: { id: true },
     });
 
     if (!existingUser) {
@@ -85,14 +85,6 @@ export async function PUT(request: Request) {
     if (typeof body.phone === "string") updateData.phone = body.phone || null;
     if (typeof body.address === "string") updateData.address = body.address || null;
     if (typeof body.imageUrl === "string" || body.imageUrl === null) updateData.imageUrl = body.imageUrl;
-
-    const nextPhone = typeof body.phone === "string" ? body.phone || null : existingUser.phone;
-    const nextAddress = typeof body.address === "string" ? body.address || null : existingUser.address;
-    const isProfileComplete = Boolean(nextPhone) && Boolean(nextAddress);
-
-    if (existingUser.role === "CUSTOMER") {
-      updateData.emailVerified = isProfileComplete;
-    }
 
     const user = await prisma.user.update({
       where: { id: payload.sub },

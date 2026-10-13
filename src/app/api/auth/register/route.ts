@@ -30,7 +30,6 @@ export async function POST(request: Request) {
 
     const phone = submittedPhone.trim() || null;
     const address = submittedAddress.trim() || null;
-    const isProfileComplete = Boolean(phone) && Boolean(address);
     const consented = gdprConsent;
 
     if (!consented) {
@@ -84,7 +83,7 @@ export async function POST(request: Request) {
         password: hashedPassword,
         phone,
         address,
-        emailVerified: isProfileComplete,
+        emailVerified: false,
         emailVerificationToken: verificationToken,
         emailVerificationTokenExpiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
         role: "CUSTOMER",
@@ -101,7 +100,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         success: true,
-        message: "Account created successfully. Please check your email to verify your account.",
+        message: "Account created successfully. You can place orders now. Please verify your email to help secure your account.",
         user: {
           id: user.id,
           name: user.name,

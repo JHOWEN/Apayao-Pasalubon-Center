@@ -53,8 +53,8 @@ export async function GET(request: Request) {
             ],
           }
         : {}),
-      ...(filter === "verified"
-        ? { emailVerified: true, isBlocked: false }
+      ...(filter === "registered"
+        ? { isBlocked: false }
         : filter === "blocked"
           ? { isBlocked: true }
           : filter === "withOrders"
@@ -82,10 +82,10 @@ export async function GET(request: Request) {
         },
       }),
       prisma.user.count({ where }),
-      prisma.$queryRaw<Array<{ total: number; verified: number; blocked: number; withOrders: number }>>`
+      prisma.$queryRaw<Array<{ total: number; registered: number; blocked: number; withOrders: number }>>`
         SELECT
           (SELECT COUNT(*)::int FROM "User" WHERE "role" = 'CUSTOMER') AS "total",
-          (SELECT COUNT(*)::int FROM "User" WHERE "role" = 'CUSTOMER' AND "emailVerified" = true AND "isBlocked" = false) AS "verified",
+          (SELECT COUNT(*)::int FROM "User" WHERE "role" = 'CUSTOMER' AND "isBlocked" = false) AS "registered",
           (SELECT COUNT(*)::int FROM "User" WHERE "role" = 'CUSTOMER' AND "isBlocked" = true) AS "blocked",
           (
             SELECT COUNT(DISTINCT orders."userId")::int
@@ -177,14 +177,14 @@ export async function GET(request: Request) {
         hasOrders: stats.orders > 0,
       };
     });
-    const summary = summaryRows[0] ?? { total: 0, verified: 0, blocked: 0, withOrders: 0 };
+    const summary = summaryRows[0] ?? { total: 0, registered: 0, blocked: 0, withOrders: 0 };
 
     return NextResponse.json({
       customers: enrichedCustomers,
       pagination: { page, limit, totalCount, totalPages: Math.max(1, Math.ceil(totalCount / limit)) },
       summary: {
         total: Number(summary.total),
-        verified: Number(summary.verified),
+        registered: Number(summary.registered),
         blocked: Number(summary.blocked),
         withOrders: Number(summary.withOrders),
       },

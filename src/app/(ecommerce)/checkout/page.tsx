@@ -19,7 +19,6 @@ type CheckoutUser = {
   phone?: string | null;
   address?: string | null;
   role?: string;
-  emailVerified?: boolean;
   isBlocked?: boolean;
 };
 
@@ -74,7 +73,6 @@ export default function CheckoutPage() {
     message: string;
   }>({ type: "idle", message: "" });
   const [paymentSettings, setPaymentSettings] = useState<PaymentSettings>({});
-  const [incompleteFields, setIncompleteFields] = useState<string[]>([]);
   const [isLoadingCheckout, setIsLoadingCheckout] = useState(true);
 
   useEffect(() => {
@@ -94,11 +92,6 @@ export default function CheckoutPage() {
       if (profile.isBlocked) {
         setStatus("Your account has been blocked. Please contact the admin before placing an order.");
       }
-
-      const missing: string[] = [];
-      if (!profile.phone || profile.phone.trim() === "") missing.push("Phone Number");
-      if (!profile.address || profile.address.trim() === "") missing.push("Address");
-      setIncompleteFields(missing);
     }
 
     void getCheckoutData().then((data) => {
@@ -144,18 +137,8 @@ export default function CheckoutPage() {
       return;
     }
 
-    if (incompleteFields.length > 0) {
-      setStatus(`Please complete your profile before placing an order: ${incompleteFields.join(", ")}.`);
-      return;
-    }
-
     if (form.pickupDate && !isPickupDateOnOrAfterToday(form.pickupDate)) {
       setStatus("⚠️ Pickup date cannot be earlier than the order date. Same-day pickup is allowed.");
-      return;
-    }
-
-    if (user?.role === "CUSTOMER" && !user?.emailVerified) {
-      setStatus("Your account is still pending verification. Please complete your phone number and address in your profile before ordering.");
       return;
     }
 
@@ -385,32 +368,6 @@ export default function CheckoutPage() {
           </div>
         ) : <div className="grid gap-6 xl:grid-cols-[1.35fr_0.85fr]">
           <div>
-            {incompleteFields.length > 0 && (
-              <div className="mb-6 rounded-3xl border border-amber-300 bg-amber-50 p-5 text-amber-900 dark:border-[#FFC857]/30 dark:bg-[#261D0A] dark:text-[#F2D98A]">
-                <div className="flex items-start gap-3">
-                  <div className="shrink-0 text-2xl">⚠️</div>
-                  <div className="flex-1">
-                    <h3 className="mb-2 text-base font-semibold text-amber-900 dark:text-[#FFC857]">Complete your profile</h3>
-                    <p className="mb-3 text-sm text-amber-800 dark:text-[#F2D98A]">
-                      Please update the following information on your profile for a smooth pickup experience:
-                    </p>
-                    <div className="mb-4 flex flex-wrap gap-2">
-                      {incompleteFields.map((field) => (
-                        <span key={field} className="inline-block rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900 dark:border-[#FFC857]/30 dark:bg-[#2B220A] dark:text-[#FFE39F]">
-                          • {field}
-                        </span>
-                      ))}
-                    </div>
-                    <Link
-                      href="/profile"
-                      className="inline-flex items-center gap-2 rounded-full bg-[#FF8A1E] px-4 py-2 text-sm font-semibold text-[#111111] transition hover:brightness-110"
-                    >
-                      Complete profile
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            )}
 
             <form onSubmit={handleSubmit} className="rounded-2xl border border-slate-200 bg-white p-4 text-slate-800 shadow-sm dark:border-white/10 dark:bg-[#151515] dark:text-white sm:p-6">
               <div className="mb-6 border-b border-slate-200 pb-6 dark:border-white/6">
@@ -431,9 +388,8 @@ export default function CheckoutPage() {
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-semibold text-slate-700 dark:text-[#D5D5D5]">Phone Number</label>
+                    <label className="mb-2 block text-sm font-semibold text-slate-700 dark:text-[#D5D5D5]">Phone Number (optional)</label>
                     <input
-                      required
                       value={form.phone}
                       disabled={Boolean(activeReservation)}
                       onChange={(e) => setForm({ ...form, phone: e.target.value })}

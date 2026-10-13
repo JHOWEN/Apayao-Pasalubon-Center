@@ -9,8 +9,13 @@ import {
 type ReportType = "ALL" | "INVENTORY" | "SALES" | "LOW_STOCK" | "TOP_PRODUCTS";
 
 type ReportData = {
+  business: {
+    name: string;
+    address: string;
+  };
   summary: {
     totalRevenue: number;
+    grossProfit: number;
     completedOrders: number;
     totalItemsSold: number;
     stockValue: number;
@@ -21,8 +26,17 @@ type ReportData = {
   recentOrders: Array<{
     orderNumber: string;
     totalAmount: string;
+    grossProfit: number;
     completedAt: string;
-    items: Array<{ productName: string; quantity: number }>;
+    items: Array<{
+      productName: string;
+      sku: string;
+      quantity: number;
+      unitPrice: number;
+      unitCost: number;
+      subtotal: number;
+      grossProfit: number;
+    }>;
   }>;
   lowStock: Array<{ name: string; sku: string; stock: number; minStock: number }>;
   topProducts: Array<{ name: string; sku: string; unitsSold: number; revenue: number }>;
@@ -71,11 +85,12 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: "#d5ded6",
+    textAlign: "center",
   },
-  brand: { fontSize: 12, fontWeight: 700, color: "#174c37" },
+  brand: { marginTop: 3, fontSize: 10, fontWeight: 700, color: "#174c37" },
   subtitle: { marginTop: 3, fontSize: 7, color: "#526257" },
-  reportTitle: { marginTop: 8, fontSize: 14, fontWeight: 700, color: "#142a20" },
-  scope: { marginTop: 3, fontSize: 7, color: "#526257" },
+  reportTitle: { fontSize: 13, fontWeight: 700, color: "#142a20" },
+  scope: { marginTop: 5, fontSize: 7, color: "#526257" },
   sectionTitle: {
     marginTop: 14,
     marginBottom: 6,
@@ -144,13 +159,17 @@ function createSections(report: ReportData, type: ReportType): ReportSection[] {
     currency(item.price),
     currency(item.stockValue),
   ]);
-  const sales = report.recentOrders.map((order) => [
+  const sales = report.recentOrders.flatMap((order) => order.items.map((item) => [
     order.orderNumber,
     new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }),
-    order.items.map((item) => `${item.productName} (x${item.quantity})`).join(", ") || "—",
-    String(order.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0)),
-    currency(order.totalAmount),
-  ]);
+    item.productName,
+    item.sku,
+    String(item.quantity),
+    currency(item.unitPrice),
+    currency(item.unitCost),
+    currency(item.subtotal),
+    currency(item.grossProfit),
+  ]));
   const channels = Object.entries(report.channelBreakdown).map(([name, values]) => [
     name,
     String(values.count),
@@ -183,7 +202,7 @@ function createSections(report: ReportData, type: ReportType): ReportSection[] {
     return [
       { title: "Sales channel breakdown", headers: ["Channel", "Orders", "Revenue"], rows: channels },
       { title: "Payment method breakdown", headers: ["Payment method", "Orders", "Revenue"], rows: payments },
-      { title: "Completed orders", headers: ["Order", "Completed date", "Items", "Qty", "Total"], rows: sales },
+      { title: "Itemized sales", headers: ["Order", "Completed date", "Product / variant", "SKU", "Qty", "Unit price", "Unit cost", "Line total", "Gross profit"], rows: sales },
     ];
   }
   if (type === "LOW_STOCK") {
@@ -195,7 +214,7 @@ function createSections(report: ReportData, type: ReportType): ReportSection[] {
   return [
     { title: "Sales channel breakdown", headers: ["Channel", "Orders", "Revenue"], rows: channels },
     { title: "Payment method breakdown", headers: ["Payment method", "Orders", "Revenue"], rows: payments },
-    { title: "Completed orders", headers: ["Order", "Completed date", "Items", "Qty", "Total"], rows: sales },
+    { title: "Itemized sales", headers: ["Order", "Completed date", "Product / variant", "SKU", "Qty", "Unit price", "Unit cost", "Line total", "Gross profit"], rows: sales },
     { title: "Inventory snapshot", headers: ["Product / variant", "SKU", "Stock", "Unit cost", "Retail price", "Stock value"], rows: inventory },
     { title: "Low stock snapshot", headers: ["Product / variant", "SKU", "In stock", "Minimum"], rows: lowStock.map((row) => row.slice(0, 4)) },
     { title: "Top products", headers: ["Rank", "Product / variant", "SKU", "Units sold", "Revenue"], rows: topProducts },
@@ -213,6 +232,8 @@ export default function ReportPdfDocument({
   const sections = createSections(report, reportType);
   const summary = [
     ["Gross revenue", currency(report.summary.totalRevenue)],
+    ["Cost of goods (current costs)", currency(report.summary.totalRevenue - report.summary.grossProfit)],
+    ["Gross profit (current costs)", currency(report.summary.grossProfit)],
     ["Completed orders", String(report.summary.completedOrders)],
     ["Units sold", String(report.summary.totalItemsSold)],
     ["Stock value", currency(report.summary.stockValue)],
@@ -221,12 +242,12 @@ export default function ReportPdfDocument({
   ];
 
   return (
-    <Document title={reportTitle} author="Apayao Pasalubong Center">
+    <Document title={reportTitle} author={report.business.name}>
       <Page size="A4" orientation="landscape" style={styles.page} wrap>
         <View style={styles.header} fixed>
-          <Text style={styles.brand}>Apayao Pasalubong Center</Text>
-          <Text style={styles.subtitle}>San Isidro Sur, Luna, Apayao, Philippines</Text>
           <Text style={styles.reportTitle}>{reportTitle}</Text>
+          <Text style={styles.brand}>{report.business.name}</Text>
+          <Text style={styles.subtitle}>{report.business.address}</Text>
           <Text style={styles.scope}>
             Period: {periodLabel}  |  Category: {categoryLabel}  |  Generated: {generatedAt.toLocaleString("en-PH")}
           </Text>

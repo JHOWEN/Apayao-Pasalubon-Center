@@ -270,22 +270,13 @@ export async function POST(request: Request) {
     if (body.userId) {
       const customer = await prisma.user.findUnique({
         where: { id: body.userId },
-        select: { role: true, emailVerified: true, phone: true, address: true, isBlocked: true },
+        select: { role: true, isBlocked: true },
       });
 
       if (!customer || customer.role !== "CUSTOMER") {
         return NextResponse.json(
           { success: false, message: "The selected POS customer is not available." },
           { status: 400 },
-        );
-      }
-
-      const isProfileComplete = Boolean(customer.phone?.trim()) && Boolean(customer.address?.trim());
-
-      if (!customer.emailVerified || !isProfileComplete) {
-        return NextResponse.json(
-          { success: false, message: "Please complete your phone number and address in your profile before placing an order." },
-          { status: 403 }
         );
       }
 

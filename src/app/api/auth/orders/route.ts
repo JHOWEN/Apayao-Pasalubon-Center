@@ -13,7 +13,6 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { getOrderItemSnapshot, getOrderStatusEventType, recordOrderEvent } from "@/lib/order-history";
 import {
   canCancelOrder,
-  isOrderStatus,
   normalizePickupDateInput,
   OrderStatus,
   resolveInitialOrderStatus,
@@ -54,7 +53,7 @@ async function requireAuthenticatedUser() {
 
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
-    select: { id: true, name: true, role: true, emailVerified: true, phone: true, address: true, isBlocked: true },
+    select: { id: true, name: true, role: true, isBlocked: true },
   });
 
   if (!user) {
@@ -202,22 +201,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
     }
 
-    if (user.role === "CUSTOMER") {
-      const isProfileComplete = Boolean(user.phone?.trim()) && Boolean(user.address?.trim());
-
-      if (!user.emailVerified || !isProfileComplete) {
-        return NextResponse.json(
-          { success: false, message: "Please complete your phone number and address in your profile before placing an order." },
-          { status: 403 }
-        );
-      }
-
-      if (user.isBlocked) {
-        return NextResponse.json(
-          { success: false, message: "Your account has been blocked. Please contact the admin." },
-          { status: 403 }
-        );
-      }
+    if (user.isBlocked) {
+      return NextResponse.json(
+        { success: false, message: "Your account has been blocked. Please contact the admin." },
+        { status: 403 }
+      );
     }
 
     const orderNumber = body.orderNumber ?? `ORD-${Date.now()}`;

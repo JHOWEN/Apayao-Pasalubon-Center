@@ -31,6 +31,62 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   );
 }
 
+function AdminSessionLoading({
+  sessionUnavailable,
+  onRetry,
+}: {
+  sessionUnavailable: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <>
+      <div className="mb-6 space-y-2" aria-hidden="true">
+        <div className="h-7 w-48 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+        <div className="h-3 w-64 animate-pulse rounded bg-slate-100 dark:bg-slate-800/70" />
+      </div>
+
+      {sessionUnavailable ? (
+        <div role="alert" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          <span>Admin workspace is temporarily unavailable. Check your connection and try again.</span>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-lg bg-emerald-700 px-3 py-2 font-semibold text-white transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+
+      <section aria-label="Loading admin workspace" aria-live="polite" aria-busy={!sessionUnavailable}>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-hidden="true">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
+              <div className="h-3 w-24 rounded bg-slate-200 dark:bg-slate-800" />
+              <div className="mt-5 h-7 w-20 rounded bg-slate-200 dark:bg-slate-800" />
+              <div className="mt-3 h-3 w-32 rounded bg-slate-100 dark:bg-slate-800/70" />
+            </div>
+          ))}
+        </div>
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]" aria-hidden="true">
+          <div className="h-72 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
+            <div className="h-4 w-36 rounded bg-slate-200 dark:bg-slate-800" />
+            <div className="mt-6 h-48 rounded-xl bg-slate-100 dark:bg-slate-800/70" />
+          </div>
+          <div className="h-72 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
+            <div className="h-4 w-32 rounded bg-slate-200 dark:bg-slate-800" />
+            <div className="mt-6 space-y-4">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="h-8 rounded-lg bg-slate-100 dark:bg-slate-800/70" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
 function AdminLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -460,56 +516,8 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
     };
   }, [queryClient, sessionStatus]);
 
-  if (sessionStatus !== "verified" || userRole === null) {
-    const sessionUnavailable = sessionStatus === "unavailable";
-
-    return (
-      <div className="fixed inset-0 h-dvh overflow-hidden bg-[#f5f6f4] text-slate-800 dark:bg-slate-950 dark:text-slate-100">
-        <div className="flex h-dvh">
-          <main className="min-h-0 w-full flex-1 overflow-auto p-4 sm:p-6 lg:p-8">
-            {sessionUnavailable ? (
-              <div role="alert" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
-                <span>Dashboard is temporarily unavailable. Check your connection and try again.</span>
-                <button
-                  type="button"
-                  onClick={() => setSessionRetryVersion((version) => version + 1)}
-                  className="rounded-lg bg-emerald-700 px-3 py-2 font-semibold text-white transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
-                >
-                  Retry
-                </button>
-              </div>
-            ) : null}
-
-            <section aria-label="Loading admin dashboard content" aria-live="polite" aria-busy={!sessionUnavailable}>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-hidden="true">
-                {Array.from({ length: 4 }, (_, index) => (
-                  <div key={index} className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
-                    <div className="h-3 w-24 rounded bg-slate-200 dark:bg-slate-800" />
-                    <div className="mt-5 h-7 w-20 rounded bg-slate-200 dark:bg-slate-800" />
-                    <div className="mt-3 h-3 w-32 rounded bg-slate-100 dark:bg-slate-800/70" />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]" aria-hidden="true">
-                <div className="h-72 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
-                  <div className="h-4 w-36 rounded bg-slate-200 dark:bg-slate-800" />
-                  <div className="mt-6 h-48 rounded-xl bg-slate-100 dark:bg-slate-800/70" />
-                </div>
-                <div className="h-72 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
-                  <div className="h-4 w-32 rounded bg-slate-200 dark:bg-slate-800" />
-                  <div className="mt-6 space-y-4">
-                    {Array.from({ length: 4 }, (_, index) => (
-                      <div key={index} className="h-8 rounded-lg bg-slate-100 dark:bg-slate-800/70" />
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </section>
-          </main>
-        </div>
-      </div>
-    );
-  }
+  const isSessionVerified = sessionStatus === "verified" && userRole !== null;
+  const sessionUnavailable = sessionStatus === "unavailable";
 
   return (
     <div className="fixed inset-0 h-dvh overflow-hidden bg-[#f5f6f4] text-slate-800 dark:bg-slate-950 dark:text-slate-100">
@@ -682,8 +690,8 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
                 <div
                   role="img"
                   className="relative flex h-9 w-9 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/15"
-                  aria-label={userRole === "STAFF" ? "Staff account" : "Admin account"}
-                  title={userRole === "STAFF" ? "Staff account" : "Admin account"}
+                  aria-label={userRole === null ? "Account" : userRole === "STAFF" ? "Staff account" : "Admin account"}
+                  title={userRole === null ? "Account" : userRole === "STAFF" ? "Staff account" : "Admin account"}
                 >
                   <div className="relative h-7 w-7 overflow-hidden rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                     <Image
@@ -703,9 +711,16 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
 
           {/* Main scrollable page content */}
           <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#f5f6f4] p-4 text-slate-800 sm:p-5 lg:p-7 dark:bg-slate-950 dark:text-slate-100">
-            <div key={pathname} className="admin-page-enter">
-              {children}
-            </div>
+            {isSessionVerified ? (
+              <div key={pathname} className="admin-page-enter">
+                {children}
+              </div>
+            ) : (
+              <AdminSessionLoading
+                sessionUnavailable={sessionUnavailable}
+                onRetry={() => setSessionRetryVersion((version) => version + 1)}
+              />
+            )}
           </main>
         </div>
       </div>

@@ -9,7 +9,6 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  Clock,
   Eye,
   Mail,
   MapPin,
@@ -51,7 +50,7 @@ export type CustomerRow = {
   hasOrders: boolean;
 };
 
-type FilterKey = "all" | "verified" | "blocked" | "withOrders";
+type FilterKey = "all" | "registered" | "blocked" | "withOrders";
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
@@ -66,7 +65,7 @@ export default function CustomersPage() {
   const [pageSize, setPageSize] = useState(15);
   const [jumpInput, setJumpInput] = useState("");
   const [pagination, setPagination] = useState({ page: 1, limit: 15, totalCount: 0, totalPages: 1 });
-  const [summary, setSummary] = useState({ total: 0, verified: 0, blocked: 0, withOrders: 0 });
+  const [summary, setSummary] = useState({ total: 0, registered: 0, blocked: 0, withOrders: 0 });
   const customerRequestSequence = useRef(0);
   const hasLoadedCustomers = useRef(false);
 
@@ -126,7 +125,7 @@ export default function CustomersPage() {
       let data: {
         customers?: unknown;
         pagination?: { page: number; limit: number; totalCount: number; totalPages: number };
-        summary?: { total: number; verified: number; blocked: number; withOrders: number };
+        summary?: { total: number; registered: number; blocked: number; withOrders: number };
         message?: string;
       } = {};
 
@@ -151,7 +150,7 @@ export default function CustomersPage() {
       const nextCustomers = Array.isArray(data.customers) ? data.customers as CustomerRow[] : [];
       setCustomers(nextCustomers);
       setPagination(nextPagination);
-      setSummary(data.summary ?? { total: 0, verified: 0, blocked: 0, withOrders: 0 });
+      setSummary(data.summary ?? { total: 0, registered: 0, blocked: 0, withOrders: 0 });
       setApiError(null);
       hasLoadedCustomers.current = true;
     } catch (error) {
@@ -175,7 +174,9 @@ export default function CustomersPage() {
   }, [searchQuery]);
 
   useEffect(() => {
-    void loadCustomers();
+    const initialLoad = window.setTimeout(() => {
+      void loadCustomers();
+    }, 0);
     const handleLiveEvent = (event: Event) => {
       const message = (event as CustomEvent<{ type?: string }>).detail;
       if (
@@ -188,12 +189,15 @@ export default function CustomersPage() {
       }
     };
     window.addEventListener("apc-admin-live-event", handleLiveEvent);
-    return () => window.removeEventListener("apc-admin-live-event", handleLiveEvent);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.removeEventListener("apc-admin-live-event", handleLiveEvent);
+    };
   }, [loadCustomers]);
 
   // Metric counts
   const totalCount = summary.total;
-  const verifiedCount = summary.verified;
+  const registeredCount = summary.registered;
   const blockedCount = summary.blocked;
   const withOrdersCount = summary.withOrders;
 
@@ -343,19 +347,10 @@ export default function CustomersPage() {
       );
     }
 
-    if (customer.emailVerified) {
-      return (
-        <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200/80 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
-          <ShieldCheck className="h-3 w-3" />
-          <span>Verified</span>
-        </span>
-      );
-    }
-
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-amber-200/80 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
-        <Clock className="h-3 w-3" />
-        <span>Unverified</span>
+      <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200/80 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+        <ShieldCheck className="h-3 w-3" />
+        <span>Registered</span>
       </span>
     );
   }
@@ -438,16 +433,16 @@ export default function CustomersPage() {
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Verified Accounts</span>
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Registered Accounts</span>
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
               <ShieldCheck className="h-4 w-4" />
             </div>
           </div>
           <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-            {verifiedCount.toLocaleString()}
+            {registeredCount.toLocaleString()}
           </div>
           <p className="mt-1 text-[11px] text-indigo-600 dark:text-indigo-400">
-            {blockedCount > 0 ? `${blockedCount} currently blocked` : "Confirmed emails"}
+            {blockedCount > 0 ? `${blockedCount} currently blocked` : "Customer accounts"}
           </p>
         </div>
 
@@ -482,7 +477,7 @@ export default function CustomersPage() {
             {(
               [
                 ["all", "All", totalCount],
-                ["verified", "Verified", verifiedCount],
+                ["registered", "Registered", registeredCount],
                 ["withOrders", "With Orders", withOrdersCount],
                 ["blocked", "Blocked", blockedCount],
               ] as const

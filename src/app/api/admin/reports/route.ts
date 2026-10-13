@@ -72,7 +72,7 @@ export async function GET(request: Request) {
       : {}),
   };
 
-  const [orders, lowStockProducts, allProducts, completedOrderItems, categories] = await Promise.all([
+  const [orders, lowStockProducts, allProducts, completedOrderItems, categories, settings] = await Promise.all([
     prisma.order.findMany({
       where: recentOrdersWhere,
       select: {
@@ -90,6 +90,7 @@ export async function GET(request: Request) {
             : {},
           select: {
             quantity: true,
+            price: true,
             subtotal: true,
             productNameSnapshot: true,
             productSkuSnapshot: true,
@@ -105,7 +106,6 @@ export async function GET(request: Request) {
         },
       },
       orderBy: { updatedAt: "desc" },
-      take: 50,
     }),
     prisma.product.findMany({
       where: productWhere,
@@ -133,6 +133,10 @@ export async function GET(request: Request) {
       },
     }),
     prisma.category.findMany({ orderBy: { name: "asc" } }),
+    prisma.appSetting.findUnique({
+      where: { key: "default" },
+      select: { registeredBusinessName: true, businessAddress: true },
+    }),
   ]);
 
   const productMap = new Map(allProducts.map((product) => [product.id, product]));
@@ -240,6 +244,10 @@ export async function GET(request: Request) {
   );
 
   return NextResponse.json({
+    business: {
+      name: settings?.registeredBusinessName ?? "APAYAO PASALUBONG CENTER",
+      address: settings?.businessAddress ?? "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+    },
     summary: {
       totalRevenue: totalRevenueCents / 100,
       grossProfit,
@@ -268,6 +276,7 @@ export async function GET(request: Request) {
       itemCount: order.items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0),
       items: order.items.map((item) => ({
         quantity: Number(item.quantity ?? 0),
+        sku: item.variantSkuSnapshot || item.productSkuSnapshot || item.variant?.sku || item.product?.sku || "-",
         productName: item.productNameSnapshot
           ? `${item.productNameSnapshot}${item.variantSkuSnapshot || item.variantAttributesSnapshot
               ? ` (${getVariantLabel(item.variantAttributesSnapshot, item.variantSkuSnapshot ?? "Variant")})`
@@ -275,6 +284,13 @@ export async function GET(request: Request) {
           : item.product
           ? `${item.product.name}${item.variant ? ` (${getVariantLabel(item.variant.attributes, item.variant.sku)})` : ""}`
           : "Unknown product",
+        unitPrice: Number(item.price ?? 0),
+        unitCost: Number(item.variant?.cost ?? item.product?.cost ?? 0),
+        subtotal: Number(item.subtotal ?? 0),
+        grossProfit: (
+          Math.round(Number(item.subtotal ?? 0) * 100)
+          - Number(item.quantity ?? 0) * Math.round(Number(item.variant?.cost ?? item.product?.cost ?? 0) * 100)
+        ) / 100,
       })),
     })),
     lowStock: lowStockItems,
