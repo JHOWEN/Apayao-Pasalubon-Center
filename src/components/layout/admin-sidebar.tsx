@@ -204,7 +204,7 @@ export function AdminSidebar({
             title="APC Inventory"
             className="relative mb-4 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white p-0.5 ring-1 ring-white/15 transition-transform hover:scale-[1.03]"
           >
-            <Image src={logoSrc} alt="APC logo" fill sizes="40px" className="object-cover object-center" />
+            <Image src={logoSrc} alt="APC logo" fill sizes="40px" className="object-contain object-center" />
           </Link>
 
           {effectiveCollapsed && (
@@ -279,7 +279,7 @@ export function AdminSidebar({
                     alt="APC logo"
                     fill
                     sizes="44px"
-                    className="object-cover object-center"
+                    className="object-contain object-center"
                   />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -324,7 +324,7 @@ export function AdminSidebar({
                   alt="APC logo"
                   fill
                   sizes="44px"
-                  className="object-cover object-center"
+                  className="object-contain object-center"
                 />
               </div>
               <button

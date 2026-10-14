@@ -553,7 +553,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                     alt="Apayao Pasalubong Center logo"
                     fill
                     sizes="(max-width: 640px) 36px, 44px"
-                    className="object-cover object-center"
+                    className="object-contain object-center"
                     unoptimized
                   />
                 </div>

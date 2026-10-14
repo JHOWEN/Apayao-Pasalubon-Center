@@ -56,7 +56,7 @@ export function AuthCardLayout({
                   alt="APC Inventory logo"
                   width={92}
                   height={92}
-                  className="h-full w-full rounded-full object-cover object-center"
+                  className="h-full w-full rounded-full object-contain object-center"
                   priority
                 />
               </div>

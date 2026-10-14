@@ -713,7 +713,7 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
                       alt=""
                       fill
                       sizes="30px"
-                      className="object-cover"
+                      className={avatarSrc === fallbackAvatarSrc ? "object-contain" : "object-cover"}
                     />
                   </div>
 
