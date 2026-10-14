@@ -741,7 +741,7 @@ export default function AdminSettingsPage() {
                 alt="Profile"
                 fill
                 sizes="80px"
-                className="object-cover"
+                className={previewImage === fallbackAvatarSrc ? "object-contain" : "object-cover"}
                 unoptimized={Boolean(previewImage?.startsWith("blob:"))}
               />
             </div>
