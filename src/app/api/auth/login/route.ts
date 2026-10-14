@@ -27,7 +27,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        password: true,
+        sessionVersion: true,
+        role: true,
+        imageUrl: true,
+        phone: true,
+        address: true,
+        emailVerified: true,
+        isBlocked: true,
+      },
+    });
 
     if (!user) {
       const failedAttempt = await checkLoginRateLimit(request, email);

@@ -43,9 +43,23 @@ export async function GET(
 
     const variant = await prisma.productVariant.findUnique({
       where: { id: variantId },
-      include: {
+      select: {
+        id: true,
+        sku: true,
+        price: true,
+        stock: true,
+        minStock: true,
+        imageUrl: true,
+        attributes: true,
         product: {
-          include: { category: true },
+          select: {
+            id: true,
+            name: true,
+            categoryId: true,
+            isActive: true,
+            status: true,
+            category: { select: { id: true, name: true, description: true, createdAt: true, updatedAt: true } },
+          },
         },
       },
     });
@@ -65,7 +79,6 @@ export async function GET(
         id: variant.id,
         sku: variant.sku,
         price: Number(variant.price),
-        cost: Number(variant.cost),
         stock: variant.stock,
         minStock: variant.minStock,
         product: {
@@ -78,6 +91,8 @@ export async function GET(
         imageUrl: imageUrls.length ? JSON.stringify(imageUrls) : null,
         imageUrls,
       },
+    }, {
+      headers: { "Cache-Control": "public, max-age=0, s-maxage=15, stale-while-revalidate=30" },
     });
   } catch (error) {
     logError("public.variant.get_failed", error, { requestId: getRequestId(request) });

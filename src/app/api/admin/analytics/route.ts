@@ -86,12 +86,24 @@ export async function GET(request: NextRequest) {
   const todayStart = getStoreDayStart(new Date());
   const tomorrowStart = shiftStoreDays(todayStart, 1);
 
-  const [customers, productCount, activeOrders, lowStock, revenue, completedOrders, completedOrderCount, statusBreakdown, todayStatusBreakdown, todayCompletedOrderCount, inventoryProducts, posOrders, ecommerceOrders, topProducts, pendingOrders, cancelledOrders, completedOrderItems, inventoryMovement, allProducts, allCategories] = await Promise.all([
+  const [customers, productCount, activeOrders, inventoryProducts, revenue, completedOrders, completedOrderCount, statusBreakdown, todayStatusBreakdown, todayCompletedOrderCount, posOrders, ecommerceOrders, topProducts, pendingOrders, cancelledOrders, completedOrderItems, inventoryMovement, allCategories] = await Promise.all([
     prisma.user.count({ where: { role: "CUSTOMER" } }),
     prisma.product.count(),
     prisma.order.count({ where: { status: { notIn: ["CANCELLED", "COMPLETED"] }, ...orderDateFilter } }),
     prisma.product.findMany({
-      select: { id: true, name: true, stock: true, minStock: true, hasVariants: true, variants: { where: { isActive: true }, select: { id: true, sku: true, stock: true, minStock: true, attributes: true } } },
+      select: {
+        id: true,
+        name: true,
+        imageUrl: true,
+        categoryId: true,
+        category: { select: { name: true } },
+        price: true,
+        cost: true,
+        stock: true,
+        minStock: true,
+        hasVariants: true,
+        variants: { where: { isActive: true }, select: { id: true, sku: true, stock: true, minStock: true, attributes: true, price: true, cost: true, isActive: true } },
+      },
       orderBy: { stock: "asc" },
     }),
     prisma.order.aggregate({
@@ -123,9 +135,6 @@ export async function GET(request: NextRequest) {
           where: { status: "COMPLETED", updatedAt: { gte: todayStart, lt: tomorrowStart } },
         })
       : Promise.resolve(0),
-    prisma.product.findMany({
-      select: { price: true, cost: true, stock: true, hasVariants: true, variants: { select: { price: true, cost: true, stock: true, isActive: true } } },
-    }),
     prisma.order.groupBy({
       by: ["isWalkIn"],
       where: { status: "COMPLETED", ...completedDateFilter },
@@ -172,16 +181,6 @@ export async function GET(request: NextRequest) {
       _sum: { quantity: true },
       _count: { id: true },
     }),
-    prisma.product.findMany({
-      select: {
-        id: true,
-        name: true,
-        imageUrl: true,
-        categoryId: true,
-        category: { select: { name: true } },
-      },
-      orderBy: { name: "asc" },
-    }),
     prisma.category.findMany({
       select: {
         id: true,
@@ -207,7 +206,7 @@ export async function GET(request: NextRequest) {
     return sum + Number(product.price ?? 0) * Number(product.stock ?? 0);
   }, 0);
 
-  const lowStockItems = lowStock.flatMap((product) => {
+  const lowStockItems = inventoryProducts.flatMap((product) => {
     if (!product.hasVariants) {
       return Number(product.stock) <= Number(product.minStock) ? [{ id: product.id, name: product.name, stock: Number(product.stock), minStock: Number(product.minStock) }] : [];
     }
@@ -216,7 +215,8 @@ export async function GET(request: NextRequest) {
       .map((variant) => ({ id: variant.id, name: `${product.name} - ${variant.sku}`, stock: Number(variant.stock), minStock: Number(variant.minStock) }));
   }).sort((a, b) => a.stock - b.stock).slice(0, 10);
 
-  const productNameMap = new Map(allProducts.map((product) => [product.id, product.name]));
+  const inventoryProductMap = new Map(inventoryProducts.map((product) => [product.id, product]));
+  const productNameMap = new Map(inventoryProducts.map((product) => [product.id, product.name]));
 
   // Calculate POS vs Ecommerce breakdown
   const posSalesData = posOrders.find((item) => item.isWalkIn === true) || { _count: { id: 0 }, _sum: { totalAmount: 0 } };
@@ -284,7 +284,7 @@ export async function GET(request: NextRequest) {
     });
   });
 
-  allProducts.forEach((product) => {
+  inventoryProducts.forEach((product) => {
     salesByProductMap.set(product.name, {
       name: product.name,
       revenue: 0,
@@ -377,8 +377,8 @@ export async function GET(request: NextRequest) {
     .map((summary) => ({
       ...summary,
       name: productNameMap.get(summary.productId) || "Unknown product",
-      imageUrl: allProducts.find((product) => product.id === summary.productId)?.imageUrl ?? null,
-      categoryName: allProducts.find((product) => product.id === summary.productId)?.category?.name ?? "Uncategorized",
+      imageUrl: inventoryProductMap.get(summary.productId)?.imageUrl ?? null,
+      categoryName: inventoryProductMap.get(summary.productId)?.category?.name ?? "Uncategorized",
     }))
     .sort((left, right) => right.revenue - left.revenue || right.quantity - left.quantity || left.name.localeCompare(right.name));
 
@@ -417,5 +417,7 @@ export async function GET(request: NextRequest) {
       netChange: netMovement,
       lowStockCount: lowStockItems.length,
     },
+  }, {
+    headers: { "Cache-Control": "private, no-store, max-age=0" },
   });
 }

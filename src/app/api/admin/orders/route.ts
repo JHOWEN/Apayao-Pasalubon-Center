@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
@@ -92,7 +93,9 @@ export async function GET(request: Request) {
           createdAt: true,
         },
       });
-      return NextResponse.json({ success: true, events });
+      return NextResponse.json({ success: true, events }, {
+        headers: { "Cache-Control": "private, no-store, max-age=0" },
+      });
     }
 
     const customerId = searchParams.get("customerId");
@@ -146,21 +149,38 @@ export async function GET(request: Request) {
         : {}),
     };
 
-    const reviewedProductIds = customerId
-      ? await prisma.productReview.findMany({
-          where: { userId: customerId },
-          select: { productId: true },
-        })
-      : [];
-    const reviewedSet = new Set(reviewedProductIds.map((review) => review.productId));
-
     const [orders, totalCount, statusGroups, awaitingPaymentCount] = await Promise.all([
       prisma.order.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        userId: true,
+        orderNumber: true,
+        customerName: true,
+        customerPhone: true,
+        pickupDate: true,
+        pickupTime: true,
+        createdAt: true,
+        status: true,
+        totalAmount: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        paidAt: true,
+        proofOfPaymentUrl: true,
+        isWalkIn: true,
         items: {
-          include: {
-            product: true,
+          select: {
+            id: true,
+            productId: true,
+            variantId: true,
+            quantity: true,
+            price: true,
+            subtotal: true,
+            productNameSnapshot: true,
+            productSkuSnapshot: true,
+            variantSkuSnapshot: true,
+            variantAttributesSnapshot: true,
+            product: { select: { name: true } },
             variant: {
               select: {
                 id: true,
@@ -172,7 +192,7 @@ export async function GET(request: Request) {
             },
           },
         },
-        user: true,
+        user: { select: { email: true, address: true } },
       },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * limit,
@@ -189,6 +209,17 @@ export async function GET(request: Request) {
         },
       }),
     ]);
+
+    const reviewedProductIds = customerId
+      ? await prisma.productReview.findMany({
+          where: {
+            userId: customerId,
+            productId: { in: [...new Set(orders.flatMap((order) => order.items.map((item) => item.productId)))] },
+          },
+          select: { productId: true },
+        })
+      : [];
+    const reviewedSet = new Set(reviewedProductIds.map((review) => review.productId));
 
     return NextResponse.json({
       orders: await Promise.all(orders.map(async (order) => ({
@@ -230,6 +261,8 @@ export async function GET(request: Request) {
         AWAITING_PAYMENT_APPROVAL: awaitingPaymentCount,
         ...Object.fromEntries(statusGroups.map((group) => [group.status, group._count.id])),
       },
+    }, {
+      headers: { "Cache-Control": "private, no-store, max-age=0" },
     });
   } catch (error) {
     logError("admin.orders.get_failed", error, { requestId: getRequestId(request) });
@@ -456,6 +489,7 @@ export async function POST(request: Request) {
       return createdOrder;
     }, { maxWait: 10_000, timeout: 30_000 });
 
+    revalidateTag("public-products", "max");
     try {
       emitOrderCreatedEvent({
         orderId: order.id,
@@ -745,6 +779,7 @@ export async function PUT(request: Request) {
       return updatedOrder;
     });
 
+    revalidateTag("public-products", "max");
     emitOrderUpdatedEvent({
       orderId: order.id,
       orderNumber: order.orderNumber,

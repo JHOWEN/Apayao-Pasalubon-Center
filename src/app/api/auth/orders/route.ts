@@ -1,6 +1,7 @@
 import { PaymentStatus, Prisma } from "@prisma/client";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { getUserForToken } from "@/lib/auth";
 import { applyOrderInventoryMovement } from "@/features/inventory/lib/inventory";
@@ -13,6 +14,7 @@ import { enforceRateLimit } from "@/lib/rate-limit";
 import { getOrderItemSnapshot, getOrderStatusEventType, recordOrderEvent } from "@/lib/order-history";
 import {
   canCancelOrder,
+  isOrderStatus,
   normalizePickupDateInput,
   OrderStatus,
   resolveInitialOrderStatus,
@@ -138,20 +140,71 @@ export async function GET(request: Request) {
 
     await expireWalletReservations(new Date(), 10);
     const { payload } = authCheck;
-    const reviewedProductIds = await prisma.productReview.findMany({
-      where: { userId: payload.sub },
-      select: { productId: true },
-    });
-    const reviewedSet = new Set(reviewedProductIds.map((review) => review.productId));
+    const searchParams = new URL(request.url).searchParams;
+    const requestedPage = Number(searchParams.get("page"));
+    const page = Number.isInteger(requestedPage) && requestedPage > 0 ? Math.min(requestedPage, 1000) : 1;
+    const requestedLimit = Number(searchParams.get("limit"));
+    const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 30) : 15;
+    const requestedStatus = searchParams.get("status");
+    const status = isOrderStatus(requestedStatus) ? requestedStatus : undefined;
+    const where = { userId: payload.sub, ...(status ? { status } : {}) };
 
-    const orders = await prisma.order.findMany({
-      where: { userId: payload.sub },
-      include: {
-        items: { include: { product: true, variant: true } },
-        user: true,
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const [orders, statusCounts] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        select: {
+          id: true,
+          userId: true,
+          orderNumber: true,
+          customerName: true,
+          customerPhone: true,
+          pickupDate: true,
+          pickupTime: true,
+          createdAt: true,
+          reservationExpiresAt: true,
+          status: true,
+          totalAmount: true,
+          paymentMethod: true,
+          paymentStatus: true,
+          proofOfPaymentUrl: true,
+          isWalkIn: true,
+          items: {
+            select: {
+              id: true,
+              productId: true,
+              variantId: true,
+              quantity: true,
+              price: true,
+              subtotal: true,
+              productNameSnapshot: true,
+              productSkuSnapshot: true,
+              variantSkuSnapshot: true,
+              variantAttributesSnapshot: true,
+              product: { select: { imageUrl: true, name: true } },
+              variant: { select: { sku: true, attributes: true } },
+            },
+          },
+          user: { select: { email: true, address: true } },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.order.groupBy({
+        by: ["status"],
+        where: { userId: payload.sub },
+        _count: { id: true },
+      }),
+    ]);
+
+    const pageProductIds = [...new Set(orders.flatMap((order) => order.items.map((item) => item.productId)))];
+    const reviewedProductIds = pageProductIds.length
+      ? await prisma.productReview.findMany({
+          where: { userId: payload.sub, productId: { in: pageProductIds } },
+          select: { productId: true },
+        })
+      : [];
+    const reviewedSet = new Set(reviewedProductIds.map((review) => review.productId));
 
     const serializedOrders = await Promise.all(
       orders.map(async (order) => ({
@@ -160,7 +213,22 @@ export async function GET(request: Request) {
       }))
     );
 
-    return NextResponse.json(serializedOrders);
+    const totalOrders = statusCounts.reduce((sum, row) => sum + row._count.id, 0);
+    const activeOrders = statusCounts
+      .filter((row) => row.status !== "COMPLETED" && row.status !== "CANCELLED")
+      .reduce((sum, row) => sum + row._count.id, 0);
+    const matchingOrders = status
+      ? statusCounts.find((row) => row.status === status)?._count.id ?? 0
+      : totalOrders;
+
+    return NextResponse.json(serializedOrders, {
+      headers: {
+        "Cache-Control": "private, no-store, max-age=0",
+        "X-Total-Orders": String(totalOrders),
+        "X-Active-Orders": String(activeOrders),
+        "X-Has-More": String(page * limit < matchingOrders),
+      },
+    });
   } catch (error) {
     logError("auth.orders.get_failed", error, { requestId: getRequestId(request) });
     return apiError(request, 503, "ORDERS_UNAVAILABLE", "Unable to load orders right now.");
@@ -377,6 +445,7 @@ export async function POST(request: Request) {
       return createdOrder;
     });
 
+    revalidateTag("public-products", "max");
     emitOrderCreatedEvent({
       orderId: order.id,
       orderNumber: order.orderNumber,
@@ -570,6 +639,7 @@ export async function PUT(request: Request) {
       return updatedOrder;
     });
 
+    revalidateTag("public-products", "max");
     emitOrderUpdatedEvent({
       orderId: order.id,
       orderNumber: order.orderNumber,

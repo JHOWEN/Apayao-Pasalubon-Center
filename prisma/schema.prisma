@@ -87,6 +87,8 @@ model Product {
   productGroupItems ProductGroupItem[]
 
   @@index([categoryId])
+  @@index([status, isActive, createdAt])
+  @@index([categoryId, status, isActive, createdAt])
 }
 
 model ProductVariant {
@@ -162,6 +164,7 @@ model Order {
   @@index([paymentStatus, createdAt])
   @@index([status, paymentStatus, reservationExpiresAt])
   @@index([userId, createdAt])
+  @@index([userId, status, createdAt])
   @@index([pickupDate, status])
 }
 
@@ -281,6 +284,8 @@ model ProductGroup {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
   items       ProductGroupItem[]
+
+  @@index([status, createdAt])
 }
 
 model ProductGroupItem {

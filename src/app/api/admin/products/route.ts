@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin, getUserForToken } from "@/lib/auth";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
@@ -450,6 +451,7 @@ export async function POST(request: Request) {
       include: { category: true, variants: true },
     });
 
+    revalidateTag("public-products", "max");
     emitCatalogUpdatedEvent({ productId: product.id });
     return NextResponse.json({ success: true, product: updatedProduct ? serializeProduct(updatedProduct) : serializeProduct(product) }, { status: 201 });
   } catch (error: unknown) {
@@ -662,6 +664,7 @@ export async function PUT(request: Request) {
       return tx.product.findUnique({ where: { id: updated.id }, include: { category: true, variants: true } });
     });
 
+    revalidateTag("public-products", "max");
     emitCatalogUpdatedEvent({ productId: body.id });
     return NextResponse.json({ success: true, product: product ? serializeProduct(product) : null });
   } catch (error: unknown) {
@@ -704,6 +707,7 @@ export async function DELETE(request: Request) {
     ]);
 
     await prisma.product.delete({ where: { id } });
+    revalidateTag("public-products", "max");
     emitCatalogUpdatedEvent({ productId: id });
     return NextResponse.json({ success: true, message: "Product deleted." });
   } catch (error: unknown) {

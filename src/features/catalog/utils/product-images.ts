@@ -25,3 +25,10 @@ export function parseImageUrls(value?: string | null): string[] {
 export function getPrimaryImageUrl(value?: string | null): string | null {
   return parseImageUrls(value)[0] ?? null;
 }
+
+export function getThumbnailImageUrl(value?: string | null): string | null {
+  const primaryImageUrl = getPrimaryImageUrl(value);
+  if (!primaryImageUrl) return null;
+
+  return primaryImageUrl.replace(/\/main\.webp(?=([?#]|$))/i, "/thumbnail.webp");
+}

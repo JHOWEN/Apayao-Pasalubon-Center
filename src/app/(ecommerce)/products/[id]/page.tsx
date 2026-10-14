@@ -331,6 +331,13 @@ export default function ProductDetailPage() {
           );
 
           if (configuredOptionItems.length > 0) {
+            const optionProducts = Array.isArray(productPayload.optionProducts)
+              ? productPayload.optionProducts as ProductType[]
+              : [];
+            const optionProductById = new Map(
+              optionProducts.map((optionProduct): [string, ProductType] => [String(optionProduct.id), optionProduct]),
+            );
+
             try {
               const optionItems = (
                 await Promise.all(
@@ -345,18 +352,10 @@ export default function ProductDetailPage() {
                       const assignedProductId = String(item.assignedProductId);
                       if (!assignedProductId || !item.optionValue.trim()) return null;
 
-                      let inventoryProduct =
+                      const inventoryProduct =
                         assignedProductId === String(productPayload.id)
                           ? productPayload
-                          : item.inventoryProduct;
-                      if (!inventoryProduct) {
-                        const response = await fetch(
-                          `/api/public/products?id=${encodeURIComponent(assignedProductId)}`,
-                          { cache: "no-store" },
-                        );
-                        const data = await response.json();
-                        inventoryProduct = response.ok ? data?.product : null;
-                      }
+                          : item.inventoryProduct ?? optionProductById.get(assignedProductId);
 
                       if (!inventoryProduct) return null;
 

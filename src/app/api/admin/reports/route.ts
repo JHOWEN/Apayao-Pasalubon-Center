@@ -72,7 +72,7 @@ export async function GET(request: Request) {
       : {}),
   };
 
-  const [orders, lowStockProducts, allProducts, completedOrderItems, categories, settings] = await Promise.all([
+  const [orders, allProducts, categories, settings] = await Promise.all([
     prisma.order.findMany({
       where: recentOrdersWhere,
       select: {
@@ -89,6 +89,8 @@ export async function GET(request: Request) {
               }
             : {},
           select: {
+            productId: true,
+            variantId: true,
             quantity: true,
             price: true,
             subtotal: true,
@@ -109,28 +111,8 @@ export async function GET(request: Request) {
     }),
     prisma.product.findMany({
       where: productWhere,
-      select: { id: true, name: true, stock: true, minStock: true, sku: true, price: true, cost: true, hasVariants: true, variants: { where: { isActive: true }, select: { id: true, sku: true, stock: true, minStock: true, price: true, cost: true, attributes: true } } },
+      select: { id: true, name: true, sku: true, stock: true, minStock: true, cost: true, price: true, hasVariants: true, variants: { where: { isActive: true }, select: { id: true, sku: true, attributes: true, minStock: true, cost: true, price: true, stock: true, isActive: true } } },
       orderBy: { stock: "asc" },
-    }),
-    prisma.product.findMany({
-      where: productWhere,
-      select: { id: true, name: true, sku: true, stock: true, cost: true, price: true, hasVariants: true, variants: { select: { id: true, sku: true, attributes: true, minStock: true, cost: true, price: true, stock: true, isActive: true } } },
-    }),
-    prisma.orderItem.findMany({
-      where: {
-        order: whereClause,
-        ...(category ? { product: { categoryId: category } } : {}),
-      },
-      select: {
-        orderId: true,
-        productId: true,
-        variantId: true,
-        quantity: true,
-        subtotal: true,
-        product: { select: { cost: true } },
-        variant: { select: { sku: true, attributes: true, cost: true } },
-        order: { select: { isWalkIn: true, paymentMethod: true } },
-      },
     }),
     prisma.category.findMany({ orderBy: { name: "asc" } }),
     prisma.appSetting.findUnique({
@@ -138,6 +120,12 @@ export async function GET(request: Request) {
       select: { registeredBusinessName: true, businessAddress: true },
     }),
   ]);
+
+  const completedOrderItems = orders.flatMap((order) => order.items.map((item) => ({
+    ...item,
+    orderId: order.id,
+    order: { isWalkIn: order.isWalkIn, paymentMethod: order.paymentMethod },
+  })));
 
   const productMap = new Map(allProducts.map((product) => [product.id, product]));
 
@@ -196,7 +184,7 @@ export async function GET(request: Request) {
   }
 
   const grossProfit = grossProfitCents / 100;
-  const lowStockItems = lowStockProducts.flatMap((product) => product.hasVariants
+  const lowStockItems = allProducts.flatMap((product) => product.hasVariants
     ? product.variants.filter((variant) => Number(variant.stock) <= Number(variant.minStock)).map((variant) => ({ id: variant.id, name: `${product.name} (${getVariantLabel(variant.attributes, variant.sku)})`, stock: Number(variant.stock), minStock: Number(variant.minStock), sku: variant.sku, price: variant.price, cost: variant.cost, stockValue: Number(variant.cost ?? 0) * Number(variant.stock ?? 0) }))
     : Number(product.stock) <= Number(product.minStock) ? [{ id: product.id, name: product.name, stock: Number(product.stock), minStock: Number(product.minStock), sku: product.sku, price: product.price, cost: product.cost, stockValue: Number(product.cost ?? 0) * Number(product.stock ?? 0) }] : []);
   const stockValue = allProducts.reduce((sum, product) => product.hasVariants
@@ -315,5 +303,7 @@ export async function GET(request: Request) {
           stockValue: (Number(product.cost ?? 0) * Number(product.stock ?? 0)).toFixed(2),
         }]),
     categories,
+  }, {
+    headers: { "Cache-Control": "private, no-store, max-age=0" },
   });
 }

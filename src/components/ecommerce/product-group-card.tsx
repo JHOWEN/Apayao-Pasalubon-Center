@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Heart, Minus, Plus, ShoppingCart, Star, X } from "lucide-react";
 import { addToCart, getStoredUser } from "@/features/cart/lib/cart";
-import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
+import { getPrimaryImageUrl, getThumbnailImageUrl } from "@/features/catalog/utils/product-images";
 import { cleanProductDescription } from "@/features/catalog/utils/product-text";
 import { isFavoriteProduct, recordRecentlyViewed, toggleFavoriteProduct } from "@/features/catalog/lib/favorites";
 import { useState } from "react";
@@ -183,10 +183,11 @@ export function ProductGroupCard({
         <div className="relative shrink-0">
           <div className="relative aspect-square w-full overflow-hidden bg-[#181b24]">
             <Image
-              src={imageUrl}
+              src={getThumbnailImageUrl(imageUrl) || imageUrl}
               alt={group.name || selectedProduct.name || "Product group"}
               fill
-              priority={group.priority}
+              loading={group.priority ? "eager" : "lazy"}
+              fetchPriority={group.priority ? "high" : "auto"}
               sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
               className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
               onError={(event) => {

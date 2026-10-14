@@ -172,7 +172,7 @@ function EcommerceHomeContent() {
 
     async function loadStoreInfo() {
       try {
-        const response = await fetch("/api/public/settings", { cache: "no-store" });
+        const response = await fetch("/api/public/settings");
         const data = await response.json();
         const settings = data?.settings;
 
@@ -233,49 +233,10 @@ function EcommerceHomeContent() {
         setCatalogPage(1);
         setCatalogTotalCount(Number(data?.pagination?.totalCount ?? fetchedProducts.length));
         setHasMoreProducts(Boolean(data?.pagination?.hasNextPage));
-        const normalizedProducts = await Promise.all(
-          fetchedProducts.map(async (product) => {
+        const normalizedProducts = fetchedProducts.map((product) => {
             if (!product.productGroup?.items?.length) {
               return product;
             }
-
-            const items = await Promise.all(
-              product.productGroup.items.map(async (item) => {
-                if (item.inventoryProduct) {
-                  return item;
-                }
-
-                try {
-                  const childResponse = await fetch(
-                    `/api/public/products?id=${encodeURIComponent(item.assignedProductId ?? item.id)}`,
-                    { cache: "force-cache" },
-                  );
-                  const childData = await childResponse.json();
-                  const child = childData?.product;
-
-                  if (!child) {
-                    return null;
-                  }
-
-                  return {
-                    ...item,
-                    inventoryProduct: {
-                      id: String(child.id),
-                      name: String(child.name ?? "Product"),
-                      sku: String(child.sku ?? ""),
-                      description: child.description ?? null,
-                      imageUrl: child.imageUrl ?? null,
-                      price: Number(child.price ?? 0),
-                      stock: Number(child.stock ?? 0),
-                      minStock: Number(child.minStock ?? 0),
-                      category: child.category,
-                    },
-                  };
-                } catch {
-                  return null;
-                }
-              }),
-            );
 
             return {
               ...product,
@@ -294,11 +255,10 @@ function EcommerceHomeContent() {
                   minStock: 0,
                   category: product.category?.name ? { id: "", name: product.category.name } : undefined,
                 },
-                items: items.filter((item): item is NonNullable<typeof item> => item !== null),
+                items: product.productGroup.items,
               },
             };
-          }),
-        );
+          });
 
         setProducts(normalizedProducts);
       } catch (error) {
@@ -348,7 +308,7 @@ function EcommerceHomeContent() {
 
   const loadCategories = useCallback(async () => {
     try {
-      const response = await fetchWithTimeout("/api/public/categories", { cache: "no-store" }, 15000);
+      const response = await fetchWithTimeout("/api/public/categories", {}, 15000);
       const data = await response.json();
 
       if (!response.ok) {
@@ -721,7 +681,7 @@ function EcommerceHomeContent() {
                   return (
                     <ProductGroupCard
                       key={product.id}
-                      group={{ ...product.productGroup, priority: productIndex < 4 }}
+                      group={{ ...product.productGroup, priority: productIndex === 0 }}
                       soldCount={Number(product.soldCount ?? 0)}
                     />
                   );
@@ -744,7 +704,7 @@ function EcommerceHomeContent() {
                     reviewCount={Number(product.reviewCount ?? 0)}
                     latestReview={product.latestReview}
                     soldCount={Number(product.soldCount ?? 0)}
-                    priority={productIndex < 4}
+                    priority={productIndex === 0}
                   />
                 );
               })}

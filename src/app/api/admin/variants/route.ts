@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
       return created;
     });
 
+    revalidateTag("public-products", "max");
     emitCatalogUpdatedEvent({ productId, variantId: variant.id });
     return NextResponse.json({ success: true, variant }, { status: 201 });
   } catch (error) {

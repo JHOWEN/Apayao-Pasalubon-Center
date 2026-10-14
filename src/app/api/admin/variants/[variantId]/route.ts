@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { getRequestId, logError } from "@/lib/logger";
@@ -123,6 +124,7 @@ export async function PUT(
       return updated;
     });
 
+    revalidateTag("public-products", "max");
     emitCatalogUpdatedEvent({ variantId });
     return NextResponse.json({
       success: true,
@@ -162,6 +164,7 @@ export async function DELETE(
       await tx.productVariant.delete({ where: { id: variantId } });
     });
 
+    revalidateTag("public-products", "max");
     emitCatalogUpdatedEvent({ variantId });
     return NextResponse.json({ success: true, message: `Variant ${variant.sku} permanently deleted.` });
   } catch (error) {

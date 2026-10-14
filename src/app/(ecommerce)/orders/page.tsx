@@ -3,7 +3,7 @@
 import Image from "@/components/safe-image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   RotateCcw,
   ShoppingBag,
@@ -19,6 +19,7 @@ import {
 } from "@/utils/compress-upload-image";
 
 const fallbackProductImage = "/logo/apc-logo.png";
+const ORDERS_PAGE_LIMIT = 15;
 
 type OrderItemSummary = {
   id?: string;
@@ -165,23 +166,34 @@ export default function OrdersPage() {
   const [message, setMessage] = useState("");
   const [ordersLoadFailed, setOrdersLoadFailed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [hasMoreOrders, setHasMoreOrders] = useState(false);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const [activeOrderCount, setActiveOrderCount] = useState(0);
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
   const [uploadingProofOrderId, setUploadingProofOrderId] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
 
-  async function fetchOrders() {
+  const fetchOrders = useCallback(async (page = 1, statusFilter = selectedStatus, append = false) => {
     try {
-      setIsLoading(true);
+      if (append) setIsLoadingMore(true);
+      else setIsLoading(true);
       const currentUser = getStoredUser() as { id?: string } | null;
 
       if (!currentUser?.id) {
         setOrders([]);
+        setHasMoreOrders(false);
+        setTotalOrders(0);
+        setActiveOrderCount(0);
         setMessage("");
         setOrdersLoadFailed(false);
         return;
       }
 
-      const response = await fetchWithTimeout(`/api/auth/orders`, {
+      const params = new URLSearchParams({ page: String(page), limit: String(ORDERS_PAGE_LIMIT) });
+      if (statusFilter !== "ALL") params.set("status", statusFilter);
+      const response = await fetchWithTimeout(`/api/auth/orders?${params.toString()}`, {
         cache: "no-store",
       });
       const data = await response.json().catch(() => null);
@@ -191,18 +203,27 @@ export default function OrdersPage() {
       }
 
       const userOrders = Array.isArray(data) ? (data as OrderSummary[]) : [];
-      setOrders(userOrders);
+      setOrders((current) => {
+        if (!append) return userOrders;
+        const existingIds = new Set(current.map((order) => order.id));
+        return [...current, ...userOrders.filter((order) => !existingIds.has(order.id))];
+      });
+      setOrdersPage(page);
+      setHasMoreOrders(response.headers.get("X-Has-More") === "true");
+      setTotalOrders(Number(response.headers.get("X-Total-Orders") ?? userOrders.length));
+      setActiveOrderCount(Number(response.headers.get("X-Active-Orders") ?? 0));
       setMessage("");
       setOrdersLoadFailed(false);
     } catch (error) {
       console.error("Error fetching orders:", error);
-      setOrders([]);
+      if (!append) setOrders([]);
       setMessage(getUserFacingErrorMessage(error, "We couldn't load your orders. Please try again."));
       setOrdersLoadFailed(true);
     } finally {
-      setIsLoading(false);
+      if (append) setIsLoadingMore(false);
+      else setIsLoading(false);
     }
-  }
+  }, [selectedStatus]);
 
   async function handleCancelOrder(orderId: string) {
     setMessage("");
@@ -338,7 +359,7 @@ export default function OrdersPage() {
     return () => {
       window.removeEventListener("apc-order-review-updated", handleReviewUpdate);
     };
-  }, []);
+  }, [fetchOrders]);
 
   const orderStatusSteps = [
     { key: "PENDING", label: "Pending" },
@@ -384,7 +405,7 @@ export default function OrdersPage() {
             <span>← Back to Store Catalog</span>
           </Link>
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
-            <span>{orders.length} total orders</span>
+            <span>{totalOrders} total orders</span>
           </div>
         </div>
 
@@ -404,7 +425,7 @@ export default function OrdersPage() {
 
           <div className="flex items-center gap-2">
             <span className="rounded-xl border border-white/10 bg-[#12141c] px-3 py-1.5 text-xs font-semibold text-slate-300">
-              {orders.filter((o) => o.status !== "COMPLETED" && o.status !== "CANCELLED").length} active orders
+              {activeOrderCount} active orders
             </span>
           </div>
         </div>
@@ -451,7 +472,9 @@ export default function OrdersPage() {
                 key={status}
                 type="button"
                 aria-pressed={active}
-                onClick={() => setSelectedStatus(status)}
+                onClick={() => {
+                  setSelectedStatus(status);
+                }}
                 className={`shrink-0 rounded-xl px-4 py-2 text-xs font-semibold transition ${
                   active
                     ? "bg-[#ff8a1e] text-slate-950 shadow-sm"
@@ -795,6 +818,18 @@ export default function OrdersPage() {
                 </article>
               );
             })}
+            {hasMoreOrders && (
+              <div className="flex justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => void fetchOrders(ordersPage + 1, selectedStatus, true)}
+                  disabled={isLoadingMore}
+                  className="inline-flex h-11 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-6 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {isLoadingMore ? "Loading older orders..." : "Load older orders"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 

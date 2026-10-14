@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
@@ -110,6 +111,7 @@ export async function GET(request: Request) {
         )
       : false;
 
+    revalidateTag("public-products", "max");
     return NextResponse.json({
       success: true,
       reviews: reviews.map(serializeReview),

@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { revalidateTag } from "next/cache";
 import { NextResponse } from "next/server";
 import { InventoryType, Prisma } from "@prisma/client";
 import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
@@ -352,6 +353,7 @@ export async function POST(request: Request) {
       return tx.inventoryTransaction.create({ data: { productId, productName: product.name, variantId: variant?.id ?? null, variantSku: variant?.sku ?? null, type, eventType: isThresholdOnlyUpdate ? "THRESHOLD_ADJUSTMENT" : type, quantity: isThresholdOnlyUpdate ? minStockValue : quantityValue, stockBefore: baseStock, stockAfter: newStock, minStockBefore: isThresholdOnlyUpdate ? baseMinStock : null, minStockAfter: isThresholdOnlyUpdate ? minStockValue : null, remarks: normalizedRemarks, performedById: actor.id, performedByName: actor.name, performedByType: actor.role, source: "INVENTORY" } });
     });
 
+    revalidateTag("public-products", "max");
     return NextResponse.json({ success: true, transaction }, { status: 201 });
   } catch (error) {
     return NextResponse.json(
