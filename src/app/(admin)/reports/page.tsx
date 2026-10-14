@@ -1284,19 +1284,7 @@ export default function ReportsPage() {
     <div className="space-y-6 pb-16 text-slate-900 dark:text-slate-100">
       {/* 1. Header & Quick Actions */}
       <header className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="border-b border-slate-100 pb-4 text-center dark:border-slate-800">
-          <h1 className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-            {currentReportLabel}
-          </h1>
-          <p className="mt-1 text-sm font-semibold text-slate-800 dark:text-slate-100">
-            {report.business.name}
-          </p>
-          <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-            {report.business.address}
-          </p>
-        </div>
-
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-slate-900 dark:text-white">Reports</p>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
