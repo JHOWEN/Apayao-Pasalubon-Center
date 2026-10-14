@@ -15,7 +15,13 @@ import {
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
 import { AdminQueryProvider, getAdminQueryClient } from "@/components/providers/admin-query-provider";
 import { adminFetch, invalidateAdminDataForEvent } from "@/lib/admin-data-cache";
-import { notifyAdminOfNewOrder } from "@/lib/admin-notifications";
+import {
+  dismissPickupAlert,
+  getDismissedPickupAlertIds,
+  notifyAdminOfNewOrder,
+  OPEN_PICKUP_ORDER_EVENT,
+  OPEN_PICKUP_ORDER_STORAGE_KEY,
+} from "@/lib/admin-notifications";
 import { getPickupDateKey } from "@/lib/order";
 
 const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo.png";
@@ -420,39 +426,40 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
         const latestWindow = new Date(today);
         latestWindow.setDate(today.getDate() + 2);
 
+        const dismissedOrderIds = new Set(getDismissedPickupAlertIds());
         const upcoming = orders
-              .filter((order: { status?: string; pickupDate?: string | null }) => {
-                if (!order.pickupDate) {
-                  return false;
-                }
+          .filter((order: { status?: string; pickupDate?: string | null }) => {
+            if (!order.pickupDate) {
+              return false;
+            }
 
-                if (order.status === "CANCELLED" || order.status === "COMPLETED") {
-                  return false;
-                }
+            if (order.status === "CANCELLED" || order.status === "COMPLETED") {
+              return false;
+            }
 
-                const pickupKey = getPickupDateKey(order.pickupDate);
-                if (!Number.isFinite(pickupKey)) {
-                  return false;
-                }
+            const pickupKey = getPickupDateKey(order.pickupDate);
+            if (!Number.isFinite(pickupKey)) {
+              return false;
+            }
 
-                const todayKey = getPickupDateKey(today);
-                const latestKey = getPickupDateKey(latestWindow);
+            const todayKey = getPickupDateKey(today);
+            const latestKey = getPickupDateKey(latestWindow);
 
-                return pickupKey >= todayKey && pickupKey <= latestKey;
-              })
-              .map((order: { id: string; orderNumber: string; customerName: string; pickupDate: string; status: string }) => ({
-                id: order.id,
-                orderNumber: order.orderNumber,
-                customerName: order.customerName,
-                pickupDate: order.pickupDate,
-                status: order.status,
-              }))
-              .sort(
-                (left: { pickupDate: string }, right: { pickupDate: string }) =>
-                  new Date(left.pickupDate).getTime() - new Date(right.pickupDate).getTime(),
-              )
-              .slice(0, 5)
-
+            return pickupKey >= todayKey && pickupKey <= latestKey;
+          })
+          .map((order: { id: string; orderNumber: string; customerName: string; pickupDate: string; status: string }) => ({
+            id: order.id,
+            orderNumber: order.orderNumber,
+            customerName: order.customerName,
+            pickupDate: order.pickupDate,
+            status: order.status,
+          }))
+          .sort(
+            (left: { pickupDate: string }, right: { pickupDate: string }) =>
+              new Date(left.pickupDate).getTime() - new Date(right.pickupDate).getTime(),
+          )
+          .filter((order: { id: string }) => !dismissedOrderIds.has(order.id))
+          .slice(0, 5);
         setNotifications(upcoming);
       } catch {
         setNotifications([]);
@@ -532,6 +539,26 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
 
   const isSessionVerified = sessionStatus === "verified" && userRole !== null;
   const sessionUnavailable = sessionStatus === "unavailable";
+
+  const openPickupOrder = (notification: (typeof notifications)[number]) => {
+    dismissPickupAlert(notification.id);
+    setNotifications((current) => current.filter((item) => item.id !== notification.id));
+    setIsNotificationsOpen(false);
+
+    const orderRequest = { orderId: notification.id, orderNumber: notification.orderNumber };
+    try {
+      window.sessionStorage.setItem(OPEN_PICKUP_ORDER_STORAGE_KEY, JSON.stringify(orderRequest));
+    } catch {
+      // Keep navigation available if session storage is disabled.
+    }
+
+    if (pathname === "/admin-orders") {
+      window.dispatchEvent(new CustomEvent(OPEN_PICKUP_ORDER_EVENT, { detail: orderRequest }));
+      return;
+    }
+
+    router.push("/admin-orders");
+  };
 
   return (
     <div className="fixed inset-0 h-dvh overflow-hidden bg-[#f5f6f4] text-slate-800 dark:bg-slate-950 dark:text-slate-100">
@@ -620,11 +647,9 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
                           <button
                             key={notification.id}
                             type="button"
-                            onClick={() => {
-                              setIsNotificationsOpen(false);
-                              router.push("/admin-orders");
-                            }}
-                            className="group flex w-full items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-left transition-all duration-150 hover:border-emerald-200 hover:bg-emerald-50/40 hover:shadow-xs dark:border-slate-800/80 dark:bg-slate-800/40 dark:hover:border-emerald-800/60 dark:hover:bg-emerald-950/30"
+                            onClick={() => openPickupOrder(notification)}
+                            aria-label={`Open order ${notification.orderNumber}`}
+                            className="group flex w-full cursor-pointer items-start gap-3 rounded-xl border border-slate-100 bg-slate-50/70 p-3 text-left transition-all duration-150 hover:border-emerald-200 hover:bg-emerald-50/40 hover:shadow-xs dark:border-slate-800/80 dark:bg-slate-800/40 dark:hover:border-emerald-800/60 dark:hover:bg-emerald-950/30"
                           >
                             <div className="mt-0.5 flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-lg bg-emerald-100/80 text-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-300 ring-1 ring-emerald-500/20">
                               <Bell className="h-3.5 w-3.5" />

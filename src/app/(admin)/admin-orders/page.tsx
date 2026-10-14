@@ -1,5 +1,6 @@
 "use client";
 import { adminFetch } from "@/lib/admin-data-cache";
+import { OPEN_PICKUP_ORDER_EVENT, OPEN_PICKUP_ORDER_STORAGE_KEY } from "@/lib/admin-notifications";
 
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -773,6 +774,58 @@ export default function AdminOrdersPage() {
       window.removeEventListener("apc-admin-live-event", handleLiveEvent);
     };
   }, [loadOrders]);
+
+  useEffect(() => {
+    const openRequestedOrder = (request: { orderId: string; orderNumber: string }) => {
+      setSearch(request.orderNumber);
+      setFilterStatus("ALL");
+      setFilterDate("ALL");
+      setCustomPickupDate("");
+      setCurrentPage(1);
+      setOrderHistory([]);
+      setOrderHistoryError("");
+      setIsLoadingOrderHistory(true);
+      setDetailOrderId(request.orderId);
+    };
+
+    const handleOpenOrderEvent = (event: Event) => {
+      const detail = (event as CustomEvent<{ orderId?: unknown; orderNumber?: unknown }>).detail;
+      if (typeof detail?.orderId === "string" && typeof detail.orderNumber === "string") {
+        try {
+          window.sessionStorage.removeItem(OPEN_PICKUP_ORDER_STORAGE_KEY);
+        } catch {
+          // Continue with the in-page navigation event.
+        }
+        openRequestedOrder({ orderId: detail.orderId, orderNumber: detail.orderNumber });
+      }
+    };
+
+    const handlePendingOrderRequest = () => {
+      let storedRequest: string | null = null;
+      try {
+        storedRequest = window.sessionStorage.getItem(OPEN_PICKUP_ORDER_STORAGE_KEY);
+        if (storedRequest) window.sessionStorage.removeItem(OPEN_PICKUP_ORDER_STORAGE_KEY);
+      } catch {
+        return;
+      }
+
+      if (!storedRequest) return;
+
+      try {
+        const request = JSON.parse(storedRequest) as { orderId?: unknown; orderNumber?: unknown };
+        if (typeof request.orderId === "string" && typeof request.orderNumber === "string") {
+          openRequestedOrder({ orderId: request.orderId, orderNumber: request.orderNumber });
+        }
+      } catch {
+        // Ignore malformed navigation state.
+      }
+    };
+
+    window.addEventListener(OPEN_PICKUP_ORDER_EVENT, handleOpenOrderEvent);
+    handlePendingOrderRequest();
+
+    return () => window.removeEventListener(OPEN_PICKUP_ORDER_EVENT, handleOpenOrderEvent);
+  }, []);
 
   const detailOrder = orders.find((order) => order.id === detailOrderId) ?? null;
 
