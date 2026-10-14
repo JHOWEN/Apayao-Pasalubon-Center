@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { verifyToken } from "@/lib/auth";
+import { getUserForToken } from "@/lib/auth";
 import { getCachedPublicSettings } from "@/lib/public-settings";
 import { prisma } from "@/lib/prisma";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   try {
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
-    const payload = token ? verifyToken(token) as { sub?: string } | null : null;
+    const payload = token ? await getUserForToken(token) : null;
 
     const [user, settings] = await Promise.all([
       payload?.sub

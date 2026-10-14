@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  CART_UPDATED_EVENT,
   getCartItems,
   getStoredUser,
   removeFromCart,
@@ -84,11 +85,14 @@ export default function CartPage() {
     const handle = () => {
       void loadCartState();
     };
+    const syncCartItems = () => setItems(getCartItems());
     window.addEventListener("storage", handle);
+    window.addEventListener(CART_UPDATED_EVENT, syncCartItems);
     window.addEventListener("apc-user-updated", handle);
     return () => {
       active = false;
       window.removeEventListener("storage", handle);
+      window.removeEventListener(CART_UPDATED_EVENT, syncCartItems);
       window.removeEventListener("apc-user-updated", handle);
     };
   }, []);
@@ -97,7 +101,7 @@ export default function CartPage() {
   const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <main className="min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
+    <main className="storefront-page-cart min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6">
         
         {/* Navigation Breadcrumb */}
@@ -163,7 +167,6 @@ export default function CartPage() {
                       fill
                       sizes="96px"
                       className="object-cover"
-                      unoptimized
                     />
                   </div>
 
@@ -219,7 +222,6 @@ export default function CartPage() {
                         type="button"
                         onClick={() => {
                           updateCartQuantity(item.productId, item.quantity - 1, item.variantId);
-                          window.dispatchEvent(new Event("storage"));
                         }}
                         className="flex h-8 w-8 items-center justify-center text-slate-300 transition hover:text-white"
                         aria-label="Decrease quantity"
@@ -233,7 +235,6 @@ export default function CartPage() {
                         type="button"
                         onClick={() => {
                           updateCartQuantity(item.productId, item.quantity + 1, item.variantId);
-                          window.dispatchEvent(new Event("storage"));
                         }}
                         disabled={Number(item.quantity ?? 0) >= Number(item.stock ?? 9999)}
                         className="flex h-8 w-8 items-center justify-center text-slate-300 transition hover:text-white disabled:opacity-30"
@@ -247,7 +248,6 @@ export default function CartPage() {
                       type="button"
                       onClick={() => {
                         removeFromCart(item.productId, item.variantId);
-                        window.dispatchEvent(new Event("storage"));
                       }}
                       className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-400 hover:text-rose-300 transition p-1"
                       aria-label="Remove item"

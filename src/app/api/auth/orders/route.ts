@@ -1,15 +1,17 @@
-import { PaymentStatus } from "@prisma/client";
+import { PaymentStatus, Prisma } from "@prisma/client";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { getUserForToken } from "@/lib/auth";
 import { applyOrderInventoryMovement } from "@/features/inventory/lib/inventory";
 import { expireWalletReservations } from "@/features/inventory/lib/reservation-expiry";
 import { resolvePaymentProofUrl } from "@/lib/storage";
 import { getRequestId, logError } from "@/lib/logger";
 import { apiError } from "@/lib/api-response";
-import { emitOrderCreatedEvent } from "@/lib/realtime";
+import { emitOrderCreatedEvent, emitOrderUpdatedEvent } from "@/lib/realtime";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { getOrderItemSnapshot, getOrderStatusEventType, recordOrderEvent } from "@/lib/order-history";
 import {
   canCancelOrder,
   isOrderStatus,
@@ -20,8 +22,22 @@ import {
   ONLINE_PAYMENT_RESERVATION_TTL_MS,
   validateOrderPayload,
 } from "@/lib/order";
+import { orderCreateSchema, orderStatusUpdateSchema, type OrderItemInput } from "@/features/orders/validators/orders";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 class OrderStateConflictError extends Error {}
+
+function haveSameOrderItems(
+  existingItems: Array<{ productId: string; variantId: string | null; quantity: number }>,
+  requestedItems: OrderItemInput[],
+) {
+  const normalize = (items: Array<{ productId: string; variantId?: string | null; quantity: number }>) =>
+    items
+      .map((item) => [item.productId, item.variantId ?? "", item.quantity])
+      .sort((left, right) => left.map(String).join("\u0000").localeCompare(right.map(String).join("\u0000")));
+
+  return JSON.stringify(normalize(existingItems)) === JSON.stringify(normalize(requestedItems));
+}
 
 async function requireAuthenticatedUser() {
   const cookieStore = await cookies();
@@ -31,7 +47,7 @@ async function requireAuthenticatedUser() {
     return { error: NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 }) };
   }
 
-  const payload = verifyToken(token) as { sub?: string; role?: string } | null;
+  const payload = await getUserForToken(token);
 
   if (!payload?.sub) {
     return { error: NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 }) };
@@ -39,7 +55,7 @@ async function requireAuthenticatedUser() {
 
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
-    select: { id: true, name: true, role: true, emailVerified: true, phone: true, address: true, isBlocked: true },
+    select: { id: true, name: true, role: true, isBlocked: true },
   });
 
   if (!user) {
@@ -58,6 +74,7 @@ function serializeOrder(order: {
   pickupDate: Date | null;
   pickupTime: string | null;
   createdAt: Date;
+  reservationExpiresAt: Date | null;
   status: string;
   totalAmount: unknown;
   paymentMethod: string;
@@ -70,8 +87,12 @@ function serializeOrder(order: {
     quantity: number;
     price: unknown;
     subtotal: unknown;
+    productNameSnapshot: string;
+    productSkuSnapshot: string;
+    variantSkuSnapshot: string | null;
+    variantAttributesSnapshot: string | null;
     product: { imageUrl: string | null; name: string } | null;
-    variant?: { sku?: string; color?: string | null; measurementValue?: number | null; measurementUnit?: string | null } | null;
+    variant?: { sku?: string; attributes?: string | null; color?: string | null; measurementValue?: number | null; measurementUnit?: string | null } | null;
   }>;
   user?: { email?: string | null; address?: string | null } | null;
 }, reviewedSet: Set<string>) {
@@ -91,10 +112,7 @@ function serializeOrder(order: {
     paymentMethod: order.paymentMethod,
     paymentStatus: order.paymentStatus,
     proofOfPaymentUrl: order.proofOfPaymentUrl,
-    reservationExpiresAt:
-      order.paymentMethod !== "CASH" && !order.proofOfPaymentUrl && order.status === "PENDING_PAYMENT"
-        ? new Date(order.createdAt.getTime() + ONLINE_PAYMENT_RESERVATION_TTL_MS).toISOString()
-        : null,
+    reservationExpiresAt: order.reservationExpiresAt?.toISOString() ?? null,
     isWalkIn: order.isWalkIn,
     items: order.items.map((item) => ({
       ...item,
@@ -111,6 +129,9 @@ export async function GET(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    if (authCheck.user.role !== "CUSTOMER") {
+      return NextResponse.json({ success: false, message: "Customer account required." }, { status: 403 });
+    }
     const rateLimitResponse = await enforceRateLimit(request, "user:orders:get", {
       group: "user",
       accountId: authCheck.user.id,
@@ -119,20 +140,71 @@ export async function GET(request: Request) {
 
     await expireWalletReservations(new Date(), 10);
     const { payload } = authCheck;
-    const reviewedProductIds = await prisma.productReview.findMany({
-      where: { userId: payload.sub },
-      select: { productId: true },
-    });
-    const reviewedSet = new Set(reviewedProductIds.map((review) => review.productId));
+    const searchParams = new URL(request.url).searchParams;
+    const requestedPage = Number(searchParams.get("page"));
+    const page = Number.isInteger(requestedPage) && requestedPage > 0 ? Math.min(requestedPage, 1000) : 1;
+    const requestedLimit = Number(searchParams.get("limit"));
+    const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 30) : 15;
+    const requestedStatus = searchParams.get("status");
+    const status = isOrderStatus(requestedStatus) ? requestedStatus : undefined;
+    const where = { userId: payload.sub, ...(status ? { status } : {}) };
 
-    const orders = await prisma.order.findMany({
-      where: { userId: payload.sub },
-      include: {
-        items: { include: { product: true, variant: true } },
-        user: true,
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    const [orders, statusCounts] = await Promise.all([
+      prisma.order.findMany({
+        where,
+        select: {
+          id: true,
+          userId: true,
+          orderNumber: true,
+          customerName: true,
+          customerPhone: true,
+          pickupDate: true,
+          pickupTime: true,
+          createdAt: true,
+          reservationExpiresAt: true,
+          status: true,
+          totalAmount: true,
+          paymentMethod: true,
+          paymentStatus: true,
+          proofOfPaymentUrl: true,
+          isWalkIn: true,
+          items: {
+            select: {
+              id: true,
+              productId: true,
+              variantId: true,
+              quantity: true,
+              price: true,
+              subtotal: true,
+              productNameSnapshot: true,
+              productSkuSnapshot: true,
+              variantSkuSnapshot: true,
+              variantAttributesSnapshot: true,
+              product: { select: { imageUrl: true, name: true } },
+              variant: { select: { sku: true, attributes: true } },
+            },
+          },
+          user: { select: { email: true, address: true } },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.order.groupBy({
+        by: ["status"],
+        where: { userId: payload.sub },
+        _count: { id: true },
+      }),
+    ]);
+
+    const pageProductIds = [...new Set(orders.flatMap((order) => order.items.map((item) => item.productId)))];
+    const reviewedProductIds = pageProductIds.length
+      ? await prisma.productReview.findMany({
+          where: { userId: payload.sub, productId: { in: pageProductIds } },
+          select: { productId: true },
+        })
+      : [];
+    const reviewedSet = new Set(reviewedProductIds.map((review) => review.productId));
 
     const serializedOrders = await Promise.all(
       orders.map(async (order) => ({
@@ -141,7 +213,22 @@ export async function GET(request: Request) {
       }))
     );
 
-    return NextResponse.json(serializedOrders);
+    const totalOrders = statusCounts.reduce((sum, row) => sum + row._count.id, 0);
+    const activeOrders = statusCounts
+      .filter((row) => row.status !== "COMPLETED" && row.status !== "CANCELLED")
+      .reduce((sum, row) => sum + row._count.id, 0);
+    const matchingOrders = status
+      ? statusCounts.find((row) => row.status === status)?._count.id ?? 0
+      : totalOrders;
+
+    return NextResponse.json(serializedOrders, {
+      headers: {
+        "Cache-Control": "private, no-store, max-age=0",
+        "X-Total-Orders": String(totalOrders),
+        "X-Active-Orders": String(activeOrders),
+        "X-Has-More": String(page * limit < matchingOrders),
+      },
+    });
   } catch (error) {
     logError("auth.orders.get_failed", error, { requestId: getRequestId(request) });
     return apiError(request, 503, "ORDERS_UNAVAILABLE", "Unable to load orders right now.");
@@ -163,41 +250,39 @@ export async function POST(request: Request) {
     if (rateLimitResponse) return rateLimitResponse;
 
     const { payload, user } = authCheck;
+    if (user.role !== "CUSTOMER") {
+      return NextResponse.json({ success: false, message: "Customer account required." }, { status: 403 });
+    }
     await expireWalletReservations(new Date(), 10);
-    const parsedBody = await request.json();
-    const validation = validateOrderPayload(parsedBody, { allowCancelled: false, allowWalkIn: false });
+    const parsed = await parseJsonRequestBody(request, orderCreateSchema, "Order details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const validation = validateOrderPayload(parsed.data, { allowWalkIn: false });
 
     if (!validation.success) {
       return NextResponse.json({ success: false, message: validation.message }, { status: 400 });
     }
 
     const body = validation.payload;
-    const items = body.items;
+    const requestedItems = body.items;
 
     if (body.userId && body.userId !== payload.sub) {
       return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
     }
 
-    if (user.role === "CUSTOMER") {
-      const isProfileComplete = Boolean(user.phone?.trim()) && Boolean(user.address?.trim());
-
-      if (!user.emailVerified || !isProfileComplete) {
-        return NextResponse.json(
-          { success: false, message: "Please complete your phone number and address in your profile before placing an order." },
-          { status: 403 }
-        );
-      }
-
-      if (user.isBlocked) {
-        return NextResponse.json(
-          { success: false, message: "Your account has been blocked. Please contact the admin." },
-          { status: 403 }
-        );
-      }
+    if (user.isBlocked) {
+      return NextResponse.json(
+        { success: false, message: "Your account has been blocked. Please contact the admin." },
+        { status: 403 }
+      );
     }
 
     const orderNumber = body.orderNumber ?? `ORD-${Date.now()}`;
     requestIdempotencyKey = body.idempotencyKey?.trim() ?? "";
+    const isWalkIn = body.isWalkIn ?? false;
+    const initialStatus = resolveInitialOrderStatus(isWalkIn);
+    const paymentMethod = body.paymentMethod ?? "CASH";
+    const proofOfPaymentUrl = null;
+    const paymentStatus: PaymentStatus = resolveInitialPaymentStatus(paymentMethod);
 
     if (requestIdempotencyKey) {
       const existingOrder = await prisma.order.findUnique({
@@ -210,6 +295,10 @@ export async function POST(request: Request) {
           return NextResponse.json({ success: false, message: "This order request is not available." }, { status: 409 });
         }
 
+        if (existingOrder.paymentMethod !== paymentMethod || !haveSameOrderItems(existingOrder.items, requestedItems)) {
+          return NextResponse.json({ success: false, message: "This checkout request was already used for a different order." }, { status: 409 });
+        }
+
         if (existingOrder.status === "CANCELLED") {
           return NextResponse.json(
             { success: false, message: "This reservation has expired or was cancelled. Review your cart and place a new order." },
@@ -220,23 +309,17 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true, order: existingOrder, idempotent: true }, { status: 200 });
       }
     }
-    const totalAmount = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const isWalkIn = body.isWalkIn ?? false;
-    const initialStatus = resolveInitialOrderStatus(isWalkIn, body.status, false);
-    const paymentMethod = (body.paymentMethod ?? "CASH") as "CASH" | "GCASH" | "PAYMAYA";
-    const proofOfPaymentUrl = body.proofOfPaymentUrl?.trim() || null;
-    const paymentStatus: PaymentStatus = resolveInitialPaymentStatus(paymentMethod);
+    const effectiveInitialStatus = initialStatus;
 
-    const effectiveInitialStatus = paymentMethod === "CASH" ? initialStatus : "PENDING_PAYMENT";
-
-    const productIds = [...new Set(items.map((item) => item.productId))];
+    const productIds = [...new Set(requestedItems.map((item) => item.productId))];
     const existingProducts = await prisma.product.findMany({
       where: { id: { in: productIds } },
-      select: { id: true, stock: true, isActive: true, status: true },
+      select: { id: true, name: true, sku: true, price: true, stock: true, isActive: true, status: true, hasVariants: true },
     });
     const existingProductIds = new Set(existingProducts.map((product) => product.id));
+    const existingProductMap = new Map(existingProducts.map((product) => [product.id, product]));
 
-    for (const item of items) {
+    for (const item of requestedItems) {
       if (!existingProductIds.has(item.productId)) {
         return NextResponse.json({ success: false, message: `Product ${item.productId} no longer exists.` }, { status: 400 });
       }
@@ -245,26 +328,47 @@ export async function POST(request: Request) {
       if (product && (!product.isActive || product.status !== "PUBLISHED")) {
         return NextResponse.json({ success: false, message: `Product ${item.productId} is no longer available.` }, { status: 400 });
       }
+      if (product?.hasVariants && !item.variantId) {
+        return NextResponse.json({ success: false, message: `${product.name} requires a product option.` }, { status: 400 });
+      }
     }
 
-    const variantIds = [...new Set(items.filter((item) => item.variantId).map((item) => item.variantId!))];
+    const variantIds = [...new Set(requestedItems.flatMap((item) => item.variantId ? [item.variantId] : []))];
     const existingVariants = await prisma.productVariant.findMany({
       where: { id: { in: variantIds } },
-      select: { id: true, productId: true, stock: true },
+      select: { id: true, productId: true, sku: true, price: true, attributes: true, stock: true, isActive: true },
     });
     const existingVariantMap = new Map(existingVariants.map((variant) => [variant.id, variant]));
 
-    for (const item of items) {
-      if (!item.variantId) continue;
-
-      const variant = existingVariantMap.get(item.variantId);
-      if (!variant) {
-        return NextResponse.json({ success: false, message: `Variant ${item.variantId} no longer exists.` }, { status: 400 });
+    const items: Array<Omit<(typeof requestedItems)[number], "price"> & { price: Prisma.Decimal }> = [];
+    for (const item of requestedItems) {
+      const product = existingProductMap.get(item.productId);
+      if (!product) continue;
+      const variant = item.variantId ? existingVariantMap.get(item.variantId) : null;
+      if (item.variantId && !variant) {
+        return NextResponse.json({ success: false, message: "A selected product option is no longer available. Refresh your cart." }, { status: 400 });
       }
 
-      if (variant.productId !== item.productId) {
+      if (variant && variant.productId !== item.productId) {
         return NextResponse.json({ success: false, message: `Variant ${item.variantId} does not belong to the selected product.` }, { status: 400 });
       }
+      if (variant && !variant.isActive) {
+        return NextResponse.json({ success: false, message: "A selected product option is no longer available. Refresh your cart." }, { status: 400 });
+      }
+
+      const price = variant?.price ?? product.price;
+      if (item.price !== undefined && !new Prisma.Decimal(item.price).equals(price)) {
+        return NextResponse.json({ success: false, code: "PRICE_CHANGED", message: `${product.name} price changed. Refresh your cart and review the updated total.` }, { status: 409 });
+      }
+      items.push({ ...item, price });
+    }
+
+    const totalAmount = items.reduce(
+      (sum, item) => sum.plus(item.price.mul(item.quantity)),
+      new Prisma.Decimal(0),
+    );
+    if (totalAmount.lessThan(0) || totalAmount.greaterThan("99999999.99")) {
+      return NextResponse.json({ success: false, message: "The order total is outside the supported amount." }, { status: 400 });
     }
 
     const order = await prisma.$transaction(async (tx) => {
@@ -284,19 +388,34 @@ export async function POST(request: Request) {
           paymentMethod,
           paymentStatus,
           proofOfPaymentUrl,
+          reservationExpiresAt:
+            paymentMethod === "CASH" ? null : new Date(Date.now() + ONLINE_PAYMENT_RESERVATION_TTL_MS),
           status: effectiveInitialStatus,
+          paidAt: paymentStatus === PaymentStatus.PAID ? new Date() : null,
           isWalkIn,
           items: {
             create: items.map((item) => ({
               productId: item.productId,
               variantId: item.variantId || null,
+              ...getOrderItemSnapshot(
+                existingProductMap.get(item.productId),
+                item.variantId ? existingVariantMap.get(item.variantId) : null,
+              ),
               quantity: item.quantity,
               price: item.price,
-              subtotal: item.price * item.quantity,
+              subtotal: item.price.mul(item.quantity),
             })),
           },
         },
         include: { items: true },
+      });
+
+      await recordOrderEvent(tx, {
+        orderId: createdOrder.id,
+        eventType: "ORDER_CREATED",
+        newStatus: createdOrder.status,
+        newPaymentStatus: createdOrder.paymentStatus,
+        actor: { userId: user.id, name: user.name, type: "CUSTOMER" },
       });
 
       await applyOrderInventoryMovement(
@@ -310,6 +429,8 @@ export async function POST(request: Request) {
         `Order ${createdOrder.orderNumber} placed - stock reserved`,
         user.name,
         {
+          actorUserId: user.id,
+          orderId: createdOrder.id,
           performedByType: "CUSTOMER",
           source: "ECOMMERCE",
           customerName: createdOrder.customerName,
@@ -324,6 +445,7 @@ export async function POST(request: Request) {
       return createdOrder;
     });
 
+    revalidateTag("public-products", { expire: 0 });
     emitOrderCreatedEvent({
       orderId: order.id,
       orderNumber: order.orderNumber,
@@ -357,6 +479,9 @@ export async function PUT(request: Request) {
     if ("error" in authCheck) {
       return authCheck.error;
     }
+    if (authCheck.user.role !== "CUSTOMER") {
+      return NextResponse.json({ success: false, message: "Customer account required." }, { status: 403 });
+    }
     const rateLimitResponse = await enforceRateLimit(request, "user:orders:update", {
       group: "user",
       accountId: authCheck.user.id,
@@ -364,15 +489,15 @@ export async function PUT(request: Request) {
     if (rateLimitResponse) return rateLimitResponse;
 
     const { payload, user } = authCheck;
-    const body = await request.json();
-    const { id, status } = body as { id?: string; status?: string };
+    const parsed = await parseJsonRequestBody(request, orderStatusUpdateSchema, "Order update details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { id, status } = parsed.data;
 
-    if (!id) {
-      return NextResponse.json({ success: false, message: "Order id is required." }, { status: 400 });
-    }
-
-    if (!status || !isOrderStatus(status)) {
-      return NextResponse.json({ success: false, message: "Invalid order status." }, { status: 400 });
+    if (status !== "CANCELLED" && status !== "COMPLETED") {
+      return NextResponse.json(
+        { success: false, message: "Customers can only cancel pending orders or confirm pickup of ready orders." },
+        { status: 400 },
+      );
     }
 
     const existingOrder = await prisma.order.findUnique({
@@ -396,13 +521,17 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, message: "An order can only be marked received after it is ready for pickup." }, { status: 400 });
     }
 
+    if (status === "COMPLETED" && existingOrder.paymentMethod !== "CASH" && existingOrder.paymentStatus !== "PAID") {
+      return NextResponse.json({ success: false, message: "Payment must be approved before pickup can be confirmed." }, { status: 400 });
+    }
+
     if (!canCancelOrder(existingOrder.status) && status === "CANCELLED") {
       return NextResponse.json({ success: false, message: "Only pending orders can be canceled." }, { status: 400 });
     }
 
     const shouldRestoreStock = status === "CANCELLED";
     const nextPaymentStatus =
-      status === "CANCELLED" && existingOrder.paymentMethod !== "CASH" && existingOrder.paymentStatus === "PENDING"
+      status === "CANCELLED" && ["PENDING", "PROOF_SUBMITTED"].includes(existingOrder.paymentStatus)
         ? PaymentStatus.CANCELLED
         : existingOrder.paymentMethod === "CASH" && status === "COMPLETED"
         ? "PAID"
@@ -411,8 +540,19 @@ export async function PUT(request: Request) {
     const order = await prisma.$transaction(async (tx) => {
       if (shouldRestoreStock) {
         const claim = await tx.order.updateMany({
-          where: { id, userId: payload.sub, status: existingOrder.status, paymentStatus: existingOrder.paymentStatus },
-          data: { status: "CANCELLED", paymentStatus: nextPaymentStatus },
+          where: {
+            id,
+            userId: payload.sub,
+            status: existingOrder.status,
+            paymentStatus: existingOrder.paymentStatus,
+            stateVersion: existingOrder.stateVersion,
+          },
+          data: {
+            status: "CANCELLED",
+            paymentStatus: nextPaymentStatus,
+            reservationExpiresAt: null,
+            stateVersion: { increment: 1 },
+          },
         });
         if (claim.count !== 1) throw new OrderStateConflictError("Order status changed before cancellation completed.");
       }
@@ -447,6 +587,8 @@ export async function PUT(request: Request) {
             `Order ${existingOrder.orderNumber} cancelled - stock returned`,
             user.name,
             {
+              actorUserId: user.id,
+              orderId: existingOrder.id,
               performedByType: "CUSTOMER",
               source: "ECOMMERCE",
               customerName: existingOrder.customerName,
@@ -460,9 +602,49 @@ export async function PUT(request: Request) {
         }
       }
 
-      if (shouldRestoreStock) return tx.order.findUniqueOrThrow({ where: { id } });
+      if (!shouldRestoreStock) {
+        const claim = await tx.order.updateMany({
+          where: {
+            id,
+            userId: payload.sub,
+            status: existingOrder.status,
+            paymentStatus: existingOrder.paymentStatus,
+            stateVersion: existingOrder.stateVersion,
+          },
+          data: {
+            status: status as OrderStatus,
+            paymentStatus: nextPaymentStatus,
+            ...(status === "COMPLETED" ? { reservationExpiresAt: null } : {}),
+            stateVersion: { increment: 1 },
+            ...(nextPaymentStatus === "PAID" && !existingOrder.paidAt ? { paidAt: new Date() } : {}),
+          },
+        });
+        if (claim.count !== 1) throw new OrderStateConflictError("Order status changed before the update completed.");
+      }
 
-      return tx.order.update({ where: { id }, data: { status: status as OrderStatus, paymentStatus: nextPaymentStatus } });
+      const updatedOrder = await tx.order.findUniqueOrThrow({ where: { id } });
+
+      if (updatedOrder.status !== existingOrder.status || updatedOrder.paymentStatus !== existingOrder.paymentStatus) {
+        await recordOrderEvent(tx, {
+          orderId: updatedOrder.id,
+          eventType: getOrderStatusEventType(updatedOrder.status),
+          previousStatus: existingOrder.status,
+          newStatus: updatedOrder.status,
+          previousPaymentStatus: existingOrder.paymentStatus,
+          newPaymentStatus: updatedOrder.paymentStatus,
+          actor: { userId: user.id, name: user.name, type: "CUSTOMER" },
+        });
+      }
+
+      return updatedOrder;
+    });
+
+    revalidateTag("public-products", { expire: 0 });
+    emitOrderUpdatedEvent({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      status: order.status,
+      userId: order.userId,
     });
 
     return NextResponse.json({ success: true, order }, { status: 200 });

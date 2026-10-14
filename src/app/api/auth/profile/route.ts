@@ -3,9 +3,12 @@ import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { getUserForToken } from "@/lib/auth";
+import { clearAuthCookies } from "@/lib/cookies";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { customerAccountDeletionSchema, customerProfileUpdateSchema } from "@/features/auth/validators/auth";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function GET(request: Request) {
   try {
@@ -16,7 +19,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -52,16 +55,18 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, customerProfileUpdateSchema, "Profile details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
     const existingUser = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { role: true, phone: true, address: true, emailVerified: true },
+      select: { id: true },
     });
 
     if (!existingUser) {
@@ -76,18 +81,10 @@ export async function PUT(request: Request) {
 
     const updateData: Record<string, string | boolean | null> = {};
 
-    if (typeof body.name === "string") updateData.name = body.name.trim();
-    if (typeof body.phone === "string") updateData.phone = body.phone.trim() || null;
-    if (typeof body.address === "string") updateData.address = body.address.trim() || null;
-    if (typeof body.imageUrl === "string") updateData.imageUrl = body.imageUrl.trim() || null;
-
-    const nextPhone = typeof body.phone === "string" ? body.phone.trim() || null : existingUser.phone;
-    const nextAddress = typeof body.address === "string" ? body.address.trim() || null : existingUser.address;
-    const isProfileComplete = Boolean(nextPhone) && Boolean(nextAddress);
-
-    if (existingUser.role === "CUSTOMER") {
-      updateData.emailVerified = isProfileComplete;
-    }
+    if (typeof body.name === "string") updateData.name = body.name;
+    if (typeof body.phone === "string") updateData.phone = body.phone || null;
+    if (typeof body.address === "string") updateData.address = body.address || null;
+    if (typeof body.imageUrl === "string" || body.imageUrl === null) updateData.imageUrl = body.imageUrl;
 
     const user = await prisma.user.update({
       where: { id: payload.sub },
@@ -114,31 +111,26 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const body = await request.json();
-    const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
-    const password = typeof body?.password === "string" ? body.password : "";
-
-    if (!email) {
-      return NextResponse.json({ success: false, message: "Email confirmation is required." }, { status: 400 });
-    }
-
-    if (!password.trim()) {
-      return NextResponse.json({ success: false, message: "Your current password is required to delete the account." }, { status: 400 });
-    }
+    const parsed = await parseJsonRequestBody(request, customerAccountDeletionSchema, "Email confirmation and password are required.");
+    if (!parsed.success) return parsed.response;
+    const { email, password } = parsed.data;
 
     const existingUser = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, email: true, password: true },
+      select: { id: true, email: true, password: true, role: true },
     });
 
     if (!existingUser) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
+    }
+    if (existingUser.role !== "CUSTOMER") {
+      return NextResponse.json({ success: false, message: "Customer account required." }, { status: 403 });
     }
 
     const rateLimitResponse = await enforceRateLimit(request, "user:profile:delete", {
@@ -168,6 +160,7 @@ export async function DELETE(request: Request) {
           name: "Deleted Customer",
           email: anonymizedEmail,
           password: anonymizedPassword,
+          sessionVersion: { increment: 1 },
           phone: null,
           address: null,
           imageUrl: null,
@@ -179,10 +172,11 @@ export async function DELETE(request: Request) {
           passwordResetTokenExpiresAt: null,
         },
       }),
+      prisma.authSession.deleteMany({ where: { userId: existingUser.id } }),
     ]);
 
     const response = NextResponse.json({ success: true, message: "Account deleted successfully." });
-    response.cookies.delete("token");
+    clearAuthCookies(response);
 
     return response;
   } catch (error: unknown) {

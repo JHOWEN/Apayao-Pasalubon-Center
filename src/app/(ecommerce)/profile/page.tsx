@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
@@ -19,6 +19,10 @@ import {
 } from "lucide-react";
 import { clearCart, clearStoredUser, getStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
 import { getResponseErrorMessage, getUserFacingErrorMessage } from "@/lib/client-fetch";
+import {
+  compressUploadImage,
+  PROFILE_IMAGE_COMPRESSION,
+} from "@/utils/compress-upload-image";
 
 const fallbackAvatarSrc = "";
 
@@ -29,7 +33,7 @@ type UserProfile = {
   phone?: string | null;
   address?: string | null;
   imageUrl?: string | null;
-  emailVerified?: boolean;
+  isBlocked?: boolean;
 };
 
 type ProfileForm = {
@@ -108,15 +112,18 @@ function buildAddressForm(address?: string | null): AddressForm {
 }
 
 function formatAddress(address: AddressForm) {
-  return [
+  const addressDetails = [
     address.street,
     address.barangay,
     address.municipality,
     address.province,
     address.zipCode,
     address.region,
-    address.country,
-  ]
+  ];
+
+  if (!addressDetails.some((value) => value.trim())) return "";
+
+  return [...addressDetails, address.country]
     .filter((value) => value.trim())
     .join(", ");
 }
@@ -220,7 +227,7 @@ export default function ProfilePage() {
 
     try {
       const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
+      uploadFormData.append("file", await compressUploadImage(file, PROFILE_IMAGE_COMPRESSION));
 
       const uploadResponse = await fetch("/api/auth/profile/upload", {
         method: "POST",
@@ -350,7 +357,6 @@ export default function ProfilePage() {
 
       clearStoredUser();
       clearCart();
-      window.dispatchEvent(new Event("storage"));
       setUser(null);
       setDeleteEmail("");
       setDeletePassword("");
@@ -371,7 +377,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
+    <main className="storefront-page-profile min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
       <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6">
         
         {/* Header Card with Avatar */}
@@ -390,7 +396,6 @@ export default function ProfilePage() {
                       fill
                       sizes="96px"
                       className="object-cover"
-                      unoptimized
                     />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-slate-400">
@@ -402,7 +407,7 @@ export default function ProfilePage() {
                 {/* Upload Action Overlay */}
                 <label
                   htmlFor="profile-photo-upload"
-                  className="absolute inset-0 flex flex-col items-center justify-center rounded-full bg-black/70 text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition cursor-pointer backdrop-blur-[2px]"
+                  className="storefront-dark-overlay-control absolute inset-0 flex flex-col items-center justify-center rounded-full bg-black/70 text-[10px] font-bold text-white opacity-0 group-hover:opacity-100 transition cursor-pointer backdrop-blur-[2px]"
                 >
                   <Camera className="h-4 w-4 mb-0.5" />
                   <span>{isUploadingImage ? "..." : "Change"}</span>
@@ -467,10 +472,11 @@ export default function ProfilePage() {
         {/* Feedback Banner */}
         {statusMessage && (
           <div
+            role={statusMessage.includes("successfully") || statusMessage.includes("updated!") ? "status" : "alert"}
             className={`rounded-2xl border p-4 text-xs font-semibold ${
-              statusMessage.includes("successfully")
+              statusMessage.includes("successfully") || statusMessage.includes("updated!")
                 ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-200"
-                : "border-rose-400/30 bg-rose-500/15 text-rose-200"
+                : "storefront-error-notice"
             }`}
           >
             {statusMessage}
@@ -483,24 +489,24 @@ export default function ProfilePage() {
             <div className="flex items-center gap-2.5">
               <ShieldCheck className="h-5 w-5 text-[#ff8a1e]" />
               <div>
-                <h2 className="text-sm font-bold text-white">Ordering Verification Status</h2>
-                <p className="text-xs text-slate-400">Status required for store reservation checkout.</p>
+                <h2 className="text-sm font-bold text-white">Account Status</h2>
+                <p className="text-xs text-slate-400">Your customer account is ready to order.</p>
               </div>
             </div>
             <span
               className={`rounded-full border px-3 py-1 text-xs font-bold ${
-                user?.emailVerified
-                  ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-300"
-                  : "border-amber-400/30 bg-amber-500/15 text-amber-300"
+                user?.isBlocked
+                  ? "border-rose-400/30 bg-rose-500/15 text-rose-300"
+                  : "border-emerald-400/30 bg-emerald-500/15 text-emerald-300"
               }`}
             >
-              {user?.emailVerified ? "Verified Customer" : "Pending Profile Details"}
+              {user?.isBlocked ? "Blocked" : "Registered"}
             </span>
           </div>
           <p className="mt-3 text-xs text-slate-400 leading-relaxed">
-            {user?.emailVerified
-              ? "Your profile has completed contact and address details. You can reserve products smoothly with Cash, GCash, or Maya."
-              : "To place store pickup orders without delay, make sure to add your phone number and complete address below."}
+            {user?.isBlocked
+              ? "This account is blocked. Please contact the store before placing an order."
+              : "You can place orders without adding a phone number or address. You can add these details to your profile anytime."}
           </p>
         </div>
 
@@ -577,9 +583,8 @@ export default function ProfilePage() {
                   </div>
 
                   <div>
-                    <label className="block font-semibold text-slate-300 mb-1.5">Phone Number</label>
+                    <label className="block font-semibold text-slate-300 mb-1.5">Phone Number (optional)</label>
                     <input
-                      required
                       value={formData.phone}
                       onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                       className="h-11 w-full rounded-xl border border-white/10 bg-[#181b24] px-4 font-medium text-white outline-none focus:border-[#ff8a1e]/60"
@@ -602,14 +607,13 @@ export default function ProfilePage() {
               {/* Address Details Group */}
               <div className="space-y-4 pt-4 border-t border-white/10">
                 <div className="text-[11px] font-bold uppercase tracking-wider text-[#ff8a1e]">
-                  2. Pickup / Residence Address
+                  2. Pickup / Residence Address (optional)
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div className="sm:col-span-2 lg:col-span-3">
                     <label className="block font-semibold text-slate-300 mb-1.5">Street / House Number</label>
                     <input
-                      required
                       value={addressData.street}
                       onChange={(e) => setAddressData({ ...addressData, street: e.target.value })}
                       className="h-11 w-full rounded-xl border border-white/10 bg-[#181b24] px-4 font-medium text-white outline-none focus:border-[#ff8a1e]/60"
@@ -620,7 +624,6 @@ export default function ProfilePage() {
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1.5">Barangay</label>
                     <input
-                      required
                       value={addressData.barangay}
                       onChange={(e) => setAddressData({ ...addressData, barangay: e.target.value })}
                       className="h-11 w-full rounded-xl border border-white/10 bg-[#181b24] px-4 font-medium text-white outline-none focus:border-[#ff8a1e]/60"
@@ -631,7 +634,6 @@ export default function ProfilePage() {
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1.5">Municipality / Town</label>
                     <input
-                      required
                       value={addressData.municipality}
                       onChange={(e) => setAddressData({ ...addressData, municipality: e.target.value })}
                       className="h-11 w-full rounded-xl border border-white/10 bg-[#181b24] px-4 font-medium text-white outline-none focus:border-[#ff8a1e]/60"
@@ -642,7 +644,6 @@ export default function ProfilePage() {
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1.5">Province</label>
                     <input
-                      required
                       value={addressData.province}
                       onChange={(e) => setAddressData({ ...addressData, province: e.target.value })}
                       className="h-11 w-full rounded-xl border border-white/10 bg-[#181b24] px-4 font-medium text-white outline-none focus:border-[#ff8a1e]/60"
@@ -653,7 +654,6 @@ export default function ProfilePage() {
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1.5">Region</label>
                     <input
-                      required
                       value={addressData.region}
                       onChange={(e) => setAddressData({ ...addressData, region: e.target.value })}
                       className="h-11 w-full rounded-xl border border-white/10 bg-[#181b24] px-4 font-medium text-white outline-none focus:border-[#ff8a1e]/60"
@@ -664,7 +664,6 @@ export default function ProfilePage() {
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1.5">ZIP Code</label>
                     <input
-                      required
                       value={addressData.zipCode}
                       onChange={(e) => setAddressData({ ...addressData, zipCode: e.target.value })}
                       className="h-11 w-full rounded-xl border border-white/10 bg-[#181b24] px-4 font-medium text-white outline-none focus:border-[#ff8a1e]/60"
@@ -675,7 +674,6 @@ export default function ProfilePage() {
                   <div>
                     <label className="block font-semibold text-slate-300 mb-1.5">Country</label>
                     <input
-                      required
                       value={addressData.country}
                       onChange={(e) => setAddressData({ ...addressData, country: e.target.value })}
                       className="h-11 w-full rounded-xl border border-white/10 bg-[#181b24] px-4 font-medium text-white outline-none focus:border-[#ff8a1e]/60"

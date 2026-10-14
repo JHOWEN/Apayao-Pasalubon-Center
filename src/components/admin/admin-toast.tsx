@@ -11,6 +11,7 @@ type AdminToastProps = {
   title?: string;
   onDismiss: () => void;
   duration?: number;
+  placement?: "top-center" | "below-header";
 };
 
 const toastStyles: Record<AdminToastType, { icon: typeof CheckCircle2; accent: string; iconBackground: string }> = {
@@ -31,7 +32,14 @@ const toastStyles: Record<AdminToastType, { icon: typeof CheckCircle2; accent: s
   },
 };
 
-export function AdminToast({ type, message, title, onDismiss, duration = 3200 }: AdminToastProps) {
+export function AdminToast({
+  type,
+  message,
+  title,
+  onDismiss,
+  duration = 3200,
+  placement = "below-header",
+}: AdminToastProps) {
   const { icon: Icon, accent, iconBackground } = toastStyles[type];
 
   useEffect(() => {
@@ -43,14 +51,18 @@ export function AdminToast({ type, message, title, onDismiss, duration = 3200 }:
     <div
       role={type === "error" ? "alert" : "status"}
       aria-live={type === "error" ? "assertive" : "polite"}
-      className="fixed left-1/2 top-20 z-100 flex w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 text-left shadow-xl animate-in fade-in slide-in-from-top-2 dark:border-slate-700 dark:bg-slate-900"
+      className={[
+        "fixed left-1/2",
+        placement === "top-center" ? "top-4" : "top-20",
+        "z-100 flex w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 items-start gap-3 rounded-lg border border-slate-200 bg-white p-4 text-left shadow-xl animate-in fade-in slide-in-from-top-2 dark:border-slate-700 dark:bg-slate-900",
+      ].join(" ")}
     >
       <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${iconBackground} ${accent}`}>
         <Icon className="h-4 w-4" />
       </span>
       <span className="min-w-0 flex-1">
         {title && <span className={`block text-xs font-bold ${accent}`}>{title}</span>}
-        <span className="block wrap-break-word text-xs font-medium text-slate-700 dark:text-slate-200">{message}</span>
+        <span className="block wrap-break-word text-sm font-semibold leading-5 text-slate-700 dark:text-slate-200">{message}</span>
       </span>
       <button
         type="button"

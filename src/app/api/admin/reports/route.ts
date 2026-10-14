@@ -3,23 +3,23 @@ import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceRateLimit } from "@/lib/rate-limit";
 
-function parseDateOnly(value: string | null, endOfDay = false) {
-  if (!value) {
+const STORE_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function parseStoreDateStart(value: string | null) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+
+  const [year, month, day] = value.split("-").map(Number);
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    calendarDate.getUTCFullYear() !== year ||
+    calendarDate.getUTCMonth() !== month - 1 ||
+    calendarDate.getUTCDate() !== day
+  ) {
     return undefined;
   }
 
-  const [yearString, monthString, dayString] = value.split("-");
-  const year = Number(yearString);
-  const month = Number(monthString);
-  const day = Number(dayString);
-
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
-    return undefined;
-  }
-
-  const parsedDate = new Date(year, month - 1, day, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0);
-
-  return Number.isNaN(parsedDate.getTime()) ? undefined : parsedDate;
+  return new Date(calendarDate.getTime() - STORE_UTC_OFFSET_MS);
 }
 
 export async function GET(request: Request) {
@@ -35,21 +35,23 @@ export async function GET(request: Request) {
   const endDate = searchParams.get("endDate");
   const category = searchParams.get("category");
 
-  const fromDate = parseDateOnly(startDate, false);
-  const toDate = parseDateOnly(endDate, true);
+  const fromDate = parseStoreDateStart(startDate);
+  const endDateStart = parseStoreDateStart(endDate);
+  const toDateExclusive = endDateStart ? new Date(endDateStart.getTime() + DAY_MS) : undefined;
 
-  if (toDate && fromDate && toDate < fromDate) {
+  if (toDateExclusive && fromDate && toDateExclusive <= fromDate) {
     return NextResponse.json({ message: "End date cannot be earlier than start date." }, { status: 400 });
   }
 
   const whereClause = {
     status: "COMPLETED" as const,
     items: { some: {} },
-    ...(fromDate || toDate
+    // Completed orders are terminal, so updatedAt is the timestamp of completion.
+    ...(fromDate || toDateExclusive
       ? {
-          createdAt: {
+          updatedAt: {
             ...(fromDate ? { gte: fromDate } : {}),
-            ...(toDate ? { lte: toDate } : {}),
+            ...(toDateExclusive ? { lt: toDateExclusive } : {}),
           },
         }
       : {}),
@@ -70,13 +72,13 @@ export async function GET(request: Request) {
       : {}),
   };
 
-  const [orders, channelGroups, paymentGroups, revenueAggregate, completedOrderCount, lowStockProducts, allProducts, completedOrderItems, categories] = await Promise.all([
+  const [orders, allProducts, categories, settings] = await Promise.all([
     prisma.order.findMany({
       where: recentOrdersWhere,
       select: {
         id: true,
         orderNumber: true,
-        createdAt: true,
+        updatedAt: true,
         isWalkIn: true,
         paymentMethod: true,
         totalAmount: true,
@@ -87,61 +89,43 @@ export async function GET(request: Request) {
               }
             : {},
           select: {
+            productId: true,
+            variantId: true,
             quantity: true,
+            price: true,
             subtotal: true,
+            productNameSnapshot: true,
+            productSkuSnapshot: true,
+            variantSkuSnapshot: true,
+            variantAttributesSnapshot: true,
             product: {
-              select: { name: true, sku: true },
+              select: { name: true, sku: true, cost: true },
             },
             variant: {
-              select: { sku: true, attributes: true },
+              select: { sku: true, attributes: true, cost: true },
             },
           },
         },
       },
-      orderBy: { createdAt: "desc" },
-      take: 50,
+      orderBy: { updatedAt: "desc" },
     }),
-    prisma.order.groupBy({
-      by: ["isWalkIn"],
-      where: recentOrdersWhere,
-      _count: { id: true },
-      _sum: { totalAmount: true },
-    }),
-    prisma.order.groupBy({
-      by: ["paymentMethod"],
-      where: recentOrdersWhere,
-      _count: { id: true },
-      _sum: { totalAmount: true },
-    }),
-    prisma.order.aggregate({
-      where: whereClause,
-      _sum: { totalAmount: true },
-    }),
-    prisma.order.count({ where: whereClause }),
     prisma.product.findMany({
       where: productWhere,
-      select: { id: true, name: true, stock: true, minStock: true, sku: true, price: true, cost: true, hasVariants: true, variants: { where: { isActive: true }, select: { id: true, sku: true, stock: true, minStock: true, price: true, cost: true, attributes: true } } },
+      select: { id: true, name: true, sku: true, stock: true, minStock: true, cost: true, price: true, hasVariants: true, variants: { where: { isActive: true }, select: { id: true, sku: true, attributes: true, minStock: true, cost: true, price: true, stock: true, isActive: true } } },
       orderBy: { stock: "asc" },
     }),
-    prisma.product.findMany({
-      where: productWhere,
-      select: { id: true, name: true, sku: true, stock: true, cost: true, price: true, hasVariants: true, variants: { select: { id: true, sku: true, attributes: true, minStock: true, cost: true, price: true, stock: true, isActive: true } } },
-    }),
-    prisma.orderItem.findMany({
-      where: {
-        order: whereClause,
-        ...(category ? { product: { categoryId: category } } : {}),
-      },
-      select: {
-        productId: true,
-        variantId: true,
-        quantity: true,
-        subtotal: true,
-        variant: { select: { sku: true, attributes: true } },
-      },
-    }),
     prisma.category.findMany({ orderBy: { name: "asc" } }),
+    prisma.appSetting.findUnique({
+      where: { key: "default" },
+      select: { registeredBusinessName: true, businessAddress: true },
+    }),
   ]);
+
+  const completedOrderItems = orders.flatMap((order) => order.items.map((item) => ({
+    ...item,
+    orderId: order.id,
+    order: { isWalkIn: order.isWalkIn, paymentMethod: order.paymentMethod },
+  })));
 
   const productMap = new Map(allProducts.map((product) => [product.id, product]));
 
@@ -164,8 +148,43 @@ export async function GET(request: Request) {
     revenue: number;
   };
 
-  const totalItemsSold = completedOrderItems.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
-  const lowStockItems = lowStockProducts.flatMap((product) => product.hasVariants
+  const completedOrderIds = new Set<string>();
+  const salesByChannel = new Map<string, { orderIds: Set<string>; revenueCents: number }>();
+  const salesByPaymentMethod = new Map<string, { orderIds: Set<string>; revenueCents: number }>();
+  let totalRevenueCents = 0;
+  let grossProfitCents = 0;
+  let totalItemsSold = 0;
+
+  for (const item of completedOrderItems) {
+    const quantity = Number(item.quantity ?? 0);
+    const revenueCents = Math.round(Number(item.subtotal ?? 0) * 100);
+    const unitCostCents = Math.round(Number(item.variant?.cost ?? item.product.cost ?? 0) * 100);
+    const grossProfitCentsForItem = revenueCents - quantity * unitCostCents;
+    const channel = item.order.isWalkIn ? "Walk-in / POS" : "Online orders";
+    const paymentMethod = item.order.paymentMethod === "PAYMAYA"
+      ? "Maya"
+      : item.order.paymentMethod === "GCASH"
+        ? "GCash"
+        : "Cash";
+
+    completedOrderIds.add(item.orderId);
+    totalItemsSold += quantity;
+    totalRevenueCents += revenueCents;
+    grossProfitCents += grossProfitCentsForItem;
+
+    const channelSales = salesByChannel.get(channel) ?? { orderIds: new Set<string>(), revenueCents: 0 };
+    channelSales.orderIds.add(item.orderId);
+    channelSales.revenueCents += revenueCents;
+    salesByChannel.set(channel, channelSales);
+
+    const paymentSales = salesByPaymentMethod.get(paymentMethod) ?? { orderIds: new Set<string>(), revenueCents: 0 };
+    paymentSales.orderIds.add(item.orderId);
+    paymentSales.revenueCents += revenueCents;
+    salesByPaymentMethod.set(paymentMethod, paymentSales);
+  }
+
+  const grossProfit = grossProfitCents / 100;
+  const lowStockItems = allProducts.flatMap((product) => product.hasVariants
     ? product.variants.filter((variant) => Number(variant.stock) <= Number(variant.minStock)).map((variant) => ({ id: variant.id, name: `${product.name} (${getVariantLabel(variant.attributes, variant.sku)})`, stock: Number(variant.stock), minStock: Number(variant.minStock), sku: variant.sku, price: variant.price, cost: variant.cost, stockValue: Number(variant.cost ?? 0) * Number(variant.stock ?? 0) }))
     : Number(product.stock) <= Number(product.minStock) ? [{ id: product.id, name: product.name, stock: Number(product.stock), minStock: Number(product.minStock), sku: product.sku, price: product.price, cost: product.cost, stockValue: Number(product.cost ?? 0) * Number(product.stock ?? 0) }] : []);
   const stockValue = allProducts.reduce((sum, product) => product.hasVariants
@@ -199,23 +218,28 @@ export async function GET(request: Request) {
     });
 
   const channelBreakdown = Object.fromEntries(
-    channelGroups.map((group) => [
-      group.isWalkIn ? "Walk-in / POS" : "Online orders",
-      { count: group._count.id, revenue: Number(group._sum.totalAmount ?? 0) },
+    Array.from(salesByChannel, ([label, values]) => [
+      label,
+      { count: values.orderIds.size, revenue: values.revenueCents / 100 },
     ]),
   );
 
   const paymentBreakdown = Object.fromEntries(
-    paymentGroups.map((group) => [
-      group.paymentMethod === "PAYMAYA" ? "Maya" : group.paymentMethod === "GCASH" ? "GCash" : "Cash",
-      { count: group._count.id, revenue: Number(group._sum.totalAmount ?? 0) },
+    Array.from(salesByPaymentMethod, ([label, values]) => [
+      label,
+      { count: values.orderIds.size, revenue: values.revenueCents / 100 },
     ]),
   );
 
   return NextResponse.json({
+    business: {
+      name: settings?.registeredBusinessName ?? "APAYAO PASALUBONG CENTER",
+      address: settings?.businessAddress ?? "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+    },
     summary: {
-      totalRevenue: Number(revenueAggregate._sum.totalAmount ?? 0),
-      completedOrders: completedOrderCount,
+      totalRevenue: totalRevenueCents / 100,
+      grossProfit,
+      completedOrders: completedOrderIds.size,
       totalItemsSold,
       lowStockCount: lowStockItems.length,
       stockValue: Number(stockValue.toFixed(2)),
@@ -230,13 +254,31 @@ export async function GET(request: Request) {
       totalAmount: order.items
         .reduce((sum, item) => sum + Number(item.subtotal ?? 0), 0)
         .toFixed(2),
-      createdAt: order.createdAt,
+      grossProfit: order.items.reduce(
+        (sum, item) => sum
+          + Math.round(Number(item.subtotal ?? 0) * 100)
+          - Number(item.quantity ?? 0) * Math.round(Number(item.variant?.cost ?? item.product?.cost ?? 0) * 100),
+        0,
+      ) / 100,
+      completedAt: order.updatedAt,
       itemCount: order.items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0),
       items: order.items.map((item) => ({
         quantity: Number(item.quantity ?? 0),
-        productName: item.product
+        sku: item.variantSkuSnapshot || item.productSkuSnapshot || item.variant?.sku || item.product?.sku || "-",
+        productName: item.productNameSnapshot
+          ? `${item.productNameSnapshot}${item.variantSkuSnapshot || item.variantAttributesSnapshot
+              ? ` (${getVariantLabel(item.variantAttributesSnapshot, item.variantSkuSnapshot ?? "Variant")})`
+              : ""}`
+          : item.product
           ? `${item.product.name}${item.variant ? ` (${getVariantLabel(item.variant.attributes, item.variant.sku)})` : ""}`
           : "Unknown product",
+        unitPrice: Number(item.price ?? 0),
+        unitCost: Number(item.variant?.cost ?? item.product?.cost ?? 0),
+        subtotal: Number(item.subtotal ?? 0),
+        grossProfit: (
+          Math.round(Number(item.subtotal ?? 0) * 100)
+          - Number(item.quantity ?? 0) * Math.round(Number(item.variant?.cost ?? item.product?.cost ?? 0) * 100)
+        ) / 100,
       })),
     })),
     lowStock: lowStockItems,
@@ -261,5 +303,7 @@ export async function GET(request: Request) {
           stockValue: (Number(product.cost ?? 0) * Number(product.stock ?? 0)).toFixed(2),
         }]),
     categories,
+  }, {
+    headers: { "Cache-Control": "private, no-store, max-age=0" },
   });
 }

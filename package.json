@@ -4,20 +4,29 @@
   "private": true,
   "scripts": {
     "dev": "node ./scripts/dev-safe.js",
-    "build": "next build",
+    "build": "node ./scripts/prisma-generate.mjs && next build",
+    "vercel-build": "node ./scripts/prisma-generate.mjs && next build",
+    "postinstall": "node ./scripts/prisma-generate.mjs",
+    "db:migrate:deploy": "prisma migrate deploy",
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --test tests/**/*.test.ts",
+    "admin:provision": "tsx scripts/provision-initial-admin.ts",
     "storage:setup": "tsx scripts/ensure-storage-buckets.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "dependencies": {
+    "@next/env": "^16.3.5",
     "@phosphor-icons/react": "^2.1.10",
     "@prisma/client": "^6.19.3",
+    "@react-pdf/renderer": "^4.9.0",
     "@supabase/supabase-js": "^2.116.0",
+    "@tanstack/react-query": "^5.104.2",
     "@upstash/redis": "^1.38.4",
+    "@vercel/speed-insights": "^2.0.0",
     "bcryptjs": "^3.0.3",
+    "browser-image-compression": "^2.0.2",
     "date-fns": "^4.4.0",
     "framer-motion": "^12.42.1",
     "jsonwebtoken": "^9.0.3",
@@ -52,5 +61,12 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.13",
     "typescript": "^5"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "prisma@6.19.3": true,
+    "unrs-resolver@1.12.2": true
   }
 }

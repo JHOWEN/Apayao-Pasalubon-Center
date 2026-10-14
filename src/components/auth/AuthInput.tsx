@@ -40,20 +40,20 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
           <div className="mb-2 flex items-center justify-between gap-2">
             <label
               htmlFor={id}
-              className="block text-[13px] font-medium tracking-[-0.01em] text-slate-700"
+              className="block text-sm font-bold tracking-[-0.01em] text-slate-800 dark:text-slate-800"
             >
               {label}
               {required && <span className="ml-1 text-slate-900">*</span>}
             </label>
             {hint && !error && (
-              <span className="text-xs text-slate-500">{hint}</span>
+              <span className="text-xs text-slate-500 dark:text-slate-500">{hint}</span>
             )}
           </div>
         )}
 
         <div className="group relative flex w-full items-center">
           {Icon && (
-            <div className="pointer-events-none absolute left-4 flex items-center justify-center text-slate-500 transition-colors duration-200 group-focus-within:text-slate-800">
+            <div className="pointer-events-none absolute left-4 flex items-center justify-center text-slate-500 transition-colors duration-200 group-focus-within:text-slate-800 dark:text-slate-500 dark:group-focus-within:text-slate-800">
               <Icon className="h-4.5 w-4.5" aria-hidden="true" />
             </div>
           )}
@@ -70,7 +70,8 @@ export const AuthInput = forwardRef<HTMLInputElement, AuthInputProps>(
             aria-describedby={
               error ? `${id}-error` : hint ? `${id}-hint` : undefined
             }
-            className={`w-full h-[48px] min-h-[48px] rounded-xl border bg-white px-4 py-3 text-sm text-slate-900 font-medium shadow-[inset_0_1px_0_rgba(15,23,42,0.02)] transition-all duration-200 placeholder:text-slate-400 outline-none ring-0
+            className={`auth-form-input w-full h-12 min-h-12 rounded-xl border px-4 py-3 text-sm font-semibold text-slate-950 caret-slate-900 transition-all duration-200 placeholder:text-slate-500 dark:bg-white dark:text-slate-950 dark:placeholder:text-slate-500 outline-none ring-0
+              border-slate-300 bg-white shadow-[inset_0_1px_0_rgba(15,23,42,0.02)]
               ${Icon ? "pl-11" : "pl-4"}
               ${isPasswordType || rightAdornment ? "pr-4" : "pr-4"}
               ${

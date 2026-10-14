@@ -6,7 +6,7 @@ type AuthSession = Session & { user?: Session["user"] & { role?: string } };
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
-  useSecureCookies: false,
+  useSecureCookies: process.env.NODE_ENV === "production",
   providers: [],
   pages: {
     signIn: "/login",

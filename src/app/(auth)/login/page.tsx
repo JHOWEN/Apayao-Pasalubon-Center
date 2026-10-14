@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, Lock, AlertCircle, Clock, Loader2, ArrowRight } from "lucide-react";
+import { Mail, Lock, AlertCircle, Clock, Loader2, ArrowRight, X } from "lucide-react";
 import { clearStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
-import { AuthSuccessState } from "@/components/auth/AuthSuccessState";
 import { AuthCardLayout } from "@/components/auth/AuthCardLayout";
 import { AuthInput } from "@/components/auth/AuthInput";
 
@@ -16,19 +15,24 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
+  const [showSessionExpiredNotice, setShowSessionExpiredNotice] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const [lockoutEmail, setLockoutEmail] = useState("");
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [sessionState, setSessionState] = useState<"clearing" | "ready" | "error">("clearing");
   const [sessionClearAttempt, setSessionClearAttempt] = useState(0);
+  const sessionCleanupPromise = useRef<Promise<void> | null>(null);
   const isLocked = lockoutSeconds > 0 && email.trim().toLowerCase() === lockoutEmail;
 
   useEffect(() => {
     const reason = new URLSearchParams(window.location.search).get("reason");
-    const message = reason === "session-expired"
-      ? "Your session has expired. Please log in again."
-      : reason === "access-denied"
+    if (reason === "session-expired") {
+      const timeout = window.setTimeout(() => setShowSessionExpiredNotice(true), 0);
+      return () => window.clearTimeout(timeout);
+    }
+
+    const message = reason === "access-denied"
         ? "Your account does not have access to the admin dashboard."
         : reason === "login-required"
           ? "Please log in to access the admin dashboard."
@@ -43,25 +47,49 @@ export default function LoginPage() {
     let isActive = true;
 
     async function clearPreviousSession() {
-      try {
-        const response = await fetch("/api/auth/logout", { method: "POST", cache: "no-store" });
-        if (!response.ok) throw new Error("Unable to end the previous session.");
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        cache: "no-store",
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!response.ok) throw new Error("Unable to end the previous session.");
 
-        clearStoredUser();
-        window.localStorage.setItem("apc-auth-session-ended", String(Date.now()));
-        if (isActive) setSessionState("ready");
-      } catch {
-        if (!isActive) return;
-        setSessionState("error");
-        setError("We couldn't end your previous session. Check your connection and retry before signing in.");
-      }
+      clearStoredUser();
+      window.localStorage.setItem("apc-auth-session-ended", String(Date.now()));
     }
 
-    void clearPreviousSession();
+    const cleanupPromise = sessionCleanupPromise.current ?? clearPreviousSession();
+    sessionCleanupPromise.current = cleanupPromise;
+    void cleanupPromise.then(
+      () => {
+        if (isActive) setSessionState("ready");
+      },
+      () => {
+        if (!isActive) return;
+        setSessionState("error");
+        setError("We couldn't end your previous sessions. Check your connection and retry before signing in.");
+      },
+    );
     return () => {
       isActive = false;
     };
   }, [sessionClearAttempt]);
+
+  useEffect(() => {
+    const clearSessionWhenRestored = (event: PageTransitionEvent) => {
+      if (!event.persisted) return;
+      sessionCleanupPromise.current = null;
+      setIsRedirecting(false);
+      setIsLoading(false);
+      setPassword("");
+      setError("");
+      setSessionState("clearing");
+      setSessionClearAttempt((attempt) => attempt + 1);
+    };
+
+    window.addEventListener("pageshow", clearSessionWhenRestored);
+    return () => window.removeEventListener("pageshow", clearSessionWhenRestored);
+  }, []);
 
   useEffect(() => {
     if (lockoutSeconds <= 0) {
@@ -77,7 +105,8 @@ export default function LoginPage() {
 
   function handleEmailChange(value: string) {
     setEmail(value);
-    setError("");
+    if (value.trim()) setShowSessionExpiredNotice(false);
+    if (sessionState !== "error") setError("");
     if (value.trim().toLowerCase() !== lockoutEmail) {
       setLockoutSeconds(0);
     }
@@ -85,8 +114,8 @@ export default function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (sessionState !== "ready") {
-      setError("End the previous session before signing in.");
+    if (sessionState === "error") {
+      setError("Retry session cleanup before signing in.");
       return;
     }
     if (isLocked) {
@@ -94,9 +123,22 @@ export default function LoginPage() {
     }
 
     setError("");
+    setIsRedirecting(false);
+    setShowSessionExpiredNotice(false);
     setIsLoading(true);
 
     try {
+      if (sessionState === "clearing" && sessionCleanupPromise.current) {
+        try {
+          await sessionCleanupPromise.current;
+        } catch {
+          setIsLoading(false);
+          setSessionState("error");
+          setError("We couldn't end your previous sessions. Check your connection and retry before signing in.");
+          return;
+        }
+      }
+
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -120,14 +162,24 @@ export default function LoginPage() {
         window.dispatchEvent(new Event("apc-user-updated"));
       }
 
+      setIsRedirecting(true);
+      window.dispatchEvent(
+        new CustomEvent("apc-toast", {
+          detail: {
+            type: "success",
+            message: "Logged in successfully",
+            duration: 5000,
+          },
+        }),
+      );
+
       if (data.user?.role === "ADMIN" || data.user?.role === "STAFF") {
-        setIsSuccess(true);
-        window.setTimeout(() => router.push("/dashboard"), 750);
+        const destination = data.user.role === "STAFF" ? "/pos" : "/dashboard";
+        router.replace(destination);
         return;
       }
 
-      setIsSuccess(true);
-      window.setTimeout(() => router.push("/"), 750);
+      router.push("/");
     } catch {
       setIsLoading(false);
       setError("We're having trouble connecting to our servers. Please check your internet connection and try refreshing the page.");
@@ -143,25 +195,15 @@ export default function LoginPage() {
       heroActionLink={undefined}
       footer={null}
     >
-      {isSuccess ? (
-        <AuthSuccessState
-          title="Welcome back"
-          message="Your account is ready. Taking you to your workspace now."
-        />
-      ) : (
-        <motion.form
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-          className="space-y-4"
-          onSubmit={handleSubmit}
-          aria-label="Sign in form"
-          aria-busy={sessionState === "clearing"}
-        >
-          {sessionState === "clearing" ? (
-            <p className="text-center text-sm text-slate-500" role="status">Ending your previous session...</p>
-          ) : null}
-
+      <motion.form
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+        className="space-y-4"
+        onSubmit={handleSubmit}
+        aria-label="Sign in form"
+        aria-busy={isLoading || isRedirecting}
+      >
           <AuthInput
             id="login-email"
             name="email"
@@ -173,7 +215,7 @@ export default function LoginPage() {
             onChange={(e) => handleEmailChange(e.target.value)}
             placeholder="name@example.com"
             icon={Mail}
-            disabled={isLoading || sessionState !== "ready"}
+            disabled={isLoading || isRedirecting}
           />
 
           <AuthInput
@@ -187,29 +229,31 @@ export default function LoginPage() {
             value={password}
             onChange={(e) => {
               setPassword(e.target.value);
-              setError("");
+              if (e.target.value) setShowSessionExpiredNotice(false);
+              if (sessionState !== "error") setError("");
             }}
             placeholder="Enter your password"
             icon={Lock}
-            disabled={isLoading || sessionState !== "ready"}
+            disabled={isLoading || isRedirecting}
           />
 
-          <div className="flex items-center justify-between gap-4 pt-1 text-xs sm:text-sm">
-            <label className="group flex cursor-pointer select-none items-center gap-2 text-slate-600 transition hover:text-slate-900">
+          <div className="flex flex-row items-center justify-between gap-2 pt-1 text-[11px] min-[360px]:text-xs sm:gap-4 sm:text-sm">
+            <label className="group flex cursor-pointer select-none items-center gap-1.5 whitespace-nowrap text-slate-700 transition hover:text-slate-900 sm:gap-2">
               <input
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(e) => setRememberMe(e.target.checked)}
-                disabled={sessionState !== "ready"}
+                disabled={isLoading || isRedirecting}
                 className="h-4 w-4 rounded border-slate-300 accent-slate-900"
+                style={{ colorScheme: "light" }}
               />
-              <span className="font-medium text-slate-600 group-hover:text-slate-900">
+              <span className="font-semibold text-slate-700 group-hover:text-slate-900">
                 Remember me
               </span>
             </label>
             <Link
               href="/forgot-password"
-              className="font-medium text-slate-700 transition hover:text-slate-900 hover:underline"
+              className="whitespace-nowrap font-semibold text-slate-800 transition hover:text-slate-900 hover:underline"
             >
               Forgot password?
             </Link>
@@ -245,6 +289,7 @@ export default function LoginPage() {
                       onClick={() => {
                         setError("");
                         setSessionState("clearing");
+                        sessionCleanupPromise.current = null;
                         setSessionClearAttempt((attempt) => attempt + 1);
                       }}
                       className="mt-2 block font-semibold underline underline-offset-2"
@@ -257,20 +302,41 @@ export default function LoginPage() {
             ) : null}
           </AnimatePresence>
 
+          <AnimatePresence>
+            {showSessionExpiredNotice && !email.trim() && !password ? (
+              <motion.div
+                initial={{ opacity: 0, y: -6, height: 0 }}
+                animate={{ opacity: 1, y: 0, height: "auto" }}
+                exit={{ opacity: 0, y: -6, height: 0 }}
+                role="alert"
+                className="flex items-center gap-2 overflow-hidden rounded-xl border border-red-200 bg-red-50 px-3.5 py-3 text-sm text-red-800"
+              >
+                <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+                <span className="flex-1">Your session has expired. Please log in again.</span>
+                <button
+                  type="button"
+                  onClick={() => setShowSessionExpiredNotice(false)}
+                  aria-label="Dismiss session expired notice"
+                  className="rounded-md p-1 text-red-700 transition hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
+
           <motion.button
             type="submit"
-            whileHover={{ scale: isLocked || isLoading ? 1 : 1.005 }}
-            whileTap={{ scale: isLocked || isLoading ? 1 : 0.99 }}
-            disabled={isLoading || isLocked || sessionState !== "ready"}
-            className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-6 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+            whileHover={{ scale: isLocked || isLoading || isRedirecting || sessionState === "error" ? 1 : 1.005 }}
+            whileTap={{ scale: isLocked || isLoading || isRedirecting || sessionState === "error" ? 1 : 0.99 }}
+            disabled={isLoading || isRedirecting || isLocked || sessionState === "error"}
+            className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-4 text-sm font-bold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:px-6"
           >
-            {isLoading ? (
+            {isLoading || isRedirecting ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin text-white" />
-                <span>Signing in...</span>
+                <span>{isLoading ? "Signing in..." : "Redirecting..."}</span>
               </>
-            ) : sessionState === "clearing" ? (
-              <span>Ending session...</span>
             ) : sessionState === "error" ? (
               <span>Retry session cleanup above</span>
             ) : isLocked ? (
@@ -292,8 +358,7 @@ export default function LoginPage() {
               Sign up
             </Link>
           </p>
-        </motion.form>
-      )}
+      </motion.form>
     </AuthCardLayout>
   );
 }

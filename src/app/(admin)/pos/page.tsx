@@ -1,27 +1,30 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
-import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import Image from "@/components/safe-image";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AlertTriangle,
-  Banknote,
+  ArrowCounterClockwise as RotateCcw,
   Check,
-  LayoutGrid,
+  CircleNotch,
   List,
+  MagnifyingGlass as Search,
   Minus,
+  Money as Banknote,
   Package,
   Plus,
   Printer,
-  RotateCcw,
-  Search,
   ShoppingBag,
   ShoppingCart,
-  Trash2,
+  SquaresFour as LayoutGrid,
+  Trash as Trash2,
+  Warning as AlertTriangle,
   X,
-} from "lucide-react";
+} from "@phosphor-icons/react";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
 import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
 import { ADMIN_MODAL_BACKDROP_CLASS } from "@/utils/admin-modal";
+import { printEscPosReceipt } from "@/utils/escpos-usb";
 
 interface CartItem {
   id: string;
@@ -58,8 +61,38 @@ interface Product {
   variants?: ProductVariant[];
 }
 
+type CheckoutAttempt = {
+  fingerprint: string;
+  idempotencyKey: string;
+  orderNumber: string;
+};
+
+const CHECKOUT_ATTEMPT_STORAGE_KEY = "apc-pos-pending-checkout";
+
+function escapeReceiptHtml(value: unknown) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[character];
+  });
+}
+
+const defaultReceiptHeader = {
+  registeredBusinessName: "APAYAO PASALUBONG CENTER",
+  businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+  tinNumber: "",
+};
+
 export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const [productPage, setProductPage] = useState(1);
+  const [productPagination, setProductPagination] = useState({ totalCount: 0, totalPages: 1 });
   const [cart, setCart] = useState<CartItem[]>([]);
   const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({});
   const [selectedVariantIds, setSelectedVariantIds] = useState<Record<string, string>>({});
@@ -68,17 +101,56 @@ export default function POSPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [warningMessage, setWarningMessage] = useState("");
+  const [warningType, setWarningType] = useState<"stock" | "unavailable">("stock");
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [tenderAmount, setTenderAmount] = useState("");
   const [orderNumber, setOrderNumber] = useState("");
   const [showReceipt, setShowReceipt] = useState(false);
   const [completedSubtotal, setCompletedSubtotal] = useState<number | null>(null);
   const [completedTender, setCompletedTender] = useState<number | null>(null);
   const [completedItems, setCompletedItems] = useState<CartItem[]>([]);
+  const [completedAt, setCompletedAt] = useState<Date | null>(null);
   const [currentDate, setCurrentDate] = useState("");
   const [productView, setProductView] = useState<"grid" | "list">("list");
   const [cashierName, setCashierName] = useState("");
   const [terminalNumber, setTerminalNumber] = useState("");
+  const [receiptHeader, setReceiptHeader] = useState(defaultReceiptHeader);
+  const [isUsbPrinting, setIsUsbPrinting] = useState(false);
+  const [usbPrintMessage, setUsbPrintMessage] = useState("");
+  const [usbPrintError, setUsbPrintError] = useState("");
+  const productRequestSequence = useRef(0);
+  const checkoutAttemptRef = useRef<CheckoutAttempt | null>(null);
+
+  const loadProducts = useCallback(async () => {
+    const requestSequence = ++productRequestSequence.current;
+    const params = new URLSearchParams({ view: "pos", page: String(productPage), limit: "30" });
+    if (debouncedSearchQuery) params.set("search", debouncedSearchQuery);
+
+    try {
+      const response = await adminFetch(`/api/admin/products?${params.toString()}`, { cache: "no-store" });
+      if (!response.ok) return;
+
+      const data = await response.json();
+      if (requestSequence !== productRequestSequence.current) return;
+
+      const nextPagination = data?.pagination;
+      if (nextPagination && productPage > nextPagination.totalPages) {
+        setProductPage(Math.max(1, nextPagination.totalPages));
+        return;
+      }
+
+      setProducts(Array.isArray(data?.products) ? data.products : []);
+      setProductPagination({
+        totalCount: Number(nextPagination?.totalCount ?? 0),
+        totalPages: Math.max(1, Number(nextPagination?.totalPages ?? 1)),
+      });
+    } catch {
+      // Keep the current catalog if a refresh fails.
+    } finally {
+      if (requestSequence === productRequestSequence.current) setIsLoadingProducts(false);
+    }
+  }, [debouncedSearchQuery, productPage]);
 
   useEffect(() => {
     const terminalStorageKey = "apc-pos-terminal-number";
@@ -106,19 +178,9 @@ export default function POSPage() {
     updateClock();
     const clockInterval = window.setInterval(updateClock, 30000);
 
-    async function loadProducts() {
-      try {
-        const response = await fetch("/api/admin/products");
-        const data = await response.json();
-        setProducts(Array.isArray(data) ? data : []);
-      } catch {
-        // Retain empty list on error
-      }
-    }
-
     async function loadCashierProfile() {
       try {
-        const response = await fetch("/api/auth/profile");
+        const response = await adminFetch("/api/auth/profile");
         const data = await response.json();
         if (response.ok && typeof data?.user?.name === "string") {
           setCashierName(data.user.name);
@@ -128,46 +190,70 @@ export default function POSPage() {
       }
     }
 
-    void loadProducts();
+    async function loadReceiptHeader() {
+      try {
+        const response = await adminFetch("/api/admin/receipt-settings", { cache: "no-store" });
+        const data = await response.json();
+        if (response.ok && data?.settings) {
+          setReceiptHeader({
+            registeredBusinessName: data.settings.registeredBusinessName || defaultReceiptHeader.registeredBusinessName,
+            businessAddress: data.settings.businessAddress || defaultReceiptHeader.businessAddress,
+            tinNumber: data.settings.tinNumber || "",
+          });
+        }
+      } catch {
+        // Keep the standard receipt header if settings cannot be loaded.
+      }
+    }
+
     void loadCashierProfile();
+    void loadReceiptHeader();
 
     return () => {
       window.clearInterval(clockInterval);
     };
   }, []);
 
-  // Periodic refresh to keep POS stocks synchronized
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+      setProductPage(1);
+    }, 250);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadProducts();
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [loadProducts]);
+
+  // Refresh the catalog only when an order or catalog event changes it.
   useEffect(() => {
     if (isSubmitting || showReceipt || showSuccessOverlay) return;
 
-    let mounted = true;
-    const id = window.setInterval(async () => {
-      try {
-        const r = await fetch("/api/admin/products");
-        if (!r.ok) return;
-        const data = await r.json();
-        if (!mounted) return;
-        setProducts(Array.isArray(data) ? data : []);
-      } catch {
-        // ignore polling errors
+    const handleAdminLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "catalog-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        void loadProducts();
       }
-    }, 5000);
+    };
+
+    window.addEventListener("apc-admin-live-event", handleAdminLiveEvent);
 
     return () => {
-      mounted = false;
-      window.clearInterval(id);
+      window.removeEventListener("apc-admin-live-event", handleAdminLiveEvent);
     };
-  }, [isSubmitting, showReceipt, showSuccessOverlay]);
-
-  const filteredProducts = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return products;
-    return products.filter(
-      (product) =>
-        product.name.toLowerCase().includes(query) ||
-        product.sku.toLowerCase().includes(query)
-    );
-  }, [products, searchQuery]);
+  }, [isSubmitting, loadProducts, showReceipt, showSuccessOverlay]);
 
   function getSelectedVariant(product: Product) {
     const variantId = selectedVariantIds[product.id];
@@ -338,18 +424,57 @@ export default function POSPage() {
   const change = useMemo(() => (tender > subtotal ? tender - subtotal : 0), [tender, subtotal]);
 
   const generateOrderNumber = () => {
-    const timestamp = Date.now().toString().slice(-6);
-    return `POS-${timestamp}`;
+    const timestamp = Date.now().toString(36).toUpperCase();
+    const suffix = Math.random().toString(36).slice(2, 7).toUpperCase();
+    return `POS-${timestamp}-${suffix}`;
+  };
+
+  const getCheckoutAttempt = (fingerprint: string) => {
+    let attempt = checkoutAttemptRef.current;
+    if (attempt?.fingerprint !== fingerprint) {
+      try {
+        const storedValue = sessionStorage.getItem(CHECKOUT_ATTEMPT_STORAGE_KEY);
+        const storedAttempt = storedValue ? JSON.parse(storedValue) as CheckoutAttempt : null;
+        attempt = storedAttempt?.fingerprint === fingerprint &&
+          typeof storedAttempt.idempotencyKey === "string" &&
+          typeof storedAttempt.orderNumber === "string"
+          ? storedAttempt
+          : null;
+      } catch {
+        attempt = null;
+      }
+    }
+
+    if (!attempt) {
+      attempt = {
+        fingerprint,
+        idempotencyKey: globalThis.crypto?.randomUUID?.() ?? `pos-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        orderNumber: generateOrderNumber(),
+      };
+    }
+
+    checkoutAttemptRef.current = attempt;
+    try {
+      sessionStorage.setItem(CHECKOUT_ATTEMPT_STORAGE_KEY, JSON.stringify(attempt));
+    } catch {
+      // The in-memory attempt still protects retries while the POS page remains open.
+    }
+    return attempt;
   };
 
   const printReceipt = (receiptOrderNumber = orderNumber) => {
     const receiptWindow = window.open("", "_blank", "width=400,height=600");
-    if (!receiptWindow) return;
+    if (!receiptWindow) return false;
 
     const receiptItems = completedItems.length > 0 ? completedItems : cart;
     const receiptSubtotal = completedSubtotal ?? subtotal;
     const receiptTender = completedTender ?? tender;
     const receiptChange = receiptTender > receiptSubtotal ? receiptTender - receiptSubtotal : 0;
+    const receiptDate = completedAt ?? new Date();
+    const separator = "-".repeat(42);
+    const registeredBusinessName = receiptHeader.registeredBusinessName.trim() || defaultReceiptHeader.registeredBusinessName;
+    const businessAddress = receiptHeader.businessAddress.trim() || defaultReceiptHeader.businessAddress;
+    const tinNumber = receiptHeader.tinNumber.trim();
 
     const receiptHTML = `
       <!DOCTYPE html>
@@ -357,146 +482,135 @@ export default function POSPage() {
       <head>
         <title>Receipt</title>
         <style>
+          @page { margin: 0; }
+          * { box-sizing: border-box; }
           body {
             font-family: 'Courier New', monospace;
-            width: 360px;
+            width: 80mm;
             margin: 0;
-            padding: 14px;
+            padding: 3mm;
             color: #111;
             font-size: 11px;
             line-height: 1.35;
           }
           .header {
             text-align: center;
-            margin-bottom: 12px;
+            margin-bottom: 8px;
           }
           .header h2 {
             margin: 0 0 4px;
-            font-size: 16px;
-            letter-spacing: 0.4px;
+            font-size: 14px;
+            letter-spacing: 0.2px;
           }
           .header div {
             margin: 2px 0;
           }
+          .business-address { white-space: pre-line; overflow-wrap: anywhere; }
           .rule {
-            border-top: 1px dashed #000;
-            margin: 9px 0;
+            overflow: hidden;
+            margin: 6px 0;
+            text-align: center;
+            white-space: nowrap;
+            letter-spacing: 0.15px;
           }
           .meta-row {
             display: grid;
-            grid-template-columns: 92px 1fr;
+            grid-template-columns: 86px minmax(0, 1fr);
             gap: 3px;
-            margin: 4px 0;
+            margin: 3px 0;
             align-items: baseline;
             overflow-wrap: anywhere;
             font-size: 10px;
           }
-          .meta-row span:first-child,
-          .payment-row span:first-child {
-            font-weight: bold;
-          }
-          .meta-row span:last-child,
-          .payment-row span:last-child {
-            text-align: right;
-          }
-          .payment-row {
-            display: grid;
-            grid-template-columns: 132px 1fr;
-            gap: 3px;
-            margin: 4px 0;
-            align-items: baseline;
-            white-space: nowrap;
-          }
           .items-header,
           .item {
             display: grid;
-            grid-template-columns: 28px minmax(0, 1fr) 62px 68px;
+            grid-template-columns: 30px minmax(0, 1fr) 84px;
             gap: 4px;
             align-items: start;
           }
           .items-header {
-            margin-bottom: 5px;
+            margin: 7px 0 4px;
             font-weight: bold;
           }
           .item-name {
-            flex: 1;
             min-width: 0;
             overflow-wrap: anywhere;
           }
-          .item-price,
           .item-amount,
-          .items-header span:nth-child(3),
-          .items-header span:nth-child(4) {
+          .items-header span:last-child {
             text-align: right;
           }
+          .item-unit {
+            grid-column: 2 / 4;
+            margin: 1px 0 4px;
+            color: #444;
+            font-size: 9px;
+          }
           .totals {
-            margin: 10px 0 8px;
+            margin: 7px 0;
           }
           .total-row {
             display: flex;
             justify-content: space-between;
             gap: 8px;
-            margin: 4px 0;
+            margin: 3px 0;
           }
           .grand-total {
-            font-size: 13px;
+            border-top: 1px solid #111;
+            padding-top: 5px;
+            font-size: 12px;
             font-weight: bold;
           }
           .footer {
             text-align: center;
-            margin-top: 14px;
+            margin-top: 8px;
           }
-          .footer strong { display: block; font-size: 13px; margin-bottom: 4px; }
+          .footer strong { display: block; font-size: 12px; margin-bottom: 3px; }
         </style>
       </head>
       <body>
         <div class="header">
-          <h2>APAYAO PASALUBONG CENTER</h2>
-          <div>SAN ISIDRO SUR, LUNA APAYAO - CAR -</div>
-          <div>CORDILLERA ADMINISTRATIVE REGION</div>
-          <div>PHONE: 09123456789</div>
-          <div>Business Name No. 5836951</div>
+          <h2>${escapeReceiptHtml(registeredBusinessName)}</h2>
+          <div class="business-address">${escapeReceiptHtml(businessAddress)}</div>
+          ${tinNumber ? `<div>TIN: ${escapeReceiptHtml(tinNumber)}</div>` : ""}
         </div>
 
-        <div class="rule"></div>
-        <div class="meta-row"><span>DATE:</span><span>${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span></div>
-        <div class="meta-row"><span>TIME:</span><span>${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span></div>
-        <div class="meta-row"><span>ORDER NO.:</span><span>${receiptOrderNumber}</span></div>
-        <div class="meta-row"><span>CASHIER:</span><span>${cashierName || "Unknown user"}</span></div>
-        <div class="meta-row"><span>TERMINAL NO.:</span><span>${terminalNumber || "POS-LOCAL"}</span></div>
-        <div class="meta-row"><span>TIN:</span><span>---</span></div>
+        <div class="rule">${separator}</div>
+        <div class="meta-row"><strong>DATE:</strong><span>${receiptDate.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</span></div>
+        <div class="meta-row"><strong>TIME:</strong><span>${receiptDate.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</span></div>
+        <div class="meta-row"><strong>ORDER NO.:</strong><span>${escapeReceiptHtml(receiptOrderNumber)}</span></div>
+        <div class="meta-row"><strong>CASHIER:</strong><span>${escapeReceiptHtml(cashierName || "Unknown user")}</span></div>
+        <div class="meta-row"><strong>TERMINAL:</strong><span>${escapeReceiptHtml(terminalNumber || "POS-LOCAL")}</span></div>
 
-        <div class="rule"></div>
-        <div class="items-header"><span>QTY</span><span>DESCRIPTION</span><span>PRICE</span><span>AMOUNT</span></div>
+        <div class="rule">${separator}</div>
+        <div class="items-header"><span>QTY</span><span>ITEM</span><span>AMOUNT</span></div>
         <div class="items">
           ${receiptItems
             .map(
               (item) =>
                 `<div class="item">
               <span>${item.quantity}</span>
-              <span class="item-name">${item.name}${item.variantValueLabel ? ` (${item.variantValueLabel})` : ""}</span>
-              <span class="item-price">${item.price.toFixed(2)}</span>
-              <span class="item-amount">${(item.price * item.quantity).toFixed(2)}</span>
+              <span class="item-name">${escapeReceiptHtml(item.name)}${item.variantValueLabel ? ` (${escapeReceiptHtml(item.variantValueLabel)})` : ""}</span>
+              <span class="item-amount">PHP ${(item.price * item.quantity).toFixed(2)}</span>
+              <span class="item-unit">PHP ${item.price.toFixed(2)} each</span>
             </div>`
             )
             .join("")}
         </div>
 
-        <div class="rule"></div>
+        <div class="rule">${separator}</div>
         <div class="totals">
           <div class="total-row">
-            <span>SUBTOTAL</span><span>${receiptSubtotal.toFixed(2)}</span>
+            <span>SUBTOTAL</span><span>PHP ${receiptSubtotal.toFixed(2)}</span>
           </div>
-          <div class="total-row"><span>DISCOUNT</span><span>0.00</span></div>
-          <div class="total-row"><span>VAT</span><span>0.00</span></div>
-          <div class="rule"></div>
-          <div class="total-row grand-total"><span>TOTAL AMOUNT</span><span>${receiptSubtotal.toFixed(2)}</span></div>
+          <div class="total-row grand-total"><span>TOTAL</span><span>PHP ${receiptSubtotal.toFixed(2)}</span></div>
         </div>
 
-        <div class="rule"></div>
-        <div class="payment-row"><span>PAYMENT METHOD:</span><span>${paymentMethod}</span></div>
-        <div class="payment-row"><span>AMOUNT TENDERED:</span><span>${receiptTender.toFixed(2)}</span></div>
-        <div class="payment-row"><span>CHANGE:</span><span>${receiptChange.toFixed(2)}</span></div>
+        <div class="rule">${separator}</div>
+        <div class="meta-row"><strong>PAYMENT:</strong><span>${escapeReceiptHtml(paymentMethod)}</span></div>
+        <div class="meta-row"><strong>TENDERED:</strong><span>PHP ${receiptTender.toFixed(2)}</span></div>
+        <div class="meta-row"><strong>CHANGE:</strong><span>PHP ${receiptChange.toFixed(2)}</span></div>
 
         <div class="footer">
           <strong>THANK YOU!</strong>
@@ -511,6 +625,58 @@ export default function POSPage() {
     setTimeout(() => {
       receiptWindow.print();
     }, 250);
+    return true;
+  };
+
+  const handleBrowserReceiptPrint = () => {
+    setUsbPrintError("");
+    if (printReceipt()) {
+      setUsbPrintMessage("The browser print dialog is ready. Select your receipt printer to continue.");
+    } else {
+      setUsbPrintMessage("");
+      setUsbPrintError("The browser blocked the print window. Allow pop-ups for this site, then try browser printing again.");
+    }
+  };
+
+  const handleUsbReceiptPrint = async () => {
+    setUsbPrintMessage("");
+    setUsbPrintError("");
+    setIsUsbPrinting(true);
+
+    const receiptItems = completedItems.length > 0 ? completedItems : cart;
+    const receiptSubtotal = completedSubtotal ?? subtotal;
+    const receiptTender = completedTender ?? tender;
+
+    try {
+      const printerName = await printEscPosReceipt({
+        createdAt: completedAt ?? new Date(),
+        orderNumber,
+        registeredBusinessName: receiptHeader.registeredBusinessName || defaultReceiptHeader.registeredBusinessName,
+        businessAddress: receiptHeader.businessAddress || defaultReceiptHeader.businessAddress,
+        tinNumber: receiptHeader.tinNumber,
+        cashier: cashierName || "Unknown user",
+        terminal: terminalNumber || "POS-LOCAL",
+        paymentMethod,
+        subtotal: receiptSubtotal,
+        tender: receiptTender,
+        change: Math.max(receiptTender - receiptSubtotal, 0),
+        items: receiptItems.map((item) => ({
+          name: item.name,
+          variant: item.variantValueLabel,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+      });
+      setUsbPrintMessage(`Receipt sent to ${printerName}.`);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "The browser could not communicate with the printer.";
+      const guidance = /browser printing/i.test(reason)
+        ? ""
+        : " Check that the printer is connected, then choose it in the browser prompt. You can also use browser printing.";
+      setUsbPrintError(`${reason}${guidance}`);
+    } finally {
+      setIsUsbPrinting(false);
+    }
   };
 
   async function handleSubmit() {
@@ -537,46 +703,65 @@ export default function POSPage() {
 
     setIsSubmitting(true);
     setStatusMessage("");
+    setWarningMessage("");
     setShowSuccessOverlay(false);
 
-    const newOrderNumber = generateOrderNumber();
-    setOrderNumber(newOrderNumber);
+    const requestItems = cart.map((item) => ({
+      productId: item.productId,
+      variantId: item.variantId,
+      quantity: item.quantity,
+      price: item.price,
+    }));
+    const fingerprint = JSON.stringify([paymentMethod, requestItems]);
+    const attempt = getCheckoutAttempt(fingerprint);
+    setOrderNumber(attempt.orderNumber);
 
     try {
-      const response = await fetch("/api/admin/orders", {
+      const response = await adminFetch("/api/admin/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          orderNumber: attempt.orderNumber,
+          idempotencyKey: attempt.idempotencyKey,
           paymentMethod,
           isWalkIn: true,
-          items: cart.map((item) => ({
-            productId: item.productId,
-            variantId: item.variantId,
-            quantity: item.quantity,
-            price: item.price,
-          })),
+          items: requestItems,
         }),
       });
 
-      const data = await response.json();
+      const data: { success?: boolean; code?: string; message?: string; requestId?: string; order?: { orderNumber?: string } } | null =
+        await response.json().catch(() => null);
       setIsSubmitting(false);
 
-      if (!response.ok) {
-        if (typeof data.message === "string" && data.message.includes("Not enough stock")) {
-          const productId = data.message.match(/Not enough stock for ([^.]+)\.?/)?.[1];
-          const productName = productId ? products.find((product) => product.id === productId)?.name : null;
-          setWarningMessage(productName ? `Not enough stock for ${productName}.` : data.message);
+      if (!data || typeof data !== "object") {
+        throw new Error("The server returned an unreadable checkout response.");
+      }
+
+      if (!response.ok || data.success !== true) {
+        if (data.code === "INSUFFICIENT_STOCK" || data.code === "ITEM_UNAVAILABLE") {
+          setWarningType(data.code === "ITEM_UNAVAILABLE" ? "unavailable" : "stock");
+          setWarningMessage(data.message ?? "A product in the cart is no longer available. Refresh the cart and try again.");
           setStatusMessage("");
         } else {
-          setStatusMessage(data.message ?? "Unable to create order.");
+          const reference = response.status >= 500 && data.requestId ? ` Reference: ${data.requestId}` : "";
+          setStatusMessage(`${data.message ?? "Unable to complete checkout."}${reference}`);
         }
         return;
+      }
+
+      setOrderNumber(data.order?.orderNumber ?? attempt.orderNumber);
+      checkoutAttemptRef.current = null;
+      try {
+        sessionStorage.removeItem(CHECKOUT_ATTEMPT_STORAGE_KEY);
+      } catch {
+        // Clearing browser storage is best effort after the sale is confirmed.
       }
 
       setShowSuccessOverlay(true);
       setCompletedSubtotal(subtotal);
       setCompletedTender(tender);
       setCompletedItems(cart);
+      setCompletedAt(new Date());
 
       // Decrement local product/variant stocks immediately
       setProducts((current) =>
@@ -616,16 +801,8 @@ export default function POSPage() {
         })
       );
 
-      // Refresh product list from server in background
-      try {
-        const refreshed = await fetch("/api/admin/products");
-        const refreshedData = await refreshed.json();
-        if (refreshed.ok) {
-          setProducts(Array.isArray(refreshedData) ? refreshedData : []);
-        }
-      } catch {
-        // ignore background refresh errors
-      }
+      // Refresh the current lightweight, paginated POS result in the background.
+      await loadProducts();
 
       window.setTimeout(() => {
         setShowSuccessOverlay(false);
@@ -635,7 +812,7 @@ export default function POSPage() {
       }, 1200);
     } catch {
       setIsSubmitting(false);
-      setStatusMessage("An unexpected error occurred. Please try again.");
+      setStatusMessage("The connection ended before checkout could be confirmed. Check recent orders before retrying. If you retry without reloading this page, the same request key prevents a duplicate sale.");
     }
   }
 
@@ -651,22 +828,31 @@ export default function POSPage() {
     setCompletedSubtotal(null);
     setCompletedTender(null);
     setCompletedItems([]);
+    setCompletedAt(null);
+    setUsbPrintMessage("");
+    setUsbPrintError("");
   }
 
+  const receiptItemsToShow = completedItems.length > 0 ? completedItems : cart;
+  const receiptSubtotalToShow = completedSubtotal ?? subtotal;
+  const receiptTenderToShow = completedTender ?? tender;
+  const receiptDateToShow = completedAt ?? new Date();
+  const receiptSeparator = "-".repeat(42);
+
   return (
-    <div className="space-y-4 text-slate-800 dark:text-slate-100">
+    <div className="mx-auto max-w-[1600px] space-y-5 text-slate-800 dark:text-slate-100">
       {/* 1. Header Toolbar */}
-      <header className="flex flex-row items-center justify-between gap-3 rounded-lg border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+      <header className="flex flex-row items-center justify-between gap-3 border-b border-slate-200 pb-4 dark:border-slate-800">
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-600 text-white shadow-xs">
             <ShoppingCart className="h-5 w-5" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white">
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">
                 Point of Sale
               </h1>
-              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                 Terminal Ready
               </span>
@@ -684,7 +870,7 @@ export default function POSPage() {
         </div>
 
         <div className="flex items-center justify-end gap-3 text-xs">
-          <div className="flex items-center gap-1.5 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-300">
+          <div className="text-right font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
             <span>{currentDate || "Loading clock..."}</span>
           </div>
         </div>
@@ -759,7 +945,9 @@ export default function POSPage() {
             <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950/60 dark:text-rose-400">
               <AlertTriangle className="h-6 w-6" />
             </div>
-            <h3 className="mt-3 text-base font-bold text-slate-900 dark:text-white">Insufficient Stock</h3>
+            <h3 className="mt-3 text-base font-bold text-slate-900 dark:text-white">
+              {warningType === "unavailable" ? "Item Unavailable" : "Insufficient Stock"}
+            </h3>
             <p className="mt-1.5 text-xs text-slate-600 dark:text-slate-300">{warningMessage}</p>
             <button
               type="button"
@@ -777,98 +965,148 @@ export default function POSPage() {
       {showReceipt && (
         <AdminModalPortal>
         <div
-          className={`${ADMIN_MODAL_BACKDROP_CLASS} p-4`}
+          className={`${ADMIN_MODAL_BACKDROP_CLASS} overflow-y-auto`}
           data-admin-modal="true"
           role="dialog"
           aria-modal="true"
+          aria-labelledby="pos-receipt-title"
         >
-          <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
+          <div className="my-auto flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-lg border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-800 dark:bg-slate-900 sm:p-5">
+            <div className="flex shrink-0 items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
               <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">Order Confirmation</h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Transaction summary and receipt</p>
+                <h2 id="pos-receipt-title" className="text-base font-bold text-slate-900 dark:text-white">Order Confirmation</h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Receipt preview - 80 mm</p>
               </div>
               <button
                 type="button"
                 onClick={() => setShowReceipt(false)}
+                aria-label="Close receipt preview"
                 className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            <div className="space-y-3 py-3">
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-800/60">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500 dark:text-slate-400">Order Number</span>
-                  <span className="font-mono text-xs font-bold text-slate-900 dark:text-white">{orderNumber}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between border-t border-slate-200 pt-1 text-xs dark:border-slate-700">
-                  <span className="text-slate-500 dark:text-slate-400">Total Amount</span>
-                  <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                    ₱{(completedSubtotal ?? subtotal).toFixed(2)}
-                  </span>
-                </div>
-              </div>
+            <div className="min-h-0 flex-1 overflow-y-auto py-3">
+              <div
+                role="region"
+                aria-label="Scrollable 80 millimeter receipt preview"
+                tabIndex={0}
+                className="mx-auto max-h-[min(56dvh,34rem)] w-full max-w-[80mm] overflow-y-auto overscroll-contain border border-slate-200 bg-white p-[3mm] font-mono text-[10px] leading-[1.4] text-slate-900 shadow-inner focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+              >
+                <header className="mb-2 text-center">
+                  <h3 className="wrap-break-word text-[12px] font-bold leading-tight">
+                    {receiptHeader.registeredBusinessName.trim() || defaultReceiptHeader.registeredBusinessName}
+                  </h3>
+                  <p className="mt-1 whitespace-pre-line wrap-break-word">
+                    {receiptHeader.businessAddress.trim() || defaultReceiptHeader.businessAddress}
+                  </p>
+                  {receiptHeader.tinNumber.trim() && <p className="mt-1">TIN: {receiptHeader.tinNumber.trim()}</p>}
+                </header>
 
-              <div className="max-h-44 space-y-2 overflow-y-auto divide-y divide-slate-100 pr-1 text-xs dark:divide-slate-800">
-                {completedItems.map((item) => (
-                  <div key={item.id} className="flex items-start justify-between pt-2 first:pt-0">
-                    <div className="min-w-0 pr-2">
-                      <span className="block truncate font-semibold text-slate-900 dark:text-white">{item.name}</span>
-                      <span className="block text-[11px] text-slate-400">
-                        {item.quantity} × ₱{item.price.toFixed(2)} {item.variantValueLabel ? `(${item.variantValueLabel})` : ""}
+                <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
+                <dl className="space-y-0.5">
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>DATE:</dt><dd className="wrap-break-word">{receiptDateToShow.toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TIME:</dt><dd>{receiptDateToShow.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>ORDER NO.:</dt><dd className="break-all">{orderNumber}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>CASHIER:</dt><dd className="wrap-break-word">{cashierName || "Unknown user"}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TERMINAL:</dt><dd className="wrap-break-word">{terminalNumber || "POS-LOCAL"}</dd></div>
+                </dl>
+
+                <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
+                <div className="grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-1 font-bold">
+                  <span>QTY</span><span>ITEM</span><span className="text-right">AMOUNT</span>
+                </div>
+                <div className="mt-1 space-y-2">
+                  {receiptItemsToShow.map((item) => (
+                    <div key={item.id} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-x-1">
+                      <span>{item.quantity}</span>
+                      <span className="wrap-break-word font-semibold">
+                        {item.name}{item.variantValueLabel ? ` (${item.variantValueLabel})` : ""}
                       </span>
+                      <span className="text-right">PHP {(item.price * item.quantity).toFixed(2)}</span>
+                      <span className="col-start-2 col-end-4 text-[9px] text-slate-600">PHP {item.price.toFixed(2)} each</span>
                     </div>
-                    <span className="shrink-0 font-semibold text-slate-900 dark:text-white">
-                      ₱{(item.price * item.quantity).toFixed(2)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-
-              {paymentMethod === "CASH" && (completedTender ?? tender) > 0 && (
-                <div className="rounded-md border border-slate-200 bg-slate-50 p-2.5 text-xs dark:border-slate-800 dark:bg-slate-800/60">
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Tender Amount:</span>
-                    <span className="font-semibold text-slate-900 dark:text-white">₱{(completedTender ?? tender).toFixed(2)}</span>
-                  </div>
-                  <div className="mt-1 flex justify-between border-t border-slate-200 pt-1 font-bold text-emerald-600 dark:border-slate-700 dark:text-emerald-400">
-                    <span>Change Due:</span>
-                    <span>₱{Math.max((completedTender ?? tender) - (completedSubtotal ?? subtotal), 0).toFixed(2)}</span>
-                  </div>
+                  ))}
                 </div>
-              )}
+
+                <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
+                <div className="space-y-0.5">
+                  <div className="flex justify-between gap-2"><span>SUBTOTAL</span><span>PHP {receiptSubtotalToShow.toFixed(2)}</span></div>
+                  <div className="flex justify-between gap-2 border-t border-dashed border-slate-500 pt-1 text-[11px] font-bold"><span>TOTAL</span><span>PHP {receiptSubtotalToShow.toFixed(2)}</span></div>
+                </div>
+                <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
+                <dl className="space-y-0.5">
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>PAYMENT:</dt><dd>{paymentMethod}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TENDERED:</dt><dd>PHP {receiptTenderToShow.toFixed(2)}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>CHANGE:</dt><dd>PHP {Math.max(receiptTenderToShow - receiptSubtotalToShow, 0).toFixed(2)}</dd></div>
+                </dl>
+                <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>
+                <footer className="text-center">
+                  <strong className="block text-[11px]">THANK YOU!</strong>
+                  <span>This serves as your official receipt.</span>
+                </footer>
+              </div>
             </div>
 
-            <div className="mt-2 flex gap-2">
+            <p className="mb-2 shrink-0 text-center text-[11px] text-slate-600 dark:text-slate-300">
+              USB printing requires Chrome or Edge on HTTPS. Choose your compatible ESC/POS printer when the browser prompts you.
+            </p>
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
               <button
                 type="button"
-                onClick={() => printReceipt()}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                onClick={() => void handleUsbReceiptPrint()}
+                disabled={isUsbPrinting}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-slate-900 py-2.5 text-xs font-semibold text-white shadow-xs transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60 dark:bg-slate-700 dark:hover:bg-slate-600"
               >
-                <Printer className="h-3.5 w-3.5" />
-                <span>Print Receipt</span>
+                {isUsbPrinting ? <CircleNotch className="h-3.5 w-3.5 animate-spin" /> : <Printer className="h-3.5 w-3.5" />}
+                <span>{isUsbPrinting ? "Printing..." : "Print"}</span>
               </button>
               <button
                 type="button"
                 onClick={resetCart}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-600 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 shadow-xs"
+                disabled={isUsbPrinting}
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-emerald-700 py-2.5 text-xs font-semibold text-white transition hover:bg-emerald-800 shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Plus className="h-3.5 w-3.5" />
                 <span>Start New Sale</span>
               </button>
             </div>
+            {usbPrintMessage && <p className="mt-2 text-center text-xs font-medium text-emerald-700 dark:text-emerald-300" role="status" aria-live="polite">{usbPrintMessage}</p>}
+            {usbPrintError && (
+              <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-left text-xs text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100" role="alert">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <p className="font-semibold">USB printing failed</p>
+                    <p className="mt-1 wrap-break-word">{usbPrintError}</p>
+                    <button
+                      type="button"
+                      onClick={handleBrowserReceiptPrint}
+                      className="mt-2 rounded border border-amber-700 px-2.5 py-1.5 font-semibold text-amber-950 underline underline-offset-2 hover:bg-amber-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800 dark:border-amber-300 dark:text-amber-100 dark:hover:bg-amber-900/50"
+                    >
+                      Print from browser
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         </AdminModalPortal>
       )}
 
       {/* 6. Main Register Layout (Catalog & Cart Workspace) */}
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1.8fr)_420px]">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(360px,0.8fr)] xl:gap-6">
         {/* Left Column: Product Catalog */}
         <section className="min-w-0">
-          <div className="rounded-lg border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-4 flex items-center justify-between border-b border-slate-200 pb-3 dark:border-slate-800">
+              <h2 className="text-base font-semibold text-slate-950 dark:text-white">Product catalog</h2>
+              <span className="font-mono text-xs tabular-nums text-slate-500 dark:text-slate-400">
+                {isLoadingProducts ? "Loading…" : `${productPagination.totalCount} items`}
+              </span>
+            </div>
             {/* Catalog Controls (Search, View Toggle, Item Counter) */}
             <div className="mb-4 flex flex-row items-center justify-between gap-3">
               <div className="relative flex-1">
@@ -877,13 +1115,17 @@ export default function POSPage() {
                   type="text"
                   placeholder="Search products by name or SKU..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                  }}
                   className="h-9 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-8 text-xs text-slate-900 outline-hidden placeholder:text-slate-400 focus:border-slate-400 focus:bg-white dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-slate-600 dark:focus:bg-slate-900"
                 />
                 {searchQuery && (
                   <button
                     type="button"
-                    onClick={() => setSearchQuery("")}
+                    onClick={() => {
+                      setSearchQuery("");
+                    }}
                     className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -919,20 +1161,61 @@ export default function POSPage() {
                   </button>
                 </div>
 
-                <span className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                  {filteredProducts.length} items
-                </span>
               </div>
             </div>
 
             {/* Scrollable Product List / Grid */}
             <div
+              aria-busy={isLoadingProducts}
               className={`max-h-[min(68vh,760px)] overflow-y-auto pr-1 ${
-                productView === "list" ? "space-y-2" : "grid gap-3 md:grid-cols-2 xl:grid-cols-3"
+                productView === "list" ? "space-y-2" : "grid gap-3 md:grid-cols-2"
               }`}
             >
-              {filteredProducts.length > 0 ? (
-                filteredProducts.map((product) => {
+              {isLoadingProducts ? (
+                <div
+                  role="status"
+                  aria-label="Loading products"
+                  className={productView === "list" ? "space-y-2" : "col-span-full grid gap-3 md:grid-cols-2"}
+                >
+                  <span className="sr-only">Loading products…</span>
+                  {Array.from({ length: productView === "list" ? 6 : 4 }, (_, index) =>
+                    productView === "list" ? (
+                      <div
+                        key={`pos-product-skeleton-${index}`}
+                        aria-hidden="true"
+                        className="flex animate-pulse items-center justify-between gap-3 border-b border-slate-200 px-1 py-3 first:border-t dark:border-slate-800"
+                      >
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <div className="h-10 w-10 shrink-0 rounded-md bg-slate-200 dark:bg-slate-700" />
+                          <div className="min-w-0 flex-1 space-y-2">
+                            <div className="h-3 w-2/3 rounded bg-slate-200 dark:bg-slate-700" />
+                            <div className="h-2.5 w-1/2 rounded bg-slate-100 dark:bg-slate-800" />
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <div className="h-3 w-16 rounded bg-slate-200 dark:bg-slate-700" />
+                          <div className="h-8 w-8 rounded-md bg-slate-200 dark:bg-slate-700" />
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        key={`pos-product-skeleton-${index}`}
+                        aria-hidden="true"
+                        className="animate-pulse rounded-md border border-slate-200 p-3 dark:border-slate-800"
+                      >
+                        <div className="mb-2.5 h-32 w-full rounded-md bg-slate-200 dark:bg-slate-700" />
+                        <div className="h-3 w-3/4 rounded bg-slate-200 dark:bg-slate-700" />
+                        <div className="mt-2 h-2.5 w-1/2 rounded bg-slate-100 dark:bg-slate-800" />
+                        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-2.5 dark:border-slate-800">
+                          <div className="h-4 w-16 rounded bg-slate-200 dark:bg-slate-700" />
+                          <div className="h-8 w-8 rounded-md bg-slate-200 dark:bg-slate-700" />
+                        </div>
+                      </div>
+                    )
+                  )}
+                </div>
+              ) : products.length > 0 ? (
+                products.map((product) => {
                   const selectedVariant = getSelectedVariant(product);
                   const variantOptions = product.variants ?? [];
                   const activeStock =
@@ -952,10 +1235,10 @@ export default function POSPage() {
                     return (
                       <div
                         key={product.id}
-                        className={`flex items-center justify-between gap-3 rounded-md border p-2.5 transition ${
+                        className={`flex items-center justify-between gap-3 border-b px-1 py-3 transition-colors first:border-t ${
                           inStock
-                            ? "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/50 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
-                            : "border-slate-200 bg-slate-50 opacity-60 dark:border-slate-800 dark:bg-slate-950/40"
+                            ? "border-slate-200 hover:bg-emerald-50/40 dark:border-slate-800 dark:hover:bg-emerald-950/15"
+                            : "border-slate-200 opacity-55 dark:border-slate-800"
                         }`}
                       >
                         <div className="flex min-w-0 items-center gap-3">
@@ -1026,7 +1309,7 @@ export default function POSPage() {
                             type="button"
                             onClick={() => addToCart(product)}
                             disabled={!inStock || (variantOptions.length > 0 && !selectedVariant)}
-                            className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-slate-800"
+                            className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-700 text-white transition-colors hover:bg-emerald-800 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-slate-800"
                             title="Add to cart"
                           >
                             <Plus className="h-4 w-4" />
@@ -1040,10 +1323,10 @@ export default function POSPage() {
                   return (
                     <div
                       key={product.id}
-                      className={`flex flex-col justify-between rounded-lg border p-3 transition ${
+                      className={`flex flex-col justify-between rounded-md border p-3 transition-colors ${
                         inStock
-                          ? "border-slate-200/90 bg-white hover:border-slate-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-slate-700"
-                          : "border-slate-200 bg-slate-50 opacity-60 dark:border-slate-800 dark:bg-slate-950/40"
+                          ? "border-slate-200 bg-white hover:border-emerald-300 dark:border-slate-800 dark:bg-slate-900 dark:hover:border-emerald-800"
+                          : "border-slate-200 bg-slate-50 opacity-55 dark:border-slate-800 dark:bg-slate-950/40"
                       }`}
                     >
                       <div>
@@ -1115,7 +1398,7 @@ export default function POSPage() {
                           type="button"
                           onClick={() => addToCart(product)}
                           disabled={!inStock || (variantOptions.length > 0 && !selectedVariant)}
-                          className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-900 text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-slate-800"
+                          className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-700 text-white transition-colors hover:bg-emerald-800 active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-slate-800"
                           title="Add to cart"
                         >
                           <Plus className="h-4 w-4" />
@@ -1131,16 +1414,41 @@ export default function POSPage() {
                 </div>
               )}
             </div>
+            {productPagination.totalPages > 1 && (
+              <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3 text-xs dark:border-slate-800">
+                <span className="text-slate-500 dark:text-slate-400">
+                  Page {productPage} of {productPagination.totalPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProductPage((page) => Math.max(1, page - 1))}
+                    disabled={productPage <= 1 || isLoadingProducts}
+                    className="rounded-md border border-slate-200 px-2.5 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductPage((page) => Math.min(productPagination.totalPages, page + 1))}
+                    disabled={productPage >= productPagination.totalPages || isLoadingProducts}
+                    className="rounded-md border border-slate-200 px-2.5 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </section>
 
         {/* Right Column: Register & Cart Workspace */}
-        <aside className="min-w-0 sticky top-4">
-          <div className="flex h-full flex-col rounded-lg border border-slate-200/90 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+        <aside className="min-w-0 xl:sticky xl:top-4">
+          <div className="flex h-full flex-col rounded-md border border-slate-200 border-t-2 border-t-emerald-600 bg-white p-4 sm:p-5 dark:border-slate-800 dark:border-t-emerald-500 dark:bg-slate-900">
             {/* Cart Header */}
             <div className="mb-3 flex items-center justify-between border-b border-slate-200/80 pb-3 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">Current Order</h2>
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">Current Order</h2>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                   {totalCartUnits} items
                 </span>
@@ -1297,11 +1605,11 @@ export default function POSPage() {
             {/* Payment & Checkout Section */}
             <div className="mt-3 border-t border-slate-200 pt-3 dark:border-slate-800">
               {/* Subtotal Banner */}
-              <div className="mb-3 flex items-center justify-between rounded-lg bg-slate-50 p-2.5 dark:bg-slate-800/60">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <div className="mb-3 flex items-center justify-between border-y border-slate-200 py-3 dark:border-slate-800">
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   Total Due
                 </span>
-                <span className="text-lg font-bold text-slate-900 dark:text-white">
+                <span className="text-2xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                   ₱{subtotal.toFixed(2)}
                 </span>
               </div>
@@ -1312,7 +1620,7 @@ export default function POSPage() {
                   <button
                     type="button"
                     onClick={() => setPaymentMethod("CASH")}
-                    className="flex items-center justify-center gap-1.5 rounded-md bg-white py-1.5 text-xs font-semibold text-slate-900 shadow-xs dark:bg-slate-700 dark:text-white"
+                    className="flex items-center justify-center gap-1.5 rounded-md bg-white py-2 text-xs font-semibold text-slate-900 ring-1 ring-slate-200 dark:bg-slate-700 dark:text-white dark:ring-slate-600"
                   >
                     <Banknote className="h-3.5 w-3.5" />
                     <span>Cash</span>
@@ -1324,7 +1632,7 @@ export default function POSPage() {
               {paymentMethod === "CASH" && (
                 <div className="mb-3 space-y-2">
                   <div>
-                    <label className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
                       Tender Amount
                     </label>
                     <input
@@ -1334,7 +1642,7 @@ export default function POSPage() {
                       value={tenderAmount}
                       onChange={(e) => setTenderAmount(e.target.value)}
                       placeholder="0.00"
-                      className="mt-1 h-9 w-full rounded-md border border-slate-200 bg-white px-3 font-mono text-sm font-bold text-slate-900 outline-hidden focus:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+                      className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 font-mono text-base font-semibold tabular-nums text-slate-950 outline-hidden transition-colors focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15 dark:border-slate-700 dark:bg-slate-800 dark:text-white dark:focus:border-emerald-500"
                     />
                   </div>
 
@@ -1343,7 +1651,7 @@ export default function POSPage() {
                     <button
                       type="button"
                       onClick={() => setTenderAmount(subtotal > 0 ? subtotal.toFixed(2) : "0")}
-                      className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                      className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50 active:scale-[0.98] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/40"
                     >
                       Exact
                     </button>
@@ -1352,7 +1660,7 @@ export default function POSPage() {
                         key={val}
                         type="button"
                         onClick={() => setTenderAmount(String(val))}
-                        className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        className="rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition-colors hover:border-emerald-400 hover:bg-emerald-50 active:scale-[0.98] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-emerald-700 dark:hover:bg-emerald-950/40"
                       >
                         ₱{val}
                       </button>
@@ -1378,6 +1686,7 @@ export default function POSPage() {
               {/* Status Message */}
               {statusMessage && (
                 <div
+                  role="alert"
                   className={`mb-3 rounded-md p-2 text-xs font-medium ${
                     statusMessage.includes("successfully")
                       ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
@@ -1397,7 +1706,7 @@ export default function POSPage() {
                   (paymentMethod === "CASH" && tender > 0 && tender < subtotal)
                 }
                 onClick={handleSubmit}
-                className="w-full rounded-md bg-emerald-600 py-3 text-sm font-bold text-white shadow-xs transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:disabled:bg-slate-800 dark:disabled:text-slate-600"
+                className="w-full rounded-md bg-emerald-700 py-3 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:disabled:bg-slate-800 dark:disabled:text-slate-600"
               >
                 {isSubmitting
                   ? "Processing..."

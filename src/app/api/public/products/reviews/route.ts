@@ -1,10 +1,14 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
+import { emitPublicReviewsUpdatedEvent } from "@/lib/realtime";
 import { Prisma } from "@prisma/client";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth";
+import { getUserForToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { productReviewCreateSchema } from "@/features/orders/validators/orders";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 function serializeReview(review: {
   id: string;
@@ -63,7 +67,7 @@ export async function GET(request: Request) {
 
     const cookieStore = await cookies();
     const token = cookieStore.get("token")?.value;
-    const payload = token ? (verifyToken(token) as { sub?: string } | null) : null;
+    const payload = token ? await getUserForToken(token) : null;
     const currentUserId = payload?.sub ?? null;
 
     const baseWhere: Prisma.ProductReviewWhereInput = { productId };
@@ -136,24 +140,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Please sign in to write a review." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Please sign in to write a review." }, { status: 401 });
     }
 
-    const body = await request.json();
-    const productId = typeof body.productId === "string" ? body.productId.trim() : "";
-    const rating = Number(body.rating);
-    const comment = typeof body.comment === "string" ? body.comment.trim() : "";
-
-    if (!productId) {
-      return NextResponse.json({ success: false, message: "Product id is required." }, { status: 400 });
-    }
-
-    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-      return NextResponse.json({ success: false, message: "Please select a rating from 1 to 5." }, { status: 400 });
-    }
+    const parsed = await parseJsonRequestBody(request, productReviewCreateSchema, "Review details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { productId, rating, comment = "", optionValue: submittedOptionValue } = parsed.data;
 
     const product = await prisma.product.findUnique({
       where: { id: productId },
@@ -166,11 +161,14 @@ export async function POST(request: Request) {
 
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { id: true, name: true, imageUrl: true },
+      select: { id: true, name: true, imageUrl: true, role: true },
     });
 
     if (!user) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
+    }
+    if (user.role !== "CUSTOMER") {
+      return NextResponse.json({ success: false, message: "Customer account required." }, { status: 403 });
     }
 
     const rateLimitResponse = await enforceRateLimit(request, "user:reviews:create", {
@@ -198,7 +196,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const optionValue = typeof body.optionValue === "string" ? body.optionValue.trim() || null : null;
+    const optionValue = submittedOptionValue || null;
     const existingReview = await prisma.productReview.findFirst({
       where: { productId, userId: user.id },
       include: {
@@ -236,6 +234,9 @@ export async function POST(request: Request) {
             },
           },
         });
+
+    revalidateTag("public-products", { expire: 0 });
+    emitPublicReviewsUpdatedEvent({ productId: product.id });
 
     return NextResponse.json({
       success: true,

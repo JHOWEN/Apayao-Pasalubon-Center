@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { getNewPasswordPolicyError } from "../src/lib/password-policy";
 
 if (process.env.NODE_ENV === "production") {
   throw new Error("Database seed scripts are disabled in production.");
@@ -13,6 +14,12 @@ const { adminEmail, adminPassword, customerEmail, customerPassword } = (() => {
 
   if (!adminEmail || !adminPassword || !customerEmail || !customerPassword) {
     throw new Error("Set SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, SEED_CUSTOMER_EMAIL, and SEED_CUSTOMER_PASSWORD.");
+  }
+
+  const adminPasswordError = getNewPasswordPolicyError(adminPassword);
+  const customerPasswordError = getNewPasswordPolicyError(customerPassword);
+  if (adminPasswordError || customerPasswordError) {
+    throw new Error(adminPasswordError ?? customerPasswordError ?? "Seed passwords do not meet the password policy.");
   }
 
   return { adminEmail, adminPassword, customerEmail, customerPassword };

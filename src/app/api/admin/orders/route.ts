@@ -1,17 +1,43 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { canAccessAdminPortal, verifyToken } from "@/lib/auth";
-import { applyOrderInventoryMovement, recordInventoryLifecycleEvent } from "@/features/inventory/lib/inventory";
-import { canCancelOrder, isOrderStatus, normalizePickupDateInput, OrderStatus, resolveInitialOrderStatus } from "@/lib/order";
+import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
+import {
+  applyOrderInventoryMovement,
+  InventoryConflictError,
+  InventoryItemUnavailableError,
+  InsufficientStockError,
+  recordInventoryLifecycleEvent,
+} from "@/features/inventory/lib/inventory";
+import { canTransitionOrderStatus, normalizePickupDateInput, OrderStatus, resolveInitialOrderStatus } from "@/lib/order";
 import { resolvePaymentProofUrl } from "@/lib/storage";
 import { getRequestId, logError } from "@/lib/logger";
 import { apiError, getUserFacingErrorMessage } from "@/lib/api-response";
 import { emitOrderCreatedEvent, emitOrderUpdatedEvent } from "@/lib/realtime";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { getOrderItemSnapshot, getOrderStatusEventType, recordOrderEvent } from "@/lib/order-history";
+import { orderCreateSchema, orderStatusUpdateSchema, type OrderCreateInput, type OrderItemInput } from "@/features/orders/validators/orders";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 class OrderStateConflictError extends Error {}
+
+function getPrismaErrorCode(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null;
+}
+
+function haveSameOrderItems(
+  existingItems: Array<{ productId: string; variantId: string | null; quantity: number; price: unknown }>,
+  incomingItems: OrderItemInput[],
+) {
+  const normalize = (items: Array<{ productId: string; variantId?: string | null; quantity: number }>) =>
+    items
+      .map((item) => [item.productId, item.variantId ?? "", item.quantity])
+      .sort((a, b) => a.map(String).join("\u0000").localeCompare(b.map(String).join("\u0000")));
+
+  return JSON.stringify(normalize(existingItems)) === JSON.stringify(normalize(incomingItems));
+}
 
 async function requireAdminAccess() {
   const cookieStore = await cookies();
@@ -21,7 +47,7 @@ async function requireAdminAccess() {
     return { error: NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 }) };
   }
 
-  const payload = verifyToken(token) as { sub?: string; role?: string } | null;
+  const payload = await getUserForToken(token);
 
   if (!payload?.sub || !canAccessAdminPortal(payload.role)) {
     return { error: NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 }) };
@@ -41,6 +67,37 @@ export async function GET(request: Request) {
     if (rateLimitResponse) return rateLimitResponse;
 
     const { searchParams } = new URL(request.url);
+    const historyFor = searchParams.get("historyFor")?.trim();
+    if (historyFor) {
+      const orderExists = await prisma.order.findUnique({
+        where: { id: historyFor },
+        select: { id: true },
+      });
+      if (!orderExists) {
+        return NextResponse.json({ success: false, message: "Order not found." }, { status: 404 });
+      }
+
+      const events = await prisma.orderEvent.findMany({
+        where: { orderId: historyFor },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          eventType: true,
+          previousStatus: true,
+          newStatus: true,
+          previousPaymentStatus: true,
+          newPaymentStatus: true,
+          actorName: true,
+          actorType: true,
+          note: true,
+          createdAt: true,
+        },
+      });
+      return NextResponse.json({ success: true, events }, {
+        headers: { "Cache-Control": "private, no-store, max-age=0" },
+      });
+    }
+
     const customerId = searchParams.get("customerId");
     const page = Math.max(1, Number(searchParams.get("page") ?? 1) || 1);
     const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit") ?? 15) || 15));
@@ -64,7 +121,7 @@ export async function GET(request: Request) {
       ? { gte: new Date(`${customPickupDate}T00:00:00`), lt: new Date(`${customPickupDate}T23:59:59.999`) }
       : undefined;
 
-    const requestedStatus = ["PENDING_PAYMENT", "PENDING", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "COMPLETED", "CANCELLED"].includes(status)
+    const requestedStatus = ["PENDING", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "COMPLETED", "CANCELLED"].includes(status)
       ? (status as OrderStatus)
       : undefined;
     const where: Prisma.OrderWhereInput = {
@@ -74,9 +131,9 @@ export async function GET(request: Request) {
         ? { status: { notIn: ["COMPLETED", "CANCELLED"] } }
         : status === "AWAITING_PAYMENT_APPROVAL"
         ? {
-            status: { notIn: ["COMPLETED", "CONFIRMED", "CANCELLED"] },
+            status: "PENDING",
             paymentMethod: { not: "CASH" },
-            paymentStatus: { notIn: ["PAID", "FAILED"] },
+            paymentStatus: "PROOF_SUBMITTED",
           }
         : status !== "ALL"
         ? { status: requestedStatus }
@@ -92,21 +149,38 @@ export async function GET(request: Request) {
         : {}),
     };
 
-    const reviewedProductIds = customerId
-      ? await prisma.productReview.findMany({
-          where: { userId: customerId },
-          select: { productId: true },
-        })
-      : [];
-    const reviewedSet = new Set(reviewedProductIds.map((review) => review.productId));
-
     const [orders, totalCount, statusGroups, awaitingPaymentCount] = await Promise.all([
       prisma.order.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        userId: true,
+        orderNumber: true,
+        customerName: true,
+        customerPhone: true,
+        pickupDate: true,
+        pickupTime: true,
+        createdAt: true,
+        status: true,
+        totalAmount: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        paidAt: true,
+        proofOfPaymentUrl: true,
+        isWalkIn: true,
         items: {
-          include: {
-            product: true,
+          select: {
+            id: true,
+            productId: true,
+            variantId: true,
+            quantity: true,
+            price: true,
+            subtotal: true,
+            productNameSnapshot: true,
+            productSkuSnapshot: true,
+            variantSkuSnapshot: true,
+            variantAttributesSnapshot: true,
+            product: { select: { name: true } },
             variant: {
               select: {
                 id: true,
@@ -118,7 +192,7 @@ export async function GET(request: Request) {
             },
           },
         },
-        user: true,
+        user: { select: { email: true, address: true } },
       },
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * limit,
@@ -129,12 +203,23 @@ export async function GET(request: Request) {
       prisma.order.count({
         where: {
           ...(customerId ? { userId: customerId } : {}),
-          status: { notIn: ["COMPLETED", "CONFIRMED", "CANCELLED"] },
+          status: "PENDING",
           paymentMethod: { not: "CASH" },
-          paymentStatus: { notIn: ["PAID", "FAILED"] },
+          paymentStatus: "PROOF_SUBMITTED",
         },
       }),
     ]);
+
+    const reviewedProductIds = customerId
+      ? await prisma.productReview.findMany({
+          where: {
+            userId: customerId,
+            productId: { in: [...new Set(orders.flatMap((order) => order.items.map((item) => item.productId)))] },
+          },
+          select: { productId: true },
+        })
+      : [];
+    const reviewedSet = new Set(reviewedProductIds.map((review) => review.productId));
 
     return NextResponse.json({
       orders: await Promise.all(orders.map(async (order) => ({
@@ -152,6 +237,7 @@ export async function GET(request: Request) {
         totalAmount: Number(order.totalAmount),
         paymentMethod: order.paymentMethod,
         paymentStatus: order.paymentStatus,
+        paidAt: order.paidAt,
         proofOfPaymentUrl: await resolvePaymentProofUrl(order.proofOfPaymentUrl),
         isWalkIn: order.isWalkIn,
         items: order.items.map((item) => ({
@@ -175,6 +261,8 @@ export async function GET(request: Request) {
         AWAITING_PAYMENT_APPROVAL: awaitingPaymentCount,
         ...Object.fromEntries(statusGroups.map((group) => [group.status, group._count.id])),
       },
+    }, {
+      headers: { "Cache-Control": "private, no-store, max-age=0" },
     });
   } catch (error) {
     logError("admin.orders.get_failed", error, { requestId: getRequestId(request) });
@@ -182,36 +270,19 @@ export async function GET(request: Request) {
   }
 }
 
-type OrderItemInput = {
-  productId?: string;
-  variantId?: string;
-  quantity?: number;
-  price?: number;
-  sku?: string;
-  unitLabel?: string;
-};
-
-type OrderItemForMutation = OrderItemInput & {
+type OrderItemForMutation = Omit<OrderItemInput, "price"> & {
   productId: string;
   quantity: number;
-  price: number;
-};
-
-type OrderPayload = {
-  items?: OrderItemInput[];
-  orderNumber?: string;
-  userId?: string;
-  customerName?: string;
-  customerPhone?: string;
-  pickupDate?: string;
-  pickupTime?: string;
-  paymentMethod?: string;
-  isWalkIn?: boolean;
-  status?: string;
+  price: Prisma.Decimal;
 };
 
 export async function POST(request: Request) {
-  let requestBody: OrderPayload | null = null;
+  let requestBody: OrderCreateInput | null = null;
+  let requestItems: OrderItemInput[] = [];
+  let requestOrderNumber: string | null = null;
+  let requestIdempotencyKey: string | null = null;
+  let requestIsWalkIn: boolean | null = null;
+  let requestPaymentMethod: "CASH" | "GCASH" | "PAYMAYA" | null = null;
 
   try {
     const authCheck = await requireAdminAccess();
@@ -221,98 +292,130 @@ export async function POST(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:orders:create", "admin");
     if (rateLimitResponse) return rateLimitResponse;
 
-    requestBody = (await request.json()) as OrderPayload;
-    const body = requestBody;
-    const items = (body.items ?? []).filter(
-      (item): item is OrderItemForMutation => Boolean(item.productId)
-    );
-
-    if (!items.length) {
-      return NextResponse.json(
-        { success: false, message: "Order items are required." },
-        { status: 400 }
-      );
-    }
+    const parsed = await parseJsonRequestBody(request, orderCreateSchema, "Checkout details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
+    requestBody = body;
+    requestItems = body.items;
+    const paymentMethod = body.paymentMethod ?? "CASH";
+    requestPaymentMethod = paymentMethod;
 
     if (body.userId) {
       const customer = await prisma.user.findUnique({
         where: { id: body.userId },
-        select: { role: true, emailVerified: true, phone: true, address: true, isBlocked: true },
+        select: { role: true, isBlocked: true },
       });
 
-      if (customer?.role === "CUSTOMER") {
-        const isProfileComplete = Boolean(customer.phone?.trim()) && Boolean(customer.address?.trim());
+      if (!customer || customer.role !== "CUSTOMER") {
+        return NextResponse.json(
+          { success: false, message: "The selected POS customer is not available." },
+          { status: 400 },
+        );
+      }
 
-        if (!customer.emailVerified || !isProfileComplete) {
-          return NextResponse.json(
-            { success: false, message: "Please complete your phone number and address in your profile before placing an order." },
-            { status: 403 }
-          );
-        }
-
-        if (customer.isBlocked) {
-          return NextResponse.json(
-            { success: false, message: "Your account has been blocked. Please contact the admin." },
-            { status: 403 }
-          );
-        }
+      if (customer.isBlocked) {
+        return NextResponse.json(
+          { success: false, message: "Your account has been blocked. Please contact the admin." },
+          { status: 403 }
+        );
       }
     }
 
-    const orderNumber = body.orderNumber ?? `ORD-${Date.now()}`;
-    const totalAmount = items.reduce(
-      (sum: number, item) => sum + Number(item.price ?? 0) * Number(item.quantity ?? 0),
-      0
-    );
+    const orderNumber = body.orderNumber?.trim() ?? `ORD-${Date.now()}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const idempotencyKey = body.idempotencyKey?.trim() ?? null;
+    requestOrderNumber = orderNumber;
+    requestIdempotencyKey = idempotencyKey;
     const isWalkIn = body.isWalkIn === true;
-    const initialStatus = resolveInitialOrderStatus(isWalkIn, body.status, true);
-    const paymentMethod = (body.paymentMethod ?? "CASH").toUpperCase() as "CASH" | "GCASH" | "PAYMAYA";
+    requestIsWalkIn = isWalkIn;
+    const initialStatus = resolveInitialOrderStatus(isWalkIn);
     const effectiveStatus = isWalkIn ? "COMPLETED" : initialStatus;
     const effectivePaymentStatus = isWalkIn ? "PAID" : "PENDING";
 
-    const productIds = [...new Set(items.map((item) => item.productId))];
-    const existingProducts = await prisma.product.findMany({
-      where: { id: { in: productIds } },
-      select: { id: true, stock: true, isActive: true, hasVariants: true },
-    });
-    const existingProductIds = new Set(existingProducts.map((product) => product.id));
-
-    for (const item of items) {
-      if (!existingProductIds.has(item.productId)) {
-        return NextResponse.json({ success: false, message: `Product ${item.productId} no longer exists.` }, { status: 400 });
+    if (idempotencyKey) {
+      const existingOrder = await prisma.order.findUnique({
+        where: { idempotencyKey },
+        include: { items: true },
+      });
+      if (existingOrder) {
+        if (
+          existingOrder.isWalkIn !== isWalkIn ||
+          existingOrder.orderNumber !== orderNumber ||
+          existingOrder.paymentMethod !== paymentMethod ||
+          !haveSameOrderItems(existingOrder.items, requestItems)
+        ) {
+          return apiError(request, 409, "CHECKOUT_KEY_REUSED", "This checkout request was already used for a different sale. Refresh the cart before trying again.");
+        }
+        return NextResponse.json({ success: true, order: existingOrder, idempotent: true }, { status: 200 });
       }
-
-      const product = existingProducts.find((entry) => entry.id === item.productId);
-      if (product && !product.isActive) {
-        return NextResponse.json({ success: false, message: `Product ${item.productId} is no longer available.` }, { status: 400 });
-      }
-
     }
 
-    const variantIds = [...new Set(items.filter((item) => item.variantId).map((item) => item.variantId!))];
+    const productIds = [...new Set(requestItems.map((item) => item.productId))];
+    const existingProducts = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, name: true, sku: true, price: true, stock: true, isActive: true, hasVariants: true },
+    });
+    const existingProductIds = new Set(existingProducts.map((product) => product.id));
+    const existingProductMap = new Map(existingProducts.map((product) => [product.id, product]));
+
+    for (const item of requestItems) {
+      if (!existingProductIds.has(item.productId)) {
+        return apiError(request, 409, "ITEM_UNAVAILABLE", `Product ${item.productId} no longer exists. Refresh the POS catalog and try again.`);
+      }
+
+      const product = existingProductMap.get(item.productId);
+      if (product && !product.isActive) {
+        return apiError(request, 409, "ITEM_UNAVAILABLE", `${product.name} is no longer available for sale. Refresh the POS catalog and try again.`);
+      }
+      if (product?.hasVariants && !item.variantId) {
+        return apiError(request, 400, "INVALID_PRODUCT_OPTION", `${product.name} requires a product option. Refresh the POS catalog and try again.`);
+      }
+    }
+
+    const variantIds = [...new Set(requestItems.flatMap((item) => item.variantId ? [item.variantId] : []))];
     const existingVariants = await prisma.productVariant.findMany({
       where: { id: { in: variantIds } },
-      select: { id: true, productId: true, stock: true },
+      select: { id: true, productId: true, sku: true, attributes: true, price: true, stock: true, isActive: true },
     });
     const existingVariantMap = new Map(existingVariants.map((variant) => [variant.id, variant]));
 
-    for (const item of items) {
-      if (!item.variantId) continue;
-
-      const variant = existingVariantMap.get(item.variantId);
-      if (!variant) {
-        return NextResponse.json({ success: false, message: `Variant ${item.variantId} no longer exists.` }, { status: 400 });
+    const items: OrderItemForMutation[] = [];
+    for (const item of requestItems) {
+      const product = existingProductMap.get(item.productId);
+      if (!product) continue;
+      const variant = item.variantId ? existingVariantMap.get(item.variantId) : null;
+      if (item.variantId && !variant) {
+        return apiError(request, 409, "ITEM_UNAVAILABLE", `A selected product option is no longer available. Refresh the POS catalog and try again.`);
       }
 
-      if (variant.productId !== item.productId) {
-        return NextResponse.json({ success: false, message: `Variant ${item.variantId} does not belong to the selected product.` }, { status: 400 });
+      if (variant && variant.productId !== item.productId) {
+        return apiError(request, 400, "INVALID_PRODUCT_OPTION", "A selected product option does not match its product. Refresh the POS catalog and try again.");
       }
+
+      if (variant && !variant.isActive) {
+        return apiError(request, 409, "ITEM_UNAVAILABLE", "A selected product option is no longer available. Refresh the POS catalog and try again.");
+      }
+
+      const price = variant?.price ?? product.price;
+      if (item.price !== undefined && !new Prisma.Decimal(item.price).equals(price)) {
+        return apiError(request, 409, "PRICE_CHANGED", `${product.name} price changed. Refresh the cart and check the updated total before checkout.`);
+      }
+
+      items.push({ ...item, price });
+    }
+
+    const totalAmount = items.reduce(
+      (sum, item) => sum.plus(item.price.mul(item.quantity)),
+      new Prisma.Decimal(0),
+    );
+    if (totalAmount.lessThan(0) || totalAmount.greaterThan("99999999.99")) {
+      return apiError(request, 400, "INVALID_TOTAL", "The checkout total is outside the supported amount. Review the cart and try again.");
     }
 
     const order = await prisma.$transaction(async (tx) => {
       const createdOrder = await tx.order.create({
         data: {
           orderNumber,
+          idempotencyKey,
           userId: body.userId ?? null,
           customerName: body.customerName ?? "Walk-in Customer",
           customerPhone: body.customerPhone ?? "",
@@ -325,18 +428,36 @@ export async function POST(request: Request) {
           paymentMethod,
           paymentStatus: effectivePaymentStatus,
           status: effectiveStatus,
+          paidAt: effectivePaymentStatus === "PAID" ? new Date() : null,
           isWalkIn,
           items: {
             create: items.map((item) => ({
               productId: item.productId,
               variantId: item.variantId || null,
-              quantity: Number(item.quantity ?? 1),
-              price: Number(item.price ?? 0),
-              subtotal: Number(item.price ?? 0) * Number(item.quantity ?? 1),
+              ...getOrderItemSnapshot(
+                existingProductMap.get(item.productId),
+                item.variantId ? existingVariantMap.get(item.variantId) : null,
+              ),
+              quantity: item.quantity,
+              price: item.price,
+              subtotal: item.price.mul(item.quantity),
             })),
           },
         },
         include: { items: true },
+      });
+
+      await recordOrderEvent(tx, {
+        orderId: createdOrder.id,
+        eventType: "ORDER_CREATED",
+        newStatus: createdOrder.status,
+        newPaymentStatus: createdOrder.paymentStatus,
+        actor: {
+          userId: authCheck.payload.sub,
+          name: authCheck.user?.name,
+          type: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
+        },
+        note: isWalkIn ? "Walk-in sale created and completed." : null,
       });
 
       if (isWalkIn) {
@@ -351,6 +472,8 @@ export async function POST(request: Request) {
           `Walk-in sale ${createdOrder.orderNumber} completed`,
           authCheck.user?.name,
           {
+            actorUserId: authCheck.payload.sub,
+            orderId: createdOrder.id,
             performedByType: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
             source: "POS",
             customerName: createdOrder.customerName,
@@ -364,14 +487,19 @@ export async function POST(request: Request) {
       }
 
       return createdOrder;
-    });
+    }, { maxWait: 10_000, timeout: 30_000 });
 
-    emitOrderCreatedEvent({
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      userId: order.userId,
-      customerName: order.customerName,
-    });
+    revalidateTag("public-products", { expire: 0 });
+    try {
+      emitOrderCreatedEvent({
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        userId: order.userId,
+        customerName: order.customerName,
+      });
+    } catch (eventError) {
+      logError("admin.orders.realtime_publish_failed", eventError, { requestId: getRequestId(request), orderId: order.id });
+    }
 
     return NextResponse.json({ success: true, order }, { status: 201 });
   } catch (error: unknown) {
@@ -383,14 +511,53 @@ export async function POST(request: Request) {
       userId: requestBody?.userId ?? null,
     });
 
-    const message = getUserFacingErrorMessage(error, "Unable to create order.");
+    const requestId = getRequestId(request);
+    const prismaCode = getPrismaErrorCode(error);
 
-    const status = String(error).includes("Not enough stock") || String(error).includes("not enough stock") ? 409 : 500;
+    if (error instanceof SyntaxError) {
+      return apiError(request, 400, "INVALID_JSON", "Checkout details could not be read. Refresh the POS page and try again.");
+    }
+    if (error instanceof InsufficientStockError) {
+      return apiError(request, 409, "INSUFFICIENT_STOCK", error.message);
+    }
+    if (error instanceof InventoryItemUnavailableError) {
+      return apiError(request, 409, "ITEM_UNAVAILABLE", error.message);
+    }
+    if (error instanceof InventoryConflictError || error instanceof OrderStateConflictError || prismaCode === "P2034") {
+      return apiError(request, 409, "INVENTORY_CONFLICT", "Stock changed while checkout was processing. No sale was recorded. Refresh the cart and try again.");
+    }
+    if (prismaCode === "P2028") {
+      return apiError(request, 503, "CHECKOUT_TIMEOUT", "Checkout took too long and was rolled back. No sale was recorded. Retry the checkout; the request is safe to repeat.");
+    }
+    if (prismaCode === "P2003") {
+      return apiError(request, 409, "ITEM_UNAVAILABLE", "A selected product changed while checkout was processing. Refresh the POS catalog and try again.");
+    }
+    if (["P2024", "P1001", "P1002"].includes(prismaCode ?? "")) {
+      return apiError(request, 503, "CHECKOUT_DATABASE_BUSY", "The checkout service is busy or temporarily unreachable. No sale was recorded. Please retry in a moment.");
+    }
 
-    return NextResponse.json(
-      { success: false, message },
-      { status }
-    );
+    if (prismaCode === "P2002" && requestIdempotencyKey) {
+      try {
+        const existingOrder = await prisma.order.findUnique({
+          where: { idempotencyKey: requestIdempotencyKey },
+          include: { items: true },
+        });
+        if (
+          existingOrder &&
+          existingOrder.isWalkIn === requestIsWalkIn &&
+          existingOrder.orderNumber === requestOrderNumber &&
+          existingOrder.paymentMethod === requestPaymentMethod &&
+          haveSameOrderItems(existingOrder.items, requestItems)
+        ) {
+          return NextResponse.json({ success: true, order: existingOrder, idempotent: true }, { status: 200 });
+        }
+      } catch (lookupError) {
+        logError("admin.orders.idempotency_lookup_failed", lookupError, { requestId });
+      }
+      return apiError(request, 409, "ORDER_NUMBER_CONFLICT", "That order number is already in use. Refresh the POS page and submit the sale again.");
+    }
+
+    return apiError(request, 500, "CHECKOUT_FAILED", "Checkout could not be confirmed. Check the order list before retrying.");
   }
 }
 
@@ -405,23 +572,10 @@ export async function PUT(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:orders:update", "admin");
     if (rateLimitResponse) return rateLimitResponse;
 
-    requestBody = await request.json();
-    const body = requestBody;
-    const { id, status } = body as { id?: string; status?: string };
-
-    if (!id) {
-      return NextResponse.json(
-        { success: false, message: "Order id is required." },
-        { status: 400 }
-      );
-    }
-
-    if (!status || !isOrderStatus(status)) {
-      return NextResponse.json(
-        { success: false, message: "Invalid order status." },
-        { status: 400 }
-      );
-    }
+    const parsed = await parseJsonRequestBody(request, orderStatusUpdateSchema, "Order status update is invalid.");
+    if (!parsed.success) return parsed.response;
+    requestBody = parsed.data;
+    const { id, status } = parsed.data;
 
     const existingOrder = await prisma.order.findUnique({
       where: { id },
@@ -442,6 +596,13 @@ export async function PUT(request: Request) {
       );
     }
 
+    if (!canTransitionOrderStatus(existingOrder.status, status as OrderStatus)) {
+      return NextResponse.json(
+        { success: false, message: `Order cannot move from ${existingOrder.status} to ${status}.` },
+        { status: 409 },
+      );
+    }
+
     if (status === "COMPLETED" && !existingOrder.isWalkIn && existingOrder.status !== "READY_FOR_PICKUP") {
       return NextResponse.json(
         { success: false, message: "An ecommerce order can only be completed after it is ready for pickup." },
@@ -450,22 +611,14 @@ export async function PUT(request: Request) {
     }
 
     const isOnlinePayment = existingOrder.paymentMethod === "GCASH" || existingOrder.paymentMethod === "PAYMAYA";
-    const approvalStatuses = ["PREPARING", "READY_FOR_PICKUP", "COMPLETED"];
-    if (isOnlinePayment && existingOrder.paymentStatus !== "PAID" && approvalStatuses.includes(status)) {
+    if (
+      isOnlinePayment &&
+      existingOrder.paymentStatus !== "PAID" &&
+      status !== existingOrder.status &&
+      status !== "CANCELLED"
+    ) {
       return NextResponse.json(
-        { success: false, message: "Approve the payment first before moving this order forward." },
-        { status: 400 }
-      );
-    }
-    if (isOnlinePayment && existingOrder.paymentStatus !== "PAID" && status !== "PENDING_PAYMENT" && status !== "CANCELLED") {
-      return NextResponse.json(
-        { success: false, message: "Approve or reject the online payment before changing the order status." },
-        { status: 400 }
-      );
-    }
-    if (!canCancelOrder(existingOrder.status) && status === "CANCELLED") {
-      return NextResponse.json(
-        { success: false, message: "Only pending orders can be canceled." },
+        { success: false, message: "Approve the online payment before moving this order forward." },
         { status: 400 }
       );
     }
@@ -473,15 +626,25 @@ export async function PUT(request: Request) {
     const order = await prisma.$transaction(async (tx) => {
       const movementSource = existingOrder.isWalkIn ? "POS" : "ECOMMERCE";
       const nextPaymentStatus =
-        status === "CANCELLED" && existingOrder.paymentMethod !== "CASH" && existingOrder.paymentStatus === "PENDING"
+        status === "CANCELLED" && ["PENDING", "PROOF_SUBMITTED"].includes(existingOrder.paymentStatus)
           ? "CANCELLED"
           : status === "COMPLETED" && existingOrder.paymentMethod === "CASH"
           ? "PAID"
           : existingOrder.paymentStatus;
       if (status === "CANCELLED") {
         const claim = await tx.order.updateMany({
-          where: { id, status: existingOrder.status, paymentStatus: existingOrder.paymentStatus },
-          data: { status: "CANCELLED", paymentStatus: nextPaymentStatus },
+          where: {
+            id,
+            status: existingOrder.status,
+            paymentStatus: existingOrder.paymentStatus,
+            stateVersion: existingOrder.stateVersion,
+          },
+          data: {
+            status: "CANCELLED",
+            paymentStatus: nextPaymentStatus,
+            reservationExpiresAt: null,
+            stateVersion: { increment: 1 },
+          },
         });
         if (claim.count !== 1) throw new OrderStateConflictError("Order status changed before cancellation completed.");
       }
@@ -512,6 +675,8 @@ export async function PUT(request: Request) {
           `Order ${existingOrder.orderNumber} completed`,
           authCheck.user?.name,
           {
+            actorUserId: authCheck.payload.sub,
+            orderId: existingOrder.id,
             performedByType: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
             source: "ECOMMERCE",
             customerName: existingOrder.customerName,
@@ -535,6 +700,8 @@ export async function PUT(request: Request) {
           `Order ${existingOrder.orderNumber} completed - reservation completed; no additional stock deduction`,
           authCheck.user?.name,
           {
+            actorUserId: authCheck.payload.sub,
+            orderId: existingOrder.id,
             performedByType: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
             source: "ECOMMERCE",
             customerName: existingOrder.customerName,
@@ -558,6 +725,8 @@ export async function PUT(request: Request) {
           `Order ${existingOrder.orderNumber} cancelled - stock returned`,
           authCheck.user?.name,
           {
+            actorUserId: authCheck.payload.sub,
+            orderId: existingOrder.id,
             performedByType: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
             source: movementSource,
             customerName: existingOrder.customerName,
@@ -570,11 +739,47 @@ export async function PUT(request: Request) {
         );
       }
 
-      if (status === "CANCELLED") return tx.order.findUniqueOrThrow({ where: { id } });
+      if (status !== "CANCELLED") {
+        const claim = await tx.order.updateMany({
+          where: {
+            id,
+            status: existingOrder.status,
+            paymentStatus: existingOrder.paymentStatus,
+            stateVersion: existingOrder.stateVersion,
+          },
+          data: {
+            status: status as OrderStatus,
+            paymentStatus: nextPaymentStatus,
+            ...(status === "COMPLETED" ? { reservationExpiresAt: null } : {}),
+            stateVersion: { increment: 1 },
+            ...(nextPaymentStatus === "PAID" && !existingOrder.paidAt ? { paidAt: new Date() } : {}),
+          },
+        });
+        if (claim.count !== 1) throw new OrderStateConflictError("Order status changed before the update completed.");
+      }
 
-      return tx.order.update({ where: { id }, data: { status: status as OrderStatus, paymentStatus: nextPaymentStatus } });
+      const updatedOrder = await tx.order.findUniqueOrThrow({ where: { id } });
+
+      if (updatedOrder.status !== existingOrder.status || updatedOrder.paymentStatus !== existingOrder.paymentStatus) {
+        await recordOrderEvent(tx, {
+          orderId: updatedOrder.id,
+          eventType: getOrderStatusEventType(updatedOrder.status),
+          previousStatus: existingOrder.status,
+          newStatus: updatedOrder.status,
+          previousPaymentStatus: existingOrder.paymentStatus,
+          newPaymentStatus: updatedOrder.paymentStatus,
+          actor: {
+            userId: authCheck.payload.sub,
+            name: authCheck.user?.name,
+            type: authCheck.user?.role === "STAFF" ? "STAFF" : "ADMIN",
+          },
+        });
+      }
+
+      return updatedOrder;
     });
 
+    revalidateTag("public-products", { expire: 0 });
     emitOrderUpdatedEvent({
       orderId: order.id,
       orderNumber: order.orderNumber,

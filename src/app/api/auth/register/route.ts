@@ -4,40 +4,19 @@ import { buildEmailVerificationUrl, createEmailVerificationToken } from "@/lib/e
 import { sendVerificationEmail } from "@/lib/mailer";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { registerSchema } from "@/features/auth/validators/auth";
-import { signToken } from "@/lib/auth";
-import { setAuthCookie } from "@/lib/cookies";
+import { setAuthCookies } from "@/lib/cookies";
+import { createAuthSession } from "@/lib/auth-sessions";
 import bcrypt from "bcryptjs";
 import { getRequestId, logError } from "@/lib/logger";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitCustomerUpdatedEvent } from "@/lib/realtime";
 
 export async function POST(request: Request) {
   try {
-    // Parse request body
-    let body: unknown;
-
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "Invalid JSON payload." },
-        { status: 400 }
-      );
-    }
-
-    // Validate input
-    const result = registerSchema.safeParse(body);
-
-    if (!result.success) {
-      return NextResponse.json(
-        {
-          success: false,
-          errors: result.error.flatten().fieldErrors,
-        },
-        { status: 400 }
-      );
-    }
-
-    const { name, email, password, gdprConsent } = result.data;
+    const parsed = await parseJsonRequestBody(request, registerSchema, "Registration details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { name, email, password, gdprConsent, role, phone: submittedPhone, address: submittedAddress } = parsed.data;
 
     const rateLimitResponse = await enforceRateLimit(request, "auth:register", {
       group: "auth",
@@ -49,11 +28,9 @@ export async function POST(request: Request) {
       return rateLimitResponse;
     }
 
-    const payload = body as { role?: string; phone?: string; address?: string; gdprConsent?: boolean };
-    const phone = payload.phone?.trim() || null;
-    const address = payload.address?.trim() || null;
-    const isProfileComplete = Boolean(phone) && Boolean(address);
-    const consented = Boolean(gdprConsent ?? payload.gdprConsent ?? false);
+    const phone = submittedPhone.trim() || null;
+    const address = submittedAddress.trim() || null;
+    const consented = gdprConsent;
 
     if (!consented) {
       return NextResponse.json(
@@ -65,7 +42,7 @@ export async function POST(request: Request) {
       );
     }
 
-    if (payload.role && payload.role !== "CUSTOMER") {
+    if (role && role !== "CUSTOMER") {
       return NextResponse.json(
         {
           success: false,
@@ -106,22 +83,24 @@ export async function POST(request: Request) {
         password: hashedPassword,
         phone,
         address,
-        emailVerified: isProfileComplete,
+        emailVerified: false,
         emailVerificationToken: verificationToken,
         emailVerificationTokenExpiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
         role: "CUSTOMER",
       },
     });
 
-    const token = signToken({ sub: user.id, email: user.email, role: user.role });
-    await setAuthCookie(token);
+    emitCustomerUpdatedEvent({ customerId: user.id });
 
-    await sendVerificationEmail(email, verificationUrl, "Verify your APC account");
+    const session = await createAuthSession(user.id, user.sessionVersion, false);
+    await setAuthCookies(session.accessToken, session.refreshToken, session.refreshExpiresAt);
+
+    await sendVerificationEmail(email, verificationUrl, "Verify your account");
 
     return NextResponse.json(
       {
         success: true,
-        message: "Account created successfully. Please check your email to verify your account.",
+        message: "Account created successfully. You can place orders now. Please verify your email to help secure your account.",
         user: {
           id: user.id,
           name: user.name,

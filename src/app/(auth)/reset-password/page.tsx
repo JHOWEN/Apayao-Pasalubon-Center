@@ -8,6 +8,7 @@ import { Lock, KeyRound, AlertCircle, CheckCircle2, Loader2, ArrowRight } from "
 import { AuthCardLayout } from "@/components/auth/AuthCardLayout";
 import { AuthInput } from "@/components/auth/AuthInput";
 import { PasswordStrengthIndicator } from "@/components/auth/PasswordStrengthIndicator";
+import { getNewPasswordPolicyError } from "@/lib/password-policy";
 
 function ResetPasswordContent() {
   const searchParams = useSearchParams();
@@ -33,10 +34,11 @@ function ResetPasswordContent() {
       return;
     }
 
-    if (password.length < 8) {
+    const passwordError = getNewPasswordPolicyError(password);
+    if (passwordError) {
       setFeedback({
         type: "error",
-        message: "Password must be at least 8 characters.",
+        message: passwordError,
       });
       return;
     }
@@ -123,7 +125,7 @@ function ResetPasswordContent() {
           <div className="pt-1">
             <Link
               href="/forgot-password"
-              className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-slate-900 px-5 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800"
+              className="inline-flex min-h-12 w-full items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 sm:w-auto sm:px-5"
             >
               Request a new reset link
               <ArrowRight className="h-3.5 w-3.5" />
@@ -149,7 +151,7 @@ function ResetPasswordContent() {
           <div className="mt-6">
             <Link
               href="/login"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-6 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-md transition hover:bg-slate-800"
+              className="inline-flex h-12 min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold uppercase tracking-[0.08em] text-white shadow-md transition hover:bg-slate-800 sm:px-6"
             >
               <span>Back to sign in</span>
               <ArrowRight className="h-4 w-4" />
@@ -220,7 +222,7 @@ function ResetPasswordContent() {
             whileHover={{ scale: isLoading ? 1 : 1.005 }}
             whileTap={{ scale: isLoading ? 1 : 0.99 }}
             disabled={isLoading}
-            className="group relative mt-2 flex w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-6 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+            className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-4 text-sm font-bold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:px-6"
           >
             {isLoading ? (
               <>

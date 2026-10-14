@@ -1,7 +1,24 @@
 import { Redis } from "@upstash/redis";
 
+type RealtimeEventType =
+  | "order-created"
+  | "inventory-updated"
+  | "inventory-history-updated"
+  | "order-updated"
+  | "catalog-updated"
+  | "reviews-updated"
+  | "customer-updated"
+  | "settings-updated"
+  | "users-updated"
+  | "storefront-products-updated"
+  | "storefront-catalog-updated"
+  | "storefront-reviews-updated"
+  | "storefront-settings-updated"
+  | "customer-order-updated"
+  | "ping";
+
 type RealtimeEvent = {
-  type: "order-created" | "inventory-updated" | "order-updated" | "ping";
+  type: RealtimeEventType;
   payload?: Record<string, unknown>;
   sentAt?: string;
 };
@@ -17,7 +34,7 @@ type RealtimeClient = {
   close: () => void;
   connectedAt: number;
   seenEventIds: Set<string>;
-  pollTimer?: ReturnType<typeof setInterval>;
+  filter: (event: RealtimeEnvelope) => RealtimeEnvelope | null;
 };
 
 type RealtimePublisher = {
@@ -29,6 +46,8 @@ declare global {
   var __apcRealtimePublisher: RealtimePublisher | undefined;
   var __apcRealtimeRedis: Redis | null | undefined;
   var __apcRealtimeRedisDisabledUntil: number | undefined;
+  var __apcRealtimePollTimer: ReturnType<typeof setInterval> | undefined;
+  var __apcRealtimePollInFlight: boolean | undefined;
 }
 
 const realtimeEventsKey = "apc:realtime:admin-events";
@@ -98,9 +117,12 @@ function rememberEvent(client: RealtimeClient, eventId: string) {
 function sendEvent(client: RealtimeClient, event: RealtimeEnvelope) {
   if (client.seenEventIds.has(event.eventId)) return;
 
+  const filteredEvent = client.filter(event);
+  if (!filteredEvent) return;
+
   rememberEvent(client, event.eventId);
   try {
-    client.write(formatEvent(event));
+    client.write(formatEvent(filteredEvent));
   } catch {
     removeAdminRealtimeClient(client.id);
   }
@@ -118,17 +140,23 @@ async function persistEvent(event: RealtimeEnvelope) {
   }
 }
 
-async function pollSharedEvents(client: RealtimeClient) {
+async function pollSharedEvents() {
+  if (globalThis.__apcRealtimePollInFlight) return;
   const redis = getRealtimeRedis();
   if (!redis) return;
 
+  globalThis.__apcRealtimePollInFlight = true;
   try {
     const records = await redis.lrange<string>(realtimeEventsKey, 0, -1);
+    const activeClients = [...clients()];
     for (const record of records) {
       try {
         const event = JSON.parse(record) as RealtimeEnvelope;
-        if (Date.parse(event.sentAt) >= client.connectedAt) {
-          sendEvent(client, event);
+        const sentAt = Date.parse(event.sentAt);
+        if (Number.isFinite(sentAt)) {
+          for (const client of activeClients) {
+            if (sentAt >= client.connectedAt) sendEvent(client, event);
+          }
         }
       } catch {
         // Ignore malformed records so one bad event cannot stop polling.
@@ -136,7 +164,23 @@ async function pollSharedEvents(client: RealtimeClient) {
     }
   } catch (error) {
     disableRealtimeRedis(error);
+  } finally {
+    globalThis.__apcRealtimePollInFlight = false;
   }
+}
+
+function startSharedEventPoller() {
+  if (globalThis.__apcRealtimePollTimer || !hasRealtimeRedisConfig()) return;
+  void pollSharedEvents();
+  globalThis.__apcRealtimePollTimer = setInterval(() => {
+    void pollSharedEvents();
+  }, realtimePollIntervalMs);
+}
+
+function stopSharedEventPollerIfIdle() {
+  if (clients().length || !globalThis.__apcRealtimePollTimer) return;
+  clearInterval(globalThis.__apcRealtimePollTimer);
+  globalThis.__apcRealtimePollTimer = undefined;
 }
 
 const memoryPublisher: RealtimePublisher = {
@@ -168,23 +212,57 @@ export function getRealtimePublisher() {
   return globalThis.__apcRealtimePublisher;
 }
 
-export function addAdminRealtimeClient(write: (message: string) => void, close: () => void) {
+function addRealtimeClient(
+  write: (message: string) => void,
+  close: () => void,
+  filter: RealtimeClient["filter"],
+) {
   const client: RealtimeClient = {
     id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
     write,
     close,
     connectedAt: Date.now(),
     seenEventIds: new Set(),
+    filter,
   };
 
   clients().push(client);
-  if (hasRealtimeRedisConfig()) {
-    void pollSharedEvents(client);
-    client.pollTimer = setInterval(() => {
-      void pollSharedEvents(client);
-    }, realtimePollIntervalMs);
-  }
+  startSharedEventPoller();
   return client.id;
+}
+
+export function addAdminRealtimeClient(write: (message: string) => void, close: () => void) {
+  return addRealtimeClient(write, close, (event) => event);
+}
+
+export function addPublicRealtimeClient(write: (message: string) => void, close: () => void) {
+  return addRealtimeClient(write, close, (event) => {
+    const type =
+      event.type === "catalog-updated"
+        ? "storefront-catalog-updated"
+        : event.type === "reviews-updated"
+          ? "storefront-reviews-updated"
+          : event.type === "settings-updated"
+            ? "storefront-settings-updated"
+            : event.type === "inventory-updated" || event.type === "order-created" || event.type === "order-updated"
+              ? "storefront-products-updated"
+              : null;
+
+    return type ? { type, eventId: event.eventId, sentAt: event.sentAt } : null;
+  });
+}
+
+export function addCustomerRealtimeClient(userId: string, write: (message: string) => void, close: () => void) {
+  return addRealtimeClient(write, close, (event) => {
+    if (
+      (event.type !== "order-created" && event.type !== "order-updated") ||
+      event.payload?.userId !== userId
+    ) {
+      return null;
+    }
+
+    return { type: "customer-order-updated", eventId: event.eventId, sentAt: event.sentAt };
+  });
 }
 
 export function removeAdminRealtimeClient(clientId: string) {
@@ -193,8 +271,8 @@ export function removeAdminRealtimeClient(clientId: string) {
 
   if (index !== -1) {
     const [client] = list.splice(index, 1);
-    if (client.pollTimer) clearInterval(client.pollTimer);
     client.close();
+    stopSharedEventPollerIfIdle();
   }
 }
 
@@ -216,11 +294,44 @@ export function emitInventoryUpdatedEvent(payload: Record<string, unknown> = {})
   });
 }
 
+export function emitInventoryHistoryUpdatedEvent() {
+  broadcastAdminEvent({ type: "inventory-history-updated" });
+}
+
 export function emitOrderUpdatedEvent(payload: Record<string, unknown> = {}) {
   broadcastAdminEvent({
     type: "order-updated",
     payload,
   });
+}
+
+export function emitCatalogUpdatedEvent(payload: Record<string, unknown> = {}) {
+  broadcastAdminEvent({
+    type: "catalog-updated",
+    payload,
+  });
+}
+
+export function emitPublicReviewsUpdatedEvent(payload: Record<string, unknown> = {}) {
+  broadcastAdminEvent({
+    type: "reviews-updated",
+    payload,
+  });
+}
+
+export function emitCustomerUpdatedEvent(payload: Record<string, unknown> = {}) {
+  broadcastAdminEvent({
+    type: "customer-updated",
+    payload,
+  });
+}
+
+export function emitSettingsUpdatedEvent() {
+  broadcastAdminEvent({ type: "settings-updated" });
+}
+
+export function emitUsersUpdatedEvent() {
+  broadcastAdminEvent({ type: "users-updated" });
 }
 
 export function getRealtimePublisherHint() {

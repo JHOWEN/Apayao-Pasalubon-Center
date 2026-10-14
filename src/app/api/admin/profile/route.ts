@@ -1,9 +1,11 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { canAccessAdminPortal, verifyToken } from "@/lib/auth";
+import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { enforceRateLimit } from "@/lib/rate-limit";
+import { profileUpdateSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function GET(request: Request) {
   try {
@@ -14,34 +16,32 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const userRecord = await prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { role: true, isBlocked: true },
-    });
-
-    if (!userRecord || userRecord.isBlocked || !canAccessAdminPortal(userRecord.role)) {
+    if (payload.isBlocked || !canAccessAdminPortal(payload.role)) {
       return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
     }
 
-    const user = await prisma.user.findUnique({
+    const userRecord = await prisma.user.findUnique({
       where: { id: payload.sub },
       select: { id: true, name: true, email: true, phone: true, address: true, imageUrl: true, role: true },
     });
 
-    if (!user) {
+    if (!userRecord) {
       return NextResponse.json({ success: false, message: "User not found." }, { status: 404 });
     }
+    if (!canAccessAdminPortal(userRecord.role)) {
+      return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
+    }
 
-    const rateLimitResponse = await enforceRateLimit(request, "admin:profile:get", { group: "admin", accountId: user.id });
+    const rateLimitResponse = await enforceRateLimit(request, "admin:profile:get", { group: "admin", accountId: userRecord.id });
     if (rateLimitResponse) return rateLimitResponse;
 
-    return NextResponse.json({ success: true, user });
+    return NextResponse.json({ success: true, user: userRecord });
   } catch (error) {
     return NextResponse.json({ success: false, message: getUserFacingErrorMessage(error, "Unable to load profile.") }, { status: 500 });
   }
@@ -56,7 +56,7 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const payload = verifyToken(token) as { sub?: string } | null;
+    const payload = await getUserForToken(token);
 
     if (!payload?.sub) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
@@ -74,7 +74,9 @@ export async function PUT(request: Request) {
     const rateLimitResponse = await enforceRateLimit(request, "admin:profile:update", { group: "admin", accountId: payload.sub });
     if (rateLimitResponse) return rateLimitResponse;
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, profileUpdateSchema, "Profile details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
     const updateData: Record<string, string | null> = {};
 
     if (typeof body.name === "string") updateData.name = body.name.trim();

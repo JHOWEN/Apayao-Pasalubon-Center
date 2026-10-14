@@ -16,47 +16,67 @@ export async function GET(request: NextRequest) {
   if (rateLimitResponse) return rateLimitResponse;
 
   const encoder = new TextEncoder();
+  let cancelStream = () => {};
 
   const stream = new ReadableStream({
     start(controller) {
-      const clientId = addAdminRealtimeClient(
-        (message: string) => {
-          controller.enqueue(encoder.encode(message));
-        },
-        () => {
+      let isClosed = false;
+      let clientId: string | null = null;
+      let keepAlive: ReturnType<typeof setInterval> | null = null;
+
+      const cleanup = (closeController: boolean) => {
+        if (isClosed) return;
+        isClosed = true;
+
+        if (keepAlive) clearInterval(keepAlive);
+        request.signal.removeEventListener("abort", handleAbort);
+
+        if (clientId) {
+          const activeClientId = clientId;
+          clientId = null;
+          removeAdminRealtimeClient(activeClientId);
+        }
+
+        if (closeController) {
           try {
             controller.close();
           } catch {
-            // no-op
+            // The consumer may already have canceled the stream.
+          }
+        }
+      };
+
+      const handleAbort = () => cleanup(true);
+      cancelStream = () => cleanup(false);
+
+      clientId = addAdminRealtimeClient(
+        (message: string) => {
+          if (isClosed) return;
+          try {
+            controller.enqueue(encoder.encode(message));
+          } catch {
+            cleanup(false);
           }
         },
+        () => cleanup(false),
       );
 
-      const keepAlive = setInterval(() => {
+      keepAlive = setInterval(() => {
+        if (isClosed) return;
         try {
           controller.enqueue(
             encoder.encode(`event: ping\ndata: ${JSON.stringify({ sentAt: new Date().toISOString() })}\n\n`),
           );
         } catch {
-          clearInterval(keepAlive);
-          removeAdminRealtimeClient(clientId);
+          cleanup(false);
         }
       }, 15000);
 
-      const closeStream = () => {
-        clearInterval(keepAlive);
-        removeAdminRealtimeClient(clientId);
-        try {
-          controller.close();
-        } catch {
-          // no-op
-        }
-      };
-
-      request.signal.addEventListener("abort", closeStream, { once: true });
+      request.signal.addEventListener("abort", handleAbort, { once: true });
+      if (request.signal.aborted) cleanup(true);
     },
     cancel() {
-      // cleanup handled by abort signal; no-op
+      cancelStream();
     },
   });
 

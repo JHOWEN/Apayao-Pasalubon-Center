@@ -9,5 +9,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     success: true,
     settings: await getCachedPublicSettings(),
+  }, {
+    headers: { "Cache-Control": "public, max-age=0, s-maxage=0, must-revalidate" },
   });
 }

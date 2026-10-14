@@ -42,3 +42,7 @@ yarn-error.log*
 next-env.d.ts
 
 cookies.txt
+
+# Developer-installed agent skills stay local and are not part of the project.
+/.agents/skills/
+/.claude/skills/

@@ -2,37 +2,63 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
+const STORE_UTC_OFFSET_MS = 8 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function getStoreCalendarDate(date: Date) {
+  const storeDate = new Date(date.getTime() + STORE_UTC_OFFSET_MS);
+  return {
+    year: storeDate.getUTCFullYear(),
+    month: storeDate.getUTCMonth(),
+    day: storeDate.getUTCDate(),
+  };
+}
+
+function getStoreDayStart(date: Date) {
+  const { year, month, day } = getStoreCalendarDate(date);
+  return new Date(Date.UTC(year, month, day) - STORE_UTC_OFFSET_MS);
+}
+
+function shiftStoreDays(date: Date, days: number) {
+  return new Date(date.getTime() + days * DAY_MS);
+}
+
+function getStoreMonthStart(date: Date, monthOffset: number) {
+  const { year, month } = getStoreCalendarDate(date);
+  return new Date(Date.UTC(year, month + monthOffset, 1) - STORE_UTC_OFFSET_MS);
+}
+
 function getMovementWindow(range: string) {
   const now = new Date();
+  const todayStart = getStoreDayStart(now);
 
   if (range === "WEEKLY") {
-    const start = new Date(now);
-    start.setDate(now.getDate() - 6);
-    start.setHours(0, 0, 0, 0);
-    return start;
+    return shiftStoreDays(todayStart, -6);
   }
 
   if (range === "MONTHLY") {
-    const start = new Date(now);
-    start.setDate(now.getDate() - 29);
-    start.setHours(0, 0, 0, 0);
-    return start;
+    return shiftStoreDays(todayStart, -29);
   }
 
   if (range === "ANNUALLY") {
-    const start = new Date(now.getFullYear(), now.getMonth() - 11, 1);
-    return start;
+    return getStoreMonthStart(now, -11);
   }
 
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
-  return start;
+  return todayStart;
 }
 
 function parseDateInput(value: string | null) {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
+  const [year, month, day] = value.split("-").map(Number);
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+  if (
+    calendarDate.getUTCFullYear() !== year ||
+    calendarDate.getUTCMonth() !== month - 1 ||
+    calendarDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return new Date(calendarDate.getTime() - STORE_UTC_OFFSET_MS);
 }
 
 export async function GET(request: NextRequest) {
@@ -45,32 +71,52 @@ export async function GET(request: NextRequest) {
   const requestedEnd = parseDateInput(request.nextUrl.searchParams.get("to"));
   const customStart = requestedStart && requestedEnd && requestedStart <= requestedEnd ? requestedStart : null;
   const customEnd = customStart && requestedEnd !== null ? new Date(requestedEnd) : null;
-  if (customEnd) customEnd.setDate(customEnd.getDate() + 1);
+  if (customEnd) customEnd.setTime(customEnd.getTime() + DAY_MS);
   const movementWindowStart = customStart ?? getMovementWindow(range);
   const orderDateFilter = customStart && customEnd
     ? { createdAt: { gte: customStart, lt: customEnd } }
     : movementWindowStart
       ? { createdAt: { gte: movementWindowStart } }
       : undefined;
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
+  const completedDateFilter = customStart && customEnd
+    ? { updatedAt: { gte: customStart, lt: customEnd } }
+    : movementWindowStart
+      ? { updatedAt: { gte: movementWindowStart } }
+      : undefined;
+  const todayStart = getStoreDayStart(new Date());
+  const tomorrowStart = shiftStoreDays(todayStart, 1);
 
-  const [customers, productCount, activeOrders, lowStock, revenue, completedOrders, statusBreakdown, todayStatusBreakdown, inventoryProducts, posOrders, ecommerceOrders, topProducts, pendingOrders, cancelledOrders, completedOrderItems, inventoryMovement, allProducts, allCategories] = await Promise.all([
+  const [customers, productCount, activeOrders, inventoryProducts, revenue, completedOrders, completedOrderCount, statusBreakdown, todayStatusBreakdown, todayCompletedOrderCount, posOrders, ecommerceOrders, topProducts, pendingOrders, cancelledOrders, completedOrderItems, inventoryMovement, allCategories] = await Promise.all([
     prisma.user.count({ where: { role: "CUSTOMER" } }),
     prisma.product.count(),
     prisma.order.count({ where: { status: { notIn: ["CANCELLED", "COMPLETED"] }, ...orderDateFilter } }),
     prisma.product.findMany({
-      select: { id: true, name: true, stock: true, minStock: true, hasVariants: true, variants: { where: { isActive: true }, select: { id: true, sku: true, stock: true, minStock: true, attributes: true } } },
+      select: {
+        id: true,
+        name: true,
+        imageUrl: true,
+        categoryId: true,
+        category: { select: { name: true } },
+        price: true,
+        cost: true,
+        stock: true,
+        minStock: true,
+        hasVariants: true,
+        variants: { where: { isActive: true }, select: { id: true, sku: true, stock: true, minStock: true, attributes: true, price: true, cost: true, isActive: true } },
+      },
       orderBy: { stock: "asc" },
     }),
     prisma.order.aggregate({
-      where: { status: "COMPLETED", ...orderDateFilter },
+      where: { status: "COMPLETED", ...completedDateFilter },
       _sum: { totalAmount: true },
     }),
     prisma.order.findMany({
-      where: { status: "COMPLETED", ...orderDateFilter },
-      select: { createdAt: true, totalAmount: true },
-      orderBy: { createdAt: "asc" },
+      where: { status: "COMPLETED", ...completedDateFilter },
+      select: { updatedAt: true, totalAmount: true },
+      orderBy: { updatedAt: "asc" },
+    }),
+    prisma.order.count({
+      where: { status: "COMPLETED", ...completedDateFilter },
     }),
     prisma.order.groupBy({
       by: ["status"],
@@ -80,21 +126,23 @@ export async function GET(request: NextRequest) {
     includeToday
       ? prisma.order.groupBy({
           by: ["status"],
-          where: { createdAt: { gte: todayStart } },
+          where: { createdAt: { gte: todayStart, lt: tomorrowStart } },
           _count: { id: true },
         })
       : Promise.resolve([]),
-    prisma.product.findMany({
-      select: { price: true, cost: true, stock: true, hasVariants: true, variants: { select: { price: true, cost: true, stock: true, isActive: true } } },
-    }),
+    includeToday
+      ? prisma.order.count({
+          where: { status: "COMPLETED", updatedAt: { gte: todayStart, lt: tomorrowStart } },
+        })
+      : Promise.resolve(0),
     prisma.order.groupBy({
       by: ["isWalkIn"],
-      where: { status: "COMPLETED", ...orderDateFilter },
+      where: { status: "COMPLETED", ...completedDateFilter },
       _count: { id: true },
       _sum: { totalAmount: true },
     }),
     prisma.order.aggregate({
-      where: { status: "COMPLETED", userId: { not: null }, ...orderDateFilter },
+      where: { status: "COMPLETED", userId: { not: null }, ...completedDateFilter },
       _sum: { totalAmount: true },
       _count: { id: true },
     }),
@@ -103,7 +151,7 @@ export async function GET(request: NextRequest) {
       where: {
         order: {
           status: "COMPLETED",
-          ...orderDateFilter,
+          ...completedDateFilter,
         }
       },
       _sum: { quantity: true, subtotal: true },
@@ -113,7 +161,7 @@ export async function GET(request: NextRequest) {
     prisma.order.count({ where: { status: "PENDING", ...orderDateFilter } }),
     prisma.order.count({ where: { status: "CANCELLED", ...orderDateFilter } }),
     prisma.orderItem.findMany({
-      where: { order: { status: "COMPLETED", ...orderDateFilter } },
+      where: { order: { status: "COMPLETED", ...completedDateFilter } },
       select: {
         quantity: true,
         subtotal: true,
@@ -132,16 +180,6 @@ export async function GET(request: NextRequest) {
       where: movementWindowStart ? { createdAt: { gte: movementWindowStart } } : undefined,
       _sum: { quantity: true },
       _count: { id: true },
-    }),
-    prisma.product.findMany({
-      select: {
-        id: true,
-        name: true,
-        imageUrl: true,
-        categoryId: true,
-        category: { select: { name: true } },
-      },
-      orderBy: { name: "asc" },
     }),
     prisma.category.findMany({
       select: {
@@ -168,7 +206,7 @@ export async function GET(request: NextRequest) {
     return sum + Number(product.price ?? 0) * Number(product.stock ?? 0);
   }, 0);
 
-  const lowStockItems = lowStock.flatMap((product) => {
+  const lowStockItems = inventoryProducts.flatMap((product) => {
     if (!product.hasVariants) {
       return Number(product.stock) <= Number(product.minStock) ? [{ id: product.id, name: product.name, stock: Number(product.stock), minStock: Number(product.minStock) }] : [];
     }
@@ -177,7 +215,8 @@ export async function GET(request: NextRequest) {
       .map((variant) => ({ id: variant.id, name: `${product.name} - ${variant.sku}`, stock: Number(variant.stock), minStock: Number(variant.minStock) }));
   }).sort((a, b) => a.stock - b.stock).slice(0, 10);
 
-  const productNameMap = new Map(allProducts.map((product) => [product.id, product.name]));
+  const inventoryProductMap = new Map(inventoryProducts.map((product) => [product.id, product]));
+  const productNameMap = new Map(inventoryProducts.map((product) => [product.id, product.name]));
 
   // Calculate POS vs Ecommerce breakdown
   const posSalesData = posOrders.find((item) => item.isWalkIn === true) || { _count: { id: 0 }, _sum: { totalAmount: 0 } };
@@ -209,6 +248,11 @@ export async function GET(request: NextRequest) {
     });
   });
 
+  statusBreakdownMap.set("COMPLETED", {
+    name: "COMPLETED",
+    orders: completedOrderCount,
+  });
+
   const statusBreakdownSeries = Array.from(statusBreakdownMap.values());
   const totalCompletedOrders = statusBreakdownMap.get("COMPLETED")?.orders || 0;
   const totalNonCancelledOrders = allStatusNames
@@ -217,6 +261,7 @@ export async function GET(request: NextRequest) {
   const completionRate = totalNonCancelledOrders > 0 ? ((totalCompletedOrders / totalNonCancelledOrders) * 100).toFixed(1) : "0";
   const avgOrderValue = totalCompletedOrders > 0 ? (Number(revenue._sum.totalAmount ?? 0) / totalCompletedOrders).toFixed(2) : "0";
   const todayStatusMap = new Map(todayStatusBreakdown.map((item) => [item.status, item._count.id]));
+  todayStatusMap.set("COMPLETED", todayCompletedOrderCount);
 
   const stockInQuantity = inventoryMovement
     .filter((item) => item.type === "STOCK_IN")
@@ -239,7 +284,7 @@ export async function GET(request: NextRequest) {
     });
   });
 
-  allProducts.forEach((product) => {
+  inventoryProducts.forEach((product) => {
     salesByProductMap.set(product.name, {
       name: product.name,
       revenue: 0,
@@ -272,7 +317,6 @@ export async function GET(request: NextRequest) {
     outOfStockCount: inventoryProducts.reduce((count, product) => product.hasVariants
       ? count + product.variants.filter((variant) => variant.isActive && Number(variant.stock ?? 0) === 0).length
       : count + (Number(product.stock ?? 0) === 0 ? 1 : 0), 0),
-    totalInventoryValue: Number(totalCost.toFixed(2)),
     averageStock: inventoryProducts.length > 0
       ? Number((inventoryProducts.reduce((sum, product) => product.hasVariants
         ? sum + product.variants.filter((variant) => variant.isActive).reduce((variantSum, variant) => variantSum + Number(variant.stock ?? 0), 0)
@@ -288,34 +332,31 @@ export async function GET(request: NextRequest) {
 
   if (range === "ANNUALLY" && !customStart) {
     for (let offset = 11; offset >= 0; offset -= 1) {
-      const bucketStart = new Date(now.getFullYear(), now.getMonth() - offset, 1);
-      const bucketEnd = new Date(bucketStart.getFullYear(), bucketStart.getMonth() + 1, 1);
+      const bucketStart = getStoreMonthStart(now, -offset);
+      const bucketEnd = getStoreMonthStart(now, -offset + 1);
       const revenueForBucket = completedOrders
-        .filter((order) => order.createdAt >= bucketStart && order.createdAt < bucketEnd)
+        .filter((order) => order.updatedAt >= bucketStart && order.updatedAt < bucketEnd)
         .reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
 
       revenueTrend.push({
-        label: bucketStart.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+        label: bucketStart.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "Asia/Manila" }),
         revenue: Number(revenueForBucket.toFixed(2)),
       });
     }
   } else {
     const firstBucket = customStart
       ? new Date(customStart)
-      : new Date(now.getFullYear(), now.getMonth(), now.getDate() - dailyBucketCount + 1);
-    firstBucket.setHours(0, 0, 0, 0);
+      : shiftStoreDays(getStoreDayStart(now), -dailyBucketCount + 1);
 
     for (let offset = 0; offset < dailyBucketCount; offset += 1) {
-      const bucketStart = new Date(firstBucket);
-      bucketStart.setDate(firstBucket.getDate() + offset);
-      const bucketEnd = new Date(bucketStart);
-      bucketEnd.setDate(bucketStart.getDate() + 1);
+      const bucketStart = shiftStoreDays(firstBucket, offset);
+      const bucketEnd = shiftStoreDays(bucketStart, 1);
       const revenueForBucket = completedOrders
-        .filter((order) => order.createdAt >= bucketStart && order.createdAt < bucketEnd)
+        .filter((order) => order.updatedAt >= bucketStart && order.updatedAt < bucketEnd)
         .reduce((sum, order) => sum + Number(order.totalAmount ?? 0), 0);
 
       revenueTrend.push({
-        label: bucketStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        label: bucketStart.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "Asia/Manila" }),
         revenue: Number(revenueForBucket.toFixed(2)),
       });
     }
@@ -336,8 +377,8 @@ export async function GET(request: NextRequest) {
     .map((summary) => ({
       ...summary,
       name: productNameMap.get(summary.productId) || "Unknown product",
-      imageUrl: allProducts.find((product) => product.id === summary.productId)?.imageUrl ?? null,
-      categoryName: allProducts.find((product) => product.id === summary.productId)?.category?.name ?? "Uncategorized",
+      imageUrl: inventoryProductMap.get(summary.productId)?.imageUrl ?? null,
+      categoryName: inventoryProductMap.get(summary.productId)?.category?.name ?? "Uncategorized",
     }))
     .sort((left, right) => right.revenue - left.revenue || right.quantity - left.quantity || left.name.localeCompare(right.name));
 
@@ -376,5 +417,7 @@ export async function GET(request: NextRequest) {
       netChange: netMovement,
       lowStockCount: lowStockItems.length,
     },
+  }, {
+    headers: { "Cache-Control": "private, no-store, max-age=0" },
   });
 }

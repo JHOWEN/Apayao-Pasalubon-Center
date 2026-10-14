@@ -1,5 +1,19 @@
 import type { Metadata } from "next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+import { ToastHost } from "@/components/toast-host";
 import "./globals.css";
+
+const themeInitScript = `
+  (() => {
+    try {
+      const preference = localStorage.getItem("apc-theme");
+      const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      const isDark = preference === "dark" || (preference !== "light" && preference !== "dark" && systemPrefersDark);
+      document.documentElement.classList.toggle("dark", isDark);
+      document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+    } catch {}
+  })();
+`;
 
 export const metadata: Metadata = {
   title: "APC Inventory",
@@ -12,8 +26,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="min-h-full flex flex-col font-sans">{children}</body>
+    <html lang="en" className="h-full antialiased" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
+      <body className="min-h-full flex flex-col font-sans">
+        {children}
+        <ToastHost />
+        <SpeedInsights />
+      </body>
     </html>
   );
 }

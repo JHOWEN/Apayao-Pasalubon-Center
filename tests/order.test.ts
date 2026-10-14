@@ -40,7 +40,7 @@ test("accepts wallet order payload before receipt upload so stock can be reserve
   assert.equal(result.success, true);
   if (result.success) {
     assert.equal(result.payload.paymentMethod, "GCASH");
-    assert.equal(result.payload.proofOfPaymentUrl, undefined);
+    assert.equal("proofOfPaymentUrl" in result.payload, false);
   }
 });
 
@@ -48,10 +48,10 @@ test("cash orders stay pending until completion and only show paid when complete
   assert.equal(getEffectivePaymentStatus({ paymentMethod: "CASH", paymentStatus: "PENDING", status: "PENDING" }), "PENDING");
   assert.equal(getEffectivePaymentStatus({ paymentMethod: "CASH", paymentStatus: "PENDING", status: "READY_FOR_PICKUP" }), "PENDING");
   assert.equal(getEffectivePaymentStatus({ paymentMethod: "CASH", paymentStatus: "PENDING", status: "COMPLETED" }), "PAID");
-  assert.equal(getEffectivePaymentStatus({ paymentMethod: "CASH", paymentStatus: "PENDING", status: "CANCELLED" }), "PENDING");
+  assert.equal(getEffectivePaymentStatus({ paymentMethod: "CASH", paymentStatus: "PENDING", status: "CANCELLED" }), "CANCELLED");
   assert.equal(getEffectivePaymentStatus({ paymentMethod: "GCASH", paymentStatus: "PENDING", status: "PENDING" }), "PENDING");
   assert.equal(getEffectivePaymentStatus({ paymentMethod: "GCASH", paymentStatus: "CANCELLED", status: "CANCELLED" }), "CANCELLED");
-  assert.equal(resolveInitialOrderStatus(false, "PENDING", false), "PENDING");
+  assert.equal(resolveInitialOrderStatus(false), "PENDING");
 });
 
 test("cash orders remain pending until completion while online payment stays pending", () => {
@@ -92,10 +92,9 @@ test("normalizes idempotency keys and variant data", () => {
 });
 
 test("enforces order status progression and cancellation rules", () => {
-  assert.equal(resolveInitialOrderStatus(false, "PENDING"), "PENDING");
-  assert.equal(resolveInitialOrderStatus(false, "CANCELLED"), "PENDING_PAYMENT");
+  assert.equal(resolveInitialOrderStatus(false), "PENDING");
   assert.equal(resolveInitialOrderStatus(true), "COMPLETED");
-  assert.equal(getNextOrderStatus("PENDING"), "PREPARING");
+  assert.equal(getNextOrderStatus("PENDING"), "CONFIRMED");
   assert.equal(getNextOrderStatus("COMPLETED"), null);
   assert.equal(canCancelOrder("PENDING"), true);
   assert.equal(canCancelOrder("COMPLETED"), false);

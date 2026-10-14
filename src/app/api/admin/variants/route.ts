@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { ensureAuthenticatedAdmin } from "@/lib/auth";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
+import { variantCreateSchema } from "@/features/admin/validators/admin";
+import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitCatalogUpdatedEvent } from "@/lib/realtime";
 
 export async function POST(request: Request) {
   try {
@@ -10,10 +14,10 @@ export async function POST(request: Request) {
     const userId = await ensureAuthenticatedAdmin();
     if (!userId) return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
 
-    const body = await request.json();
-    const productId = typeof body.productId === "string" ? body.productId.trim() : "";
-    const sku = typeof body.sku === "string" ? body.sku.trim() : "";
-    if (!productId || !sku) return NextResponse.json({ success: false, message: "Product and product code are required." }, { status: 400 });
+    const parsed = await parseJsonRequestBody(request, variantCreateSchema, "Product option details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
+    const { productId, sku } = body;
 
     const stock = Math.max(0, Math.trunc(Number(body.stock ?? 0)));
     const actor = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } });
@@ -35,13 +39,15 @@ export async function POST(request: Request) {
       if (stock > 0) {
         const product = await tx.product.findUnique({ where: { id: productId }, select: { name: true } });
         await tx.inventoryTransaction.create({
-          data: { productId, variantId: created.id, productName: product?.name ?? null, type: "STOCK_IN", eventType: "STOCK_IN", quantity: stock, stockBefore: 0, stockAfter: stock, remarks: `Initial stock - variant ${sku}`, performedByName: actor?.name ?? null, performedByType: actor?.role ?? "ADMIN", source: "INVENTORY" },
+          data: { productId, variantId: created.id, variantSku: created.sku, productName: product?.name ?? null, type: "STOCK_IN", eventType: "STOCK_IN", quantity: stock, stockBefore: 0, stockAfter: stock, remarks: `Initial stock - variant ${sku}`, performedById: userId, performedByName: actor?.name ?? null, performedByType: actor?.role ?? "ADMIN", source: "INVENTORY" },
         });
       }
 
       return created;
     });
 
+    revalidateTag("public-products", { expire: 0 });
+    emitCatalogUpdatedEvent({ productId, variantId: variant.id });
     return NextResponse.json({ success: true, variant }, { status: 201 });
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {

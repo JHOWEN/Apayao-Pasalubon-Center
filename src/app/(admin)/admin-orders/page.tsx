@@ -1,8 +1,9 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
 import { Fragment, useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { createPortal } from "react-dom";
-import Image from "next/image";
+import { createPortal, flushSync } from "react-dom";
+import Image from "@/components/safe-image";
 import { AdminToast } from "@/components/admin/admin-toast";
 import styles from "./admin-orders.module.css";
 import {
@@ -29,7 +30,7 @@ import {
   User,
   X,
 } from "lucide-react";
-import { orderStatuses } from "@/lib/order";
+import { getNextOrderStatus, OrderStatus } from "@/lib/order";
 import {
   ADMIN_MODAL_ACTION_ROW_CLASS,
   ADMIN_MODAL_HEADER_CLASS,
@@ -42,6 +43,10 @@ interface OrderItem {
   quantity: number;
   price: number;
   subtotal: number;
+  productNameSnapshot?: string;
+  productSkuSnapshot?: string;
+  variantSkuSnapshot?: string | null;
+  variantAttributesSnapshot?: string | null;
   product?: {
     name?: string;
   };
@@ -52,6 +57,19 @@ interface OrderItem {
     measurementValue?: number | null;
     measurementUnit?: string | null;
   } | null;
+}
+
+interface OrderEvent {
+  id: string;
+  eventType: string;
+  previousStatus?: string | null;
+  newStatus?: string | null;
+  previousPaymentStatus?: string | null;
+  newPaymentStatus?: string | null;
+  actorName?: string | null;
+  actorType: string;
+  note?: string | null;
+  createdAt: string;
 }
 
 interface OrderData {
@@ -68,9 +86,11 @@ interface OrderData {
   totalAmount: number;
   paymentMethod?: string;
   paymentStatus?: string;
+  paidAt?: string | null;
   proofOfPaymentUrl?: string | null;
   isWalkIn?: boolean;
   items: OrderItem[];
+  events: OrderEvent[];
 }
 
 export default function AdminOrdersPage() {
@@ -80,11 +100,16 @@ export default function AdminOrdersPage() {
   const [filterDate, setFilterDate] = useState("ALL");
   const [customPickupDate, setCustomPickupDate] = useState("");
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
+  const [orderHistory, setOrderHistory] = useState<OrderEvent[]>([]);
+  const [isLoadingOrderHistory, setIsLoadingOrderHistory] = useState(false);
+  const [orderHistoryError, setOrderHistoryError] = useState("");
+  const [orderHistoryRefresh, setOrderHistoryRefresh] = useState(0);
   const [pageSize, setPageSize] = useState(15);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalOrderCount, setTotalOrderCount] = useState(0);
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [paymentProofViewerUrl, setPaymentProofViewerUrl] = useState<string | null>(null);
+  const [printDialog, setPrintDialog] = useState<{ title: string; description: string; html: string } | null>(null);
   const [jumpInput, setJumpInput] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const isMounted = useSyncExternalStore(
@@ -92,7 +117,7 @@ export default function AdminOrdersPage() {
     () => true,
     () => false,
   );
-  const [, setIsUpdatingStatus] = useState(false);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [manageModal, setManageModal] = useState<{
     orderId: string;
     orderNumber: string;
@@ -104,7 +129,7 @@ export default function AdminOrdersPage() {
   const [statusUpdateFeedback, setStatusUpdateFeedback] = useState<{
     title: string;
     message: string;
-    type: "success" | "error";
+    type: "success" | "error" | "warning";
   } | null>(null);
   const [, setIsProcessingPaymentAction] = useState(false);
 
@@ -147,9 +172,31 @@ export default function AdminOrdersPage() {
     return details.length ? `${details.join(" • ")} (${variant.sku ?? "SKU"})` : variant.sku ?? "Variant";
   }
 
+  function getOrderItemVariantLabel(item: OrderItem) {
+    if (!item.variant && !item.variantSkuSnapshot && !item.variantAttributesSnapshot) return "";
+    return getVariantLabel({
+      ...item.variant,
+      sku: item.variantSkuSnapshot ?? item.variant?.sku,
+      attributes: item.variantAttributesSnapshot ?? item.variant?.attributes,
+    });
+  }
+
+  function getOrderEventLabel(eventType: string) {
+    const labels: Record<string, string> = {
+      ORDER_CREATED: "Order created",
+      ORDER_STATUS_CHANGED: "Order status changed",
+      ORDER_COMPLETED: "Order completed",
+      ORDER_CANCELLED: "Order cancelled",
+      PAYMENT_APPROVED: "Payment approved",
+      PAYMENT_DECLINED: "Payment declined",
+      PAYMENT_PROOF_SUBMITTED: "Payment proof submitted",
+      RESERVATION_EXPIRED: "Payment reservation expired",
+    };
+    return labels[eventType] ?? eventType.replaceAll("_", " ").toLowerCase();
+  }
+
   function getStatusLabel(status: string) {
     const labels: Record<string, string> = {
-      PENDING_PAYMENT: "Payment Review",
       PENDING: "Pending",
       CONFIRMED: "Confirmed",
       PREPARING: "Preparing",
@@ -170,14 +217,23 @@ export default function AdminOrdersPage() {
         return "Declined";
       }
 
+      if (paymentStatus === "CANCELLED") {
+        return "Cancelled";
+      }
+
       return "Pending";
+    }
+
+    if (paymentStatus === "FAILED") {
+      return "Declined";
     }
 
     if (paymentStatus === "CANCELLED" || (orderStatus === "CANCELLED" && paymentStatus !== "PAID")) {
       return "Cancelled";
     }
 
-    return paymentStatus === "PAID" ? "Paid" : paymentStatus === "FAILED" ? "Declined" : "Awaiting Review";
+    if (paymentStatus === "PAID") return "Paid";
+    return paymentStatus === "PROOF_SUBMITTED" ? "Awaiting Review" : "Awaiting Payment";
   }
 
   function formatPickupTimeLabel(timeValue?: string | null) {
@@ -206,13 +262,74 @@ export default function AdminOrdersPage() {
     })[character] ?? character);
   }
 
+  function printHtmlInHiddenFrame(title: string, html: string) {
+    const printFrame = document.createElement("iframe");
+    printFrame.setAttribute("aria-hidden", "true");
+    printFrame.title = `${title} print document`;
+    printFrame.style.position = "fixed";
+    printFrame.style.left = "0";
+    printFrame.style.top = "0";
+    printFrame.style.width = "100vw";
+    printFrame.style.height = "100vh";
+    printFrame.style.border = "0";
+    printFrame.style.opacity = "0";
+    printFrame.style.pointerEvents = "none";
+    printFrame.style.zIndex = "-1";
+    document.body.appendChild(printFrame);
+
+    const printDocument = printFrame.contentDocument;
+    const printWindow = printFrame.contentWindow;
+    if (!printDocument || !printWindow) {
+      printFrame.remove();
+      setStatusUpdateFeedback({
+        type: "error",
+        title: "Unable to print",
+        message: "The print document could not be prepared. Please try again.",
+      });
+      return;
+    }
+
+    let cleanupTimer: number | null = null;
+    const cleanupPrint = () => {
+      if (cleanupTimer !== null) window.clearTimeout(cleanupTimer);
+      printWindow.removeEventListener("afterprint", cleanupPrint);
+      printFrame.remove();
+    };
+
+    try {
+      printDocument.open();
+      const printReadyHtml = html.replace(
+        "</head>",
+        "<style>@media screen{body{visibility:hidden}}@media print{body{visibility:visible}}</style></head>",
+      );
+      printDocument.write(printReadyHtml);
+      printDocument.close();
+      printWindow.addEventListener("afterprint", cleanupPrint, { once: true });
+      cleanupTimer = window.setTimeout(cleanupPrint, 120_000);
+      printWindow.focus();
+      printWindow.print();
+    } catch {
+      cleanupPrint();
+      setStatusUpdateFeedback({
+        type: "error",
+        title: "Unable to print",
+        message: "Your browser could not open printing. Please try again.",
+      });
+    }
+  }
+
+  function confirmPrintDialog() {
+    if (!printDialog) return;
+
+    const pendingPrint = printDialog;
+    flushSync(() => setPrintDialog(null));
+    printHtmlInHiddenFrame(pendingPrint.title, pendingPrint.html);
+  }
+
   function printFilteredPickupSheet() {
     const pickupOrders = filteredOrders
       .filter((order) => !order.isWalkIn && !["COMPLETED", "CANCELLED"].includes(order.status))
       .sort((left, right) => new Date(left.pickupDate ?? 0).getTime() - new Date(right.pickupDate ?? 0).getTime());
-
-    const printWindow = window.open("", "tomorrow-pickups", "width=900,height=900");
-    if (!printWindow) return;
 
     const orderMarkup = pickupOrders
       .map(
@@ -231,8 +348,8 @@ export default function AdminOrdersPage() {
         <table><thead><tr><th>Product</th><th>Variant</th><th>Qty</th></tr></thead><tbody>${order.items
           .map(
             (item) =>
-              `<tr><td>${escapeHtml(item.product?.name ?? "Product")}</td><td>${escapeHtml(
-                item.variant ? getVariantLabel(item.variant) : "-"
+              `<tr><td>${escapeHtml(item.productNameSnapshot || item.product?.name || "Product")}</td><td>${escapeHtml(
+                getOrderItemVariantLabel(item) || "-"
               )}</td><td>${item.quantity}</td></tr>`
           )
           .join("")}</tbody></table>
@@ -244,22 +361,22 @@ export default function AdminOrdersPage() {
       .join("");
 
     const filterLabel = filterDate === "ALL" ? "Filtered Pickup Schedule" : `${filterDate.replaceAll("_", " ")} Pickup Schedule`;
-    printWindow.document.write(`<!doctype html><html><head><title>${filterLabel}</title><style>
+    const reportHtml = `<!doctype html><html><head><title>${escapeHtml(filterLabel)}</title><style>
       *{box-sizing:border-box}body{margin:0;padding:28px;color:#17251f;font:13px Arial,sans-serif}h1{margin:0;font-size:24px}h2{margin:4px 0 0;font-size:13px;font-weight:400;color:#64748b}.meta{margin:18px 0;padding:12px 14px;background:#ecfdf5;border:1px solid #a7f3d0}.order{margin:0 0 18px;padding:16px;border:1px solid #cbd5e1;break-inside:avoid}.order-header{display:flex;justify-content:space-between;gap:20px;border-bottom:1px solid #e2e8f0;padding-bottom:10px;font-size:14px}.order-header strong{font-size:16px}.pickup{font-weight:700;color:#047857;text-align:right}.customer{padding:10px 0;line-height:1.6;color:#475569}.customer strong{color:#334155}table{width:100%;border-collapse:collapse}th,td{padding:7px 6px;border-top:1px solid #e2e8f0;text-align:left}th{font-size:10px;text-transform:uppercase;color:#64748b}th:last-child,td:last-child{text-align:center;width:60px}.total{display:flex;justify-content:space-between;margin-top:10px;padding-top:10px;border-top:2px solid #334155}.empty{text-align:center;padding:40px;border:1px dashed #94a3b8;color:#64748b}@media print{body{padding:16px}}
     </style></head><body><h1>${filterLabel}</h1><h2>Apayao Pasalubong Center</h2><div class="meta"><strong>${pickupOrders.length} pickup order(s)</strong> · Printed ${new Date().toLocaleString()}</div>${
       orderMarkup || '<div class="empty">No orders match the current filters.</div>'
-    }</body></html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    window.setTimeout(() => printWindow.print(), 300);
+    }</body></html>`;
+    setPrintDialog({
+      title: "Print pickup sheet",
+      description: `${pickupOrders.length} pickup order(s)`,
+      html: reportHtml,
+    });
   }
 
   function printFilteredOrderLabels() {
     const labelOrders = filteredOrders
       .filter((order) => !order.isWalkIn && !["COMPLETED", "CANCELLED"].includes(order.status))
       .sort((left, right) => new Date(left.pickupDate ?? 0).getTime() - new Date(right.pickupDate ?? 0).getTime());
-    const printWindow = window.open("", "filtered-order-labels", "width=700,height=900");
-    if (!printWindow) return;
 
     const labelsMarkup = labelOrders
       .map(
@@ -279,8 +396,8 @@ export default function AdminOrdersPage() {
         <div class="items">${order.items
           .map(
             (item) =>
-              `<div class="item"><span>${escapeHtml(item.product?.name ?? "Product")}${
-                item.variant ? `<small>${escapeHtml(getVariantLabel(item.variant))}</small>` : ""
+              `<div class="item"><span>${escapeHtml(item.productNameSnapshot || item.product?.name || "Product")}${
+                getOrderItemVariantLabel(item) ? `<small>${escapeHtml(getOrderItemVariantLabel(item))}</small>` : ""
               }</span><strong>Qty ${item.quantity}</strong></div>`
           )
           .join("")}</div>
@@ -291,97 +408,108 @@ export default function AdminOrdersPage() {
       )
       .join("");
 
-    printWindow.document.write(`<!doctype html><html><head><title>Filtered pickup labels</title><style>
+    const labelsHtml = `<!doctype html><html><head><title>Filtered pickup labels</title><style>
       *{box-sizing:border-box}@page{size:letter portrait;margin:.35in}body{margin:0;background:#e5e7eb;color:#17251f;font:12px Arial,sans-serif}.label{width:7.8in;height:4.95in;margin:0 auto;padding:.22in;background:#fff;border:2px solid #064e3b;break-inside:avoid}.label:nth-child(even){break-after:page}.brand{color:#064e3b;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.label-title{margin-top:12px;color:#64748b;font-size:9px;font-weight:700;letter-spacing:.18em}.order-number{margin-top:4px;font-size:24px;font-weight:800;letter-spacing:.04em}.customer-name{margin-top:4px;font-size:18px;font-weight:700;overflow-wrap:anywhere}.details{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:12px;padding:9px 0;border-top:1px solid #cbd5e1;border-bottom:1px solid #cbd5e1}.details div{display:grid;gap:3px}.details .address{grid-column:1 / -1}.details strong{color:#64748b;font-size:8px;letter-spacing:.1em;text-transform:uppercase}.details span{overflow-wrap:anywhere}.items{margin-top:10px;border-top:1px solid #334155}.item{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid #e2e8f0}.item span{min-width:0;overflow-wrap:anywhere}.item strong{flex-shrink:0}.item small{display:block;margin-top:2px;color:#64748b;font-size:9px;font-weight:400}.footer{display:flex;justify-content:space-between;gap:10px;margin-top:10px;padding-top:8px;border-top:2px solid #064e3b;color:#065f46}.footer strong{font-size:15px}@media print{body{background:#fff}.label{margin:0;border-width:1px}}
-    </style></head><body>${labelsMarkup || '<div class="label">No orders match the current filters.</div>'}</body></html>`);
-    printWindow.document.close();
-    printWindow.focus();
-    window.setTimeout(() => printWindow.print(), 300);
+    </style></head><body>${labelsMarkup || '<div class="label">No orders match the current filters.</div>'}</body></html>`;
+    setPrintDialog({
+      title: "Print order labels",
+      description: `${labelOrders.length} order label(s)`,
+      html: labelsHtml,
+    });
   }
 
-  const loadOrders = useCallback(async (showLoading = false) => {
-    if (showLoading) {
-      setIsLoading(true);
+  const loadOrders = useCallback(async () => {
+    const params = new URLSearchParams({
+      page: String(currentPage),
+      limit: String(pageSize),
+      search,
+      status: filterStatus,
+      filterDate,
+      customPickupDate,
+    });
+    const response = await adminFetch(`/api/admin/orders?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error("Unable to load orders.");
     }
 
-    try {
-      const params = new URLSearchParams({
-        page: String(currentPage),
-        limit: String(pageSize),
-        search,
-        status: filterStatus,
-        filterDate,
-        customPickupDate,
-      });
-      const response = await fetch(`/api/admin/orders?${params.toString()}`);
-      if (!response.ok) {
-        throw new Error("Unable to load orders.");
-      }
+    const data = await response.json();
+    const responseOrders = Array.isArray(data?.orders) ? data.orders : Array.isArray(data) ? data : [];
+    const normalizedOrders = responseOrders.map((order: Partial<OrderData>) => ({
+      ...order,
+      id: order.id ?? "",
+      orderNumber: order.orderNumber ?? "",
+      customerName: order.customerName ?? "Unknown customer",
+      customerPhone: order.customerPhone ?? "",
+      customerEmail: order.customerEmail ?? "",
+      customerAddress: order.customerAddress ?? "",
+      pickupDate: order.pickupDate ?? null,
+      createdAt: order.createdAt ?? new Date().toISOString(),
+      status: order.status ?? "PENDING",
+      totalAmount: Number(order.totalAmount ?? 0),
+      paymentMethod: order.paymentMethod ?? "CASH",
+      paymentStatus: order.paymentStatus ?? undefined,
+      proofOfPaymentUrl: order.proofOfPaymentUrl ?? null,
+      items: Array.isArray(order.items) ? order.items : [],
+      events: [],
+    }));
 
-      const data = await response.json();
-      const responseOrders = Array.isArray(data?.orders) ? data.orders : Array.isArray(data) ? data : [];
-      const normalizedOrders = responseOrders.map((order: Partial<OrderData>) => ({
-            ...order,
-            id: order.id ?? "",
-            orderNumber: order.orderNumber ?? "",
-            customerName: order.customerName ?? "Unknown customer",
-            customerPhone: order.customerPhone ?? "",
-            customerEmail: order.customerEmail ?? "",
-            customerAddress: order.customerAddress ?? "",
-            pickupDate: order.pickupDate ?? null,
-            createdAt: order.createdAt ?? new Date().toISOString(),
-            status: order.status ?? "PENDING",
-            totalAmount: Number(order.totalAmount ?? 0),
-            paymentMethod: order.paymentMethod ?? "CASH",
-            paymentStatus: order.paymentStatus ?? undefined,
-            proofOfPaymentUrl: order.proofOfPaymentUrl ?? null,
-            items: Array.isArray(order.items) ? order.items : [],
-          }));
-      setOrders(normalizedOrders as OrderData[]);
-        setTotalOrderCount(Number(data?.pagination?.totalCount ?? normalizedOrders.length));
-        setStatusCounts(data?.statusCounts && typeof data.statusCounts === "object" ? data.statusCounts : {});
-    } catch {
-      if (showLoading) {
-        setOrders([]);
-          setTotalOrderCount(0);
-          setStatusCounts({});
-      }
-    } finally {
-      if (showLoading) {
-        setIsLoading(false);
-      }
-    }
+    return {
+      orders: normalizedOrders as OrderData[],
+      totalOrderCount: Number(data?.pagination?.totalCount ?? normalizedOrders.length),
+      statusCounts: data?.statusCounts && typeof data.statusCounts === "object" ? data.statusCounts : {},
+    };
   }, [currentPage, customPickupDate, filterDate, filterStatus, pageSize, search]);
 
   async function handleStatusChange(orderId: string, nextStatus: string) {
     setIsUpdatingStatus(true);
 
-    const targetOrder = orders.find((order) => order.id === orderId);
-    if (targetOrder?.status === "CANCELLED") {
-      setIsUpdatingStatus(false);
-      return false;
-    }
+    try {
+      const targetOrder = orders.find((order) => order.id === orderId);
+      if (targetOrder?.status === "CANCELLED") {
+        return false;
+      }
 
-    const response = await fetch("/api/admin/orders", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: orderId, status: nextStatus }),
-    });
+      const response = await adminFetch("/api/admin/orders", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: orderId, status: nextStatus }),
+      });
 
-    if (!response.ok) {
-      setIsUpdatingStatus(false);
       const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setStatusUpdateFeedback({
+          title: "Status not updated",
+          message: data.message ?? "Unable to update order status.",
+          type: "error",
+        });
+        return false;
+      }
+
+      setOrders((prev) =>
+        prev.map((order) =>
+          order.id === orderId
+            ? {
+                ...order,
+                status: data.order?.status ?? nextStatus,
+                paymentStatus: data.order?.paymentStatus ?? order.paymentStatus,
+              }
+            : order
+        )
+      );
+      setIsLoadingOrderHistory(true);
+      setOrderHistoryError("");
+      setOrderHistoryRefresh((refresh) => refresh + 1);
+      return true;
+    } catch {
       setStatusUpdateFeedback({
         title: "Status not updated",
-        message: data.message ?? "Unable to update order status.",
+        message: "Check your connection and try again.",
         type: "error",
       });
       return false;
+    } finally {
+      setIsUpdatingStatus(false);
     }
-
-    setOrders((prev) => prev.map((order) => (order.id === orderId ? { ...order, status: nextStatus } : order)));
-    setIsUpdatingStatus(false);
-    return true;
   }
 
   function openManageModal(orderId: string) {
@@ -403,7 +531,7 @@ export default function AdminOrdersPage() {
   async function handlePaymentApproval(orderId: string) {
     setIsProcessingPaymentAction(true);
 
-    const response = await fetch("/api/admin/payments/approve", {
+    const response = await adminFetch("/api/admin/payments/approve", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderId }),
@@ -420,24 +548,31 @@ export default function AdminOrdersPage() {
       return;
     }
 
+    const data = await response.json().catch(() => ({}));
+
     setOrders((prev) =>
       prev.map((order) =>
-        order.id === orderId ? { ...order, paymentStatus: "PAID", status: "CONFIRMED" } : order
+        order.id === orderId
+          ? { ...order, paymentStatus: "PAID", status: order.status === "PENDING" ? "CONFIRMED" : order.status }
+          : order
       )
     );
+    setIsLoadingOrderHistory(true);
+    setOrderHistoryError("");
+    setOrderHistoryRefresh((refresh) => refresh + 1);
     setManageModal(null);
     setIsProcessingPaymentAction(false);
     setStatusUpdateFeedback({
       title: "Payment approved",
-      message: "Payment confirmed for order. Stock has been reserved.",
-      type: "success",
+      message: data.message ?? "Payment confirmed for order. Stock has been reserved.",
+      type: data.emailSent === false ? "warning" : "success",
     });
   }
 
   async function handlePaymentDecline(orderId: string) {
     setIsProcessingPaymentAction(true);
 
-    const response = await fetch("/api/admin/payments/decline", {
+    const response = await adminFetch("/api/admin/payments/decline", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ orderId }),
@@ -454,17 +589,22 @@ export default function AdminOrdersPage() {
       return;
     }
 
+    const data = await response.json().catch(() => ({}));
+
     setOrders((prev) =>
       prev.map((order) =>
         order.id === orderId ? { ...order, paymentStatus: "FAILED", status: "CANCELLED" } : order
       )
     );
+    setIsLoadingOrderHistory(true);
+    setOrderHistoryError("");
+    setOrderHistoryRefresh((refresh) => refresh + 1);
     setManageModal(null);
     setIsProcessingPaymentAction(false);
     setStatusUpdateFeedback({
       title: "Payment declined",
-      message: "Order was cancelled and stock was released.",
-      type: "success",
+      message: data.message ?? "Order was cancelled and stock was released.",
+      type: data.emailSent === false ? "warning" : "success",
     });
   }
 
@@ -473,15 +613,7 @@ export default function AdminOrdersPage() {
       return false;
     }
 
-    if (order.status === "COMPLETED" || order.status === "CONFIRMED" || order.status === "CANCELLED") {
-      return false;
-    }
-
-    if (!order.paymentStatus || order.paymentStatus === "PAID" || order.paymentStatus === "FAILED") {
-      return false;
-    }
-
-    return true;
+    return order.status === "PENDING" && order.paymentStatus === "PROOF_SUBMITTED";
   }
 
   function isStatusBlockedByPayment(
@@ -491,7 +623,40 @@ export default function AdminOrdersPage() {
   ) {
     if (targetStatus === "CANCELLED" || paymentStatus === "PAID") return false;
     if (paymentMethod === "CASH") return false;
-    return targetStatus !== "PENDING_PAYMENT";
+    return targetStatus !== "PENDING";
+  }
+
+  function getStatusActionLabel(status: OrderStatus) {
+    const labels: Partial<Record<OrderStatus, string>> = {
+      CONFIRMED: "Confirm order",
+      PREPARING: "Start preparing",
+      READY_FOR_PICKUP: "Mark ready for pickup",
+      COMPLETED: "Complete pickup",
+    };
+
+    return labels[status] ?? `Move to ${getStatusLabel(status)}`;
+  }
+
+  async function submitOrderStatus(nextStatus: OrderStatus) {
+    if (!manageModal || isUpdatingStatus) return;
+
+    const { orderId, orderNumber } = manageModal;
+    if (
+      nextStatus === "CANCELLED" &&
+      !window.confirm(`Cancel order ${orderNumber}? This will release its stock reservation.`)
+    ) {
+      return;
+    }
+
+    const didUpdate = await handleStatusChange(orderId, nextStatus);
+    if (!didUpdate) return;
+
+    setManageModal(null);
+    setStatusUpdateFeedback({
+      title: nextStatus === "CANCELLED" ? "Order cancelled" : "Order updated",
+      message: `${orderNumber} status changed to ${getStatusLabel(nextStatus)}.`,
+      type: "success",
+    });
   }
 
   function renderOrderStepper(status: string) {
@@ -514,7 +679,7 @@ export default function AdminOrdersPage() {
       { key: "COMPLETED", label: "Completed" },
     ];
 
-    const statusSeq = ["PENDING_PAYMENT", "PENDING", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "COMPLETED"];
+    const statusSeq = ["PENDING", "CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "COMPLETED"];
     const currentIdx = statusSeq.indexOf(status);
 
     return (
@@ -525,8 +690,8 @@ export default function AdminOrdersPage() {
         <div className="flex items-center justify-between">
           {steps.map((step, idx, arr) => {
             const stepIdx = statusSeq.indexOf(step.key);
-            const isDone = currentIdx >= stepIdx && currentIdx !== -1;
-            const isCurrent = status === step.key || (status === "PENDING_PAYMENT" && step.key === "PENDING");
+            const isDone = currentIdx > stepIdx;
+            const isCurrent = status === step.key;
 
             return (
               <div key={step.key} className="flex flex-1 items-center last:flex-none">
@@ -570,26 +735,77 @@ export default function AdminOrdersPage() {
   }
 
   useEffect(() => {
-    let isMounted = true;
+    let isActive = true;
 
-    const runLoad = async () => {
-      await loadOrders(true);
-      if (!isMounted) return;
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        void loadOrders()
+          .then((result) => {
+            if (!isActive) return;
+            setOrders(result.orders);
+            setTotalOrderCount(result.totalOrderCount);
+            setStatusCounts(result.statusCounts);
+          })
+          .catch(() => {});
+      }
     };
 
-    void runLoad();
-
-    const intervalId = window.setInterval(() => {
-      void loadOrders();
-    }, 10000);
+    void loadOrders()
+      .then((result) => {
+        if (!isActive) return;
+        setOrders(result.orders);
+        setTotalOrderCount(result.totalOrderCount);
+        setStatusCounts(result.statusCounts);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (isActive) setIsLoading(false);
+      });
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
 
     return () => {
-      isMounted = false;
-      window.clearInterval(intervalId);
+      isActive = false;
+      window.removeEventListener("apc-admin-live-event", handleLiveEvent);
     };
   }, [loadOrders]);
 
   const detailOrder = orders.find((order) => order.id === detailOrderId) ?? null;
+
+  useEffect(() => {
+    if (!detailOrderId) return;
+
+    const orderId = detailOrderId;
+    const controller = new AbortController();
+
+    async function loadOrderHistory() {
+      try {
+        const params = new URLSearchParams({ historyFor: orderId });
+        const response = await adminFetch(`/api/admin/orders?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data?.message ?? "Unable to load order history.");
+        setOrderHistory(Array.isArray(data?.events) ? data.events : []);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setOrderHistory([]);
+          setOrderHistoryError(error instanceof Error ? error.message : "Unable to load order history.");
+          console.error("Error fetching order history:", error);
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsLoadingOrderHistory(false);
+      }
+    }
+
+    void loadOrderHistory();
+    return () => controller.abort();
+  }, [detailOrderId, orderHistoryRefresh]);
 
   useEffect(() => {
     const hasOpenModal = Boolean(statusUpdateFeedback || manageModal || detailOrder || paymentProofViewerUrl);
@@ -627,6 +843,13 @@ export default function AdminOrdersPage() {
     setFilterDate("ALL");
     setCustomPickupDate("");
     setCurrentPage(1);
+  };
+
+  const openOrderDetails = (orderId: string) => {
+    setOrderHistory([]);
+    setOrderHistoryError("");
+    setIsLoadingOrderHistory(true);
+    setDetailOrderId(orderId);
   };
 
   const totalPages = Math.max(1, Math.ceil(totalOrderCount / pageSize));
@@ -684,29 +907,29 @@ export default function AdminOrdersPage() {
   );
 
   return (
-    <div suppressHydrationWarning className="space-y-5 text-slate-800 dark:text-slate-100">
+    <div suppressHydrationWarning className="space-y-4 text-slate-800 dark:text-slate-100">
       {/* 1. Header Toolbar */}
-      <header className="flex flex-row items-center justify-between gap-4 border-b border-slate-200/80 pb-5 dark:border-slate-800">
+      <header className="flex flex-col justify-between gap-4 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end dark:border-slate-800">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <h1 className="text-[1.75rem] font-bold leading-tight text-slate-950 dark:text-white">
               Orders
             </h1>
-            <span className="rounded-md bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold tabular-nums text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
               {totalOrderCount} total
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 max-w-2xl text-[13px] leading-5 text-slate-500 dark:text-slate-400">
             Review customer orders, verify payment proofs, and manage pickup fulfillment.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <button
             type="button"
             onClick={printFilteredOrderLabels}
             disabled={!hasPrintableOrders}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="inline-flex min-h-9 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             <Printer className="h-3.5 w-3.5 text-slate-500" />
             <span>Print Labels</span>
@@ -716,7 +939,7 @@ export default function AdminOrdersPage() {
             type="button"
             onClick={printFilteredPickupSheet}
             disabled={!hasPrintableOrders}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="inline-flex min-h-9 items-center gap-2 rounded-md border border-emerald-700 bg-emerald-700 px-3 text-xs font-semibold text-white transition hover:border-emerald-800 hover:bg-emerald-800 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50 dark:border-emerald-600 dark:bg-emerald-600 dark:hover:border-emerald-500 dark:hover:bg-emerald-500"
           >
             <FileText className="h-3.5 w-3.5 text-slate-500" />
             <span>Pickup Sheet</span>
@@ -725,9 +948,12 @@ export default function AdminOrdersPage() {
       </header>
 
       {/* 2. Unified Filter Toolbar (Status Tabs & Search & Date) */}
-      <section className="space-y-3 rounded-lg border border-slate-200/90 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+      <section className="space-y-3 rounded-lg border border-slate-200 bg-white px-3 py-3 shadow-xs sm:px-4 dark:border-slate-800 dark:bg-slate-900">
         {/* Status Pills */}
-        <div className="flex flex-wrap items-center gap-2">
+        <nav
+          aria-label="Filter orders by status"
+          className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-8"
+        >
           {statusSummary.map(({ key, label, count }) => {
             const isActive = filterStatus === key;
             const isAttention = key === "AWAITING_PAYMENT_APPROVAL" && count > 0;
@@ -737,22 +963,23 @@ export default function AdminOrdersPage() {
                 key={key}
                 type="button"
                 onClick={() => handleFilterStatusChange(key)}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition ${
+                aria-pressed={isActive}
+                className={`flex min-h-14 w-full min-w-0 flex-col items-center justify-center gap-1 rounded-md border px-2 py-2 text-center text-xs font-semibold transition-colors active:translate-y-px ${
                   isActive
-                    ? "bg-slate-900 text-white shadow-xs dark:bg-white dark:text-slate-950"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:border-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-300"
                     : isAttention
-                    ? "border border-amber-200 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300"
-                    : "border border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-white dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-300 dark:hover:bg-slate-800"
+                    ? "border-amber-300 bg-amber-50/70 text-amber-800 hover:border-amber-400 hover:bg-amber-50 dark:border-amber-800 dark:bg-amber-950/20 dark:text-amber-300 dark:hover:bg-amber-950/40"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-800 dark:hover:text-white"
                 }`}
               >
-                <span>{label}</span>
+                <span className="leading-tight">{label}</span>
                 <span
-                  className={`rounded-full px-1.5 py-0.2 text-[10px] font-bold ${
+                  className={`min-w-5 rounded px-1 py-0.5 text-center text-[10px] font-bold tabular-nums ${
                     isActive
-                      ? "bg-white/20 text-white dark:bg-slate-950/20 dark:text-slate-950"
+                      ? "bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200"
                       : isAttention
-                      ? "bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-white"
-                      : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300"
+                      ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                      : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                   }`}
                 >
                   {count}
@@ -760,10 +987,10 @@ export default function AdminOrdersPage() {
               </button>
             );
           })}
-        </div>
+        </nav>
 
         {/* Search & Pickup Date Selector */}
-        <div className="flex flex-col gap-3 border-t border-slate-100 pt-3 dark:border-slate-800/80 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-3 border-t border-slate-100 pt-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:max-w-xs sm:flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
@@ -771,7 +998,7 @@ export default function AdminOrdersPage() {
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Search order #, customer, phone..."
-              className="h-9 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-8 text-xs text-slate-900 outline-hidden placeholder:text-slate-400 focus:border-slate-400 focus:bg-white dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500"
+              className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 pl-9 pr-8 text-[13px] text-slate-900 outline-hidden transition-colors placeholder:text-slate-400 focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-600/15 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100 dark:placeholder:text-slate-500 dark:focus:border-emerald-500 dark:focus:bg-slate-900"
             />
             {search && (
               <button
@@ -787,7 +1014,7 @@ export default function AdminOrdersPage() {
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap">
             <div className="flex items-center gap-1 text-xs text-slate-500">
               <CalendarDays className="h-3.5 w-3.5" />
-              <span className="inline">Pickup:</span>
+              <span className="inline font-semibold text-slate-600 dark:text-slate-300">Pickup date</span>
             </div>
 
             <div className="flex max-w-full flex-wrap rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-800 dark:bg-slate-800/80">
@@ -804,7 +1031,7 @@ export default function AdminOrdersPage() {
                   onClick={() => handleFilterDateChange(key)}
                   className={`rounded-sm px-2.5 py-1 text-xs font-semibold transition ${
                     filterDate === key
-                      ? "bg-white text-slate-950 shadow-xs dark:bg-slate-700 dark:text-white"
+                      ? "bg-emerald-700 text-white shadow-xs dark:bg-emerald-600 dark:text-white"
                       : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
                   }`}
                 >
@@ -841,16 +1068,16 @@ export default function AdminOrdersPage() {
       </section>
 
       {/* 3. Orders Data Table */}
-      <section className="rounded-lg border border-slate-200/90 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full min-w-270 text-left text-[13px]">
             <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/80 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
+              <tr className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/70 dark:text-slate-400">
                 <th className="py-3 px-4">Order</th>
                 <th className="py-3 px-4">Customer</th>
                 <th className="py-3 px-4">Channel</th>
-                <th className="py-3 px-4">Pickup</th>
-                <th className="py-3 px-4">Items</th>
+                <th className="py-3 px-4">Pickup Date</th>
+                <th className="py-3 px-4">Quantity</th>
                 <th className="py-3 px-4">Payment</th>
                 <th className="py-3 px-4">Status</th>
                 <th className="py-3 px-4 text-right">Total</th>
@@ -870,19 +1097,22 @@ export default function AdminOrdersPage() {
                 ))
               ) : orders.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-400">
-                    <Package className="mx-auto mb-2 h-7 w-7 text-slate-300 dark:text-slate-600" />
-                    <span>No orders match your selected filter criteria.</span>
+                  <td colSpan={9} className="py-16 text-center text-slate-500 dark:text-slate-400">
+                    <span className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-md bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                      <Package className="h-5 w-5" />
+                    </span>
+                    <span className="block font-semibold text-slate-700 dark:text-slate-200">No orders found</span>
+                    <span className="mt-1 block text-xs">Try adjusting the selected filters.</span>
                   </td>
                 </tr>
               ) : (
                 paginatedOrders.items.map((order) => {
                   return (
                     <Fragment key={order.id}>
-                      <tr className="transition hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                      <tr className="transition-colors hover:bg-emerald-50/45 dark:hover:bg-emerald-950/15">
                         {/* Order Number & Created Date */}
                         <td className="py-3 px-4">
-                          <span className="block font-mono font-bold text-slate-900 dark:text-white">
+                          <span className="block font-mono font-bold text-emerald-800 dark:text-emerald-300">
                             {order.orderNumber}
                           </span>
                           <span className="block text-[11px] text-slate-400">
@@ -934,9 +1164,9 @@ export default function AdminOrdersPage() {
                           )}
                         </td>
 
-                        {/* Items */}
+                        {/* Quantity */}
                         <td className="py-3 px-4 text-slate-600 dark:text-slate-300 font-medium">
-                          {order.items.length} {order.items.length === 1 ? "item" : "items"}
+                          {order.items.reduce((total, item) => total + item.quantity, 0)}x
                         </td>
 
                         {/* Payment Status & Method */}
@@ -981,7 +1211,7 @@ export default function AdminOrdersPage() {
                         </td>
 
                         {/* Total Amount */}
-                        <td className="py-3 px-4 text-right font-bold text-slate-900 dark:text-white">
+                        <td className="py-3 px-4 text-right font-bold tabular-nums text-slate-950 dark:text-white">
                           ₱{Number(order.totalAmount).toFixed(2)}
                         </td>
 
@@ -990,20 +1220,22 @@ export default function AdminOrdersPage() {
                           <div className="flex items-center justify-end gap-1.5">
                             <button
                               type="button"
-                              onClick={() => setDetailOrderId(order.id)}
-                              className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-xs transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                              onClick={() => openOrderDetails(order.id)}
+                              aria-label="View order details"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:translate-y-px dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                               title="View order details"
                             >
-                              View
+                              <Eye className="h-3.5 w-3.5 text-slate-500" />
                             </button>
 
                             <button
                               type="button"
                               onClick={() => openManageModal(order.id)}
-                              className="rounded-md bg-slate-900 px-2.5 py-1 text-xs font-semibold text-white shadow-xs transition hover:bg-slate-800 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                              className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700 active:translate-y-px dark:bg-emerald-600 dark:hover:bg-emerald-500"
                               title="Manage order status"
                             >
-                              Manage
+                              <Settings className="h-3.5 w-3.5" />
+                              <span>Manage</span>
                             </button>
                           </div>
                         </td>
@@ -1016,9 +1248,9 @@ export default function AdminOrdersPage() {
           </table>
         </div>
 
-        {/* 4. Complete Modern Pagination Footer Bar */}
-        <div className="flex gap-4 flex-row items-center justify-between border-t border-slate-200/80 bg-slate-50/50 px-4 py-3 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
-          {/* Left: Record Range and Rows per page */}
+        {/*Pagination Footer Bar */}
+        <div className="flex flex-col items-start justify-between gap-3 border-t border-slate-200/80 bg-slate-50/70 px-3 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:px-4 dark:border-slate-800 dark:bg-slate-900/50 dark:text-slate-400">
+          {/*Record Range and Rows per page */}
           <div className="flex flex-wrap items-center gap-3">
             <span>
               Showing <strong className="font-semibold text-slate-800 dark:text-slate-200">{visibleRangeStart.toLocaleString()}</strong> to{" "}
@@ -1045,9 +1277,9 @@ export default function AdminOrdersPage() {
             </div>
           </div>
 
-          {/* Right: Modern Numbered Pagination Controls & Jump to Page */}
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1">
+          {/*Numbered Pagination Controls & Jump to Page */}
+          <div className="flex w-full flex-wrap items-center justify-start gap-2 sm:w-auto sm:justify-end">
+            <div className="flex flex-wrap items-center gap-1">
               {/* First Page Button */}
               <button
                 type="button"
@@ -1068,7 +1300,7 @@ export default function AdminOrdersPage() {
                 title="Previous page"
               >
                 <ChevronLeft className="h-4 w-4" />
-                <span className="font-medium">Prev</span>
+                <span className="hidden font-medium sm:inline">Prev</span>
               </button>
 
               {/* Windowed Numbered Page Pills */}
@@ -1104,7 +1336,7 @@ export default function AdminOrdersPage() {
                 className="inline-flex h-8 items-center gap-1 px-2.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 transition shadow-2xs"
                 title="Next page"
               >
-                <span className="font-medium">Next</span>
+                <span className="hidden font-medium sm:inline">Next</span>
                 <ChevronRight className="h-4 w-4" />
               </button>
 
@@ -1122,7 +1354,7 @@ export default function AdminOrdersPage() {
 
             {/* Quick Jump to Page Form */}
             {totalPages > 4 && (
-              <form onSubmit={handleJumpSubmit} className="flex items-center gap-1 pl-2 border-l border-slate-200 dark:border-slate-700">
+              <form onSubmit={handleJumpSubmit} className="flex items-center gap-1 border-l border-slate-200 pl-2 dark:border-slate-700">
                 <span>Go to:</span>
                 <input
                   type="number"
@@ -1146,7 +1378,7 @@ export default function AdminOrdersPage() {
         </div>
       </section>
 
-      {/* 5. Order Details Slide-Over Drawer */}
+      {/*Order Details Slide-Over Drawer */}
       {isMounted && detailOrder
         ? createPortal(
         <div className={`${styles.drawerBackdrop} flex`}>
@@ -1260,7 +1492,7 @@ export default function AdminOrdersPage() {
                     Order Items
                   </span>
                   <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                    {detailOrder.items.length} items
+                    {detailOrder.items.reduce((total, item) => total + item.quantity, 0)}x total
                   </span>
                 </div>
 
@@ -1269,15 +1501,18 @@ export default function AdminOrdersPage() {
                     <div key={item.id} className="py-2.5 first:pt-0 last:pb-0 flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <span className="block font-bold text-slate-900 dark:text-white">
-                          {item.product?.name ?? "Product item"}
+                          {item.productNameSnapshot || item.product?.name || "Product item"}
                         </span>
-                        {item.variant && (
+                        {getOrderItemVariantLabel(item) && (
                           <span className="mt-0.5 inline-block rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-                            {getVariantLabel(item.variant)}
+                            {getOrderItemVariantLabel(item)}
                           </span>
                         )}
                         <span className="block text-[11px] text-slate-400 mt-0.5">
-                          {item.quantity} × ₱{Number(item.price).toFixed(2)}
+                          SKU: {item.productSkuSnapshot || "Not recorded"}
+                        </span>
+                        <span className="block text-[11px] text-slate-400">
+                          {item.quantity}x · ₱{Number(item.price).toFixed(2)}
                         </span>
                       </div>
                       <span className="shrink-0 font-bold text-slate-900 dark:text-white">
@@ -1315,6 +1550,14 @@ export default function AdminOrdersPage() {
                       {getPaymentLabel(detailOrder.paymentStatus, detailOrder.paymentMethod, detailOrder.status)}
                     </span>
                   </div>
+                  {detailOrder.paidAt ? (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Paid at:</span>
+                      <span className="font-medium text-slate-800 dark:text-slate-200">
+                        {new Date(detailOrder.paidAt).toLocaleString()}
+                      </span>
+                    </div>
+                  ) : null}
                   <div className="flex justify-between border-t border-slate-100 pt-2 text-sm font-bold text-slate-900 dark:border-slate-800 dark:text-white">
                     <span>Grand Total:</span>
                     <span className="text-emerald-600 dark:text-emerald-400">
@@ -1361,6 +1604,46 @@ export default function AdminOrdersPage() {
                   </div>
                 ) : null}
               </div>
+
+              <section className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+                <div className="mb-3">
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Order history</h3>
+                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                    Status and payment events recorded for this order.
+                  </p>
+                </div>
+                {isLoadingOrderHistory ? (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">Loading order history...</p>
+                ) : orderHistoryError ? (
+                  <p className="text-xs text-rose-700 dark:text-rose-300">{orderHistoryError}</p>
+                ) : orderHistory.length ? (
+                  <ol className="space-y-3">
+                    {orderHistory.map((event) => (
+                      <li key={event.id} className="border-l-2 border-slate-200 pl-3 dark:border-slate-700">
+                        <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">
+                          {getOrderEventLabel(event.eventType)}
+                        </p>
+                        <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-300">
+                          Status: {event.previousStatus ? getStatusLabel(event.previousStatus) : "New"} to {event.newStatus ? getStatusLabel(event.newStatus) : "Not changed"}
+                        </p>
+                        {event.previousPaymentStatus || event.newPaymentStatus ? (
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                            Payment: {event.previousPaymentStatus ?? "New"} to {event.newPaymentStatus ?? "Not changed"}
+                          </p>
+                        ) : null}
+                        {event.note ? <p className="mt-0.5 text-[11px] text-slate-500">{event.note}</p> : null}
+                        <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
+                          {event.actorName || event.actorType} · {new Date(event.createdAt).toLocaleString()}
+                        </p>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    No events are recorded for this order yet. History starts when the order changes after this feature is deployed.
+                  </p>
+                )}
+              </section>
             </div>
 
             {/* Drawer Footer Actions */}
@@ -1485,42 +1768,79 @@ export default function AdminOrdersPage() {
                 );
               })()}
 
-              {/* Status Transition Controls */}
-              {manageModal.status === "COMPLETED" || manageModal.status === "CANCELLED" ? (
-                <div className="rounded-lg bg-slate-50 p-3 text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
-                  This order has reached its final state ({getStatusLabel(manageModal.status)}) and cannot be modified.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <label htmlFor="manage-status-select" className="block font-bold text-slate-700 dark:text-slate-300">
-                    Change Status To
-                  </label>
+              {/* Status Transition Actions */}
+              {(() => {
+                if (manageModal.status === "CANCELLED") return null;
 
-                  {isStatusBlockedByPayment(manageModal.paymentMethod, manageModal.paymentStatus, manageModal.status) && (
-                    <div className="flex items-center gap-2 rounded-md bg-amber-50 p-2.5 text-[11px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                      <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
-                      <span>Payment must be approved before advancing this order to production.</span>
+                if (manageModal.status === "COMPLETED") {
+                  return (
+                    <div className="flex items-center gap-2.5 rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/25 dark:text-emerald-300">
+                      <CheckCircle className="h-4 w-4 shrink-0" />
+                      <span>Pickup is complete. This order is now closed.</span>
                     </div>
-                  )}
+                  );
+                }
 
-                  <select
-                    id="manage-status-select"
-                    value={manageModal.status}
-                    onChange={(e) =>
-                      setManageModal((current) => (current ? { ...current, status: e.target.value } : current))
-                    }
-                    className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 outline-hidden focus:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
-                  >
-                    {orderStatuses
-                      .filter((status) => status !== "CONFIRMED" || status === manageModal.status)
-                      .map((status) => (
-                        <option key={status} value={status}>
-                          {getStatusLabel(status)}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              )}
+                const nextStatus = getNextOrderStatus(manageModal.status as OrderStatus);
+                if (!nextStatus) return null;
+
+                const paymentBlocksNextStatus = isStatusBlockedByPayment(
+                  manageModal.paymentMethod,
+                  manageModal.paymentStatus,
+                  nextStatus,
+                );
+
+                return (
+                  <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/60">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                        <CheckCircle className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Next action
+                        </p>
+                        <p className="mt-0.5 text-sm font-semibold text-slate-900 dark:text-white">
+                          {getStatusActionLabel(nextStatus)}
+                        </p>
+                        <p className="mt-1 text-[11px] leading-5 text-slate-500 dark:text-slate-400">
+                          Move this order from {getStatusLabel(manageModal.status)} to {getStatusLabel(nextStatus)}.
+                        </p>
+                      </div>
+                    </div>
+
+                    {paymentBlocksNextStatus && (
+                      <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-[11px] leading-5 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                        <span>
+                          Approve payment before moving this order to {getStatusLabel(nextStatus)}.
+                        </span>
+                      </div>
+                    )}
+
+                    <div className="mt-4 grid gap-2 sm:grid-cols-[1fr_auto]">
+                      <button
+                        type="button"
+                        onClick={() => void submitOrderStatus(nextStatus)}
+                        disabled={paymentBlocksNextStatus || isUpdatingStatus}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-xs transition hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus-visible:ring-offset-slate-900"
+                      >
+                        <CheckCircle className="h-4 w-4" />
+                        <span>{isUpdatingStatus ? "Updating order…" : getStatusActionLabel(nextStatus)}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void submitOrderStatus("CANCELLED")}
+                        disabled={isUpdatingStatus}
+                        className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-rose-900/60 dark:text-rose-300 dark:hover:bg-rose-950/30 dark:focus-visible:ring-offset-slate-900"
+                      >
+                        <CircleX className="h-3.5 w-3.5" />
+                        <span>Cancel order</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Modal Footer */}
@@ -1530,29 +1850,7 @@ export default function AdminOrdersPage() {
                 onClick={() => setManageModal(null)}
                 className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-xs hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const didUpdate = await handleStatusChange(manageModal.orderId, manageModal.status);
-                  if (didUpdate) {
-                    setManageModal(null);
-                    setStatusUpdateFeedback({
-                      title: "Order Updated",
-                      message: `${manageModal.orderNumber} status changed to ${getStatusLabel(manageModal.status)}.`,
-                      type: "success",
-                    });
-                  }
-                }}
-                disabled={
-                  manageModal.status === "CANCELLED" ||
-                  isStatusBlockedByPayment(manageModal.paymentMethod, manageModal.paymentStatus, manageModal.status)
-                }
-                className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <CheckCircle className="h-3.5 w-3.5" />
-                <span>Save Status</span>
+                Close
               </button>
             </div>
           </div>
@@ -1632,7 +1930,77 @@ export default function AdminOrdersPage() {
       )
         : null}
 
-      {/* 8. Toast Feedback Alert */}
+      {/* Centered print confirmation dialog */}
+      {isMounted && printDialog
+        ? createPortal(
+            <div
+              className={`${styles.modalBackdrop} p-4`}
+              onClick={() => setPrintDialog(null)}
+            >
+              <section
+                className={ADMIN_MODAL_PANEL_CLASS}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="orders-print-dialog-title"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <header className={ADMIN_MODAL_HEADER_CLASS}>
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                      <Printer className="h-4 w-4" />
+                    </span>
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-300">
+                        Print center
+                      </p>
+                      <h2 id="orders-print-dialog-title" className="text-sm font-semibold text-slate-950 dark:text-white">
+                        {printDialog.title}
+                      </h2>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPrintDialog(null)}
+                    aria-label="Close print dialog"
+                    className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </header>
+
+                <div className="space-y-2 p-5 text-sm">
+                  <p className="font-semibold text-slate-900 dark:text-slate-100">
+                    {printDialog.description}
+                  </p>
+                  <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+                    Continue to open the browser print dialog, where you can choose a printer or save as PDF.
+                  </p>
+                </div>
+
+                <footer className={ADMIN_MODAL_ACTION_ROW_CLASS}>
+                  <button
+                    type="button"
+                    onClick={() => setPrintDialog(null)}
+                    className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmPrintDialog}
+                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-500"
+                  >
+                    <Printer className="h-4 w-4" />
+                    Continue to print
+                  </button>
+                </footer>
+              </section>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {/*  Feedback Alert */}
       {statusUpdateFeedback && (
         <AdminToast
           type={statusUpdateFeedback.type}

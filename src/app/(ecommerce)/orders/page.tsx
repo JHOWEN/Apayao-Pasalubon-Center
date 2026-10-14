@@ -1,20 +1,25 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   RotateCcw,
   ShoppingBag,
   Star,
 } from "lucide-react";
-import { getStoredUser, saveCartItems } from "@/features/cart/lib/cart";
+import { getCartItems, getStoredUser, saveCartItems } from "@/features/cart/lib/cart";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
 import { fetchWithTimeout, getResponseErrorMessage, getUserFacingErrorMessage } from "@/lib/client-fetch";
 import { getEffectivePaymentStatus } from "@/lib/order";
+import {
+  compressUploadImage,
+  PAYMENT_PROOF_IMAGE_COMPRESSION,
+} from "@/utils/compress-upload-image";
 
 const fallbackProductImage = "/logo/apc-logo.png";
+const ORDERS_PAGE_LIMIT = 15;
 
 type OrderItemSummary = {
   id?: string;
@@ -24,12 +29,17 @@ type OrderItemSummary = {
   price?: number;
   subtotal?: number;
   isReviewed?: boolean;
+  productNameSnapshot?: string;
+  productSkuSnapshot?: string;
+  variantSkuSnapshot?: string | null;
+  variantAttributesSnapshot?: string | null;
   product?: {
     imageUrl?: string | null;
     name?: string;
   };
   variant?: {
     sku?: string;
+    attributes?: string | Record<string, string> | null;
     color?: string | null;
     measurementValue?: number | null;
     measurementUnit?: string | null;
@@ -114,39 +124,76 @@ const isPickupDateAheadOfOrderDate = (pickupDateValue?: string | null, createdAt
 
 function getVariantLabel(variant: {
   sku?: string;
+  attributes?: string | Record<string, string> | null;
   color?: string | null;
   measurementValue?: number | null;
   measurementUnit?: string | null;
 } | undefined | null) {
   if (!variant) return "";
-  const details = [
+  const attributeValues = typeof variant.attributes === "string"
+    ? (() => {
+        try {
+          const parsed = JSON.parse(variant.attributes);
+          return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? Object.values(parsed).filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+            : [];
+        } catch {
+          return [];
+        }
+      })()
+    : variant.attributes && typeof variant.attributes === "object"
+    ? Object.values(variant.attributes).filter((value): value is string => Boolean(value))
+    : [];
+  const details = attributeValues.length ? attributeValues : [
     variant.color,
     variant.measurementValue ? `${variant.measurementValue}${variant.measurementUnit ?? ""}` : null,
   ].filter(Boolean);
   return details.length ? `${details.join(" • ")} (${variant.sku ?? "SKU"})` : variant.sku ?? "Variant";
 }
 
+function getOrderItemVariantLabel(item: OrderItemSummary | undefined) {
+  if (!item) return "";
+  return getVariantLabel({
+    ...item.variant,
+    sku: item.variantSkuSnapshot ?? item.variant?.sku,
+    attributes: item.variantAttributesSnapshot ?? item.variant?.attributes,
+  });
+}
+
 export default function OrdersPage() {
   const router = useRouter();
   const [orders, setOrders] = useState<OrderSummary[]>([]);
   const [message, setMessage] = useState("");
+  const [ordersLoadFailed, setOrdersLoadFailed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [hasMoreOrders, setHasMoreOrders] = useState(false);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const [activeOrderCount, setActiveOrderCount] = useState(0);
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
   const [uploadingProofOrderId, setUploadingProofOrderId] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
 
-  async function fetchOrders() {
+  const fetchOrders = useCallback(async (page = 1, statusFilter = selectedStatus, append = false, background = false) => {
     try {
-      setIsLoading(true);
+      if (append) setIsLoadingMore(true);
+      else if (!background) setIsLoading(true);
       const currentUser = getStoredUser() as { id?: string } | null;
 
       if (!currentUser?.id) {
         setOrders([]);
+        setHasMoreOrders(false);
+        setTotalOrders(0);
+        setActiveOrderCount(0);
         setMessage("");
+        setOrdersLoadFailed(false);
         return;
       }
 
-      const response = await fetchWithTimeout(`/api/auth/orders`, {
+      const params = new URLSearchParams({ page: String(page), limit: String(ORDERS_PAGE_LIMIT) });
+      if (statusFilter !== "ALL") params.set("status", statusFilter);
+      const response = await fetchWithTimeout(`/api/auth/orders?${params.toString()}`, {
         cache: "no-store",
       });
       const data = await response.json().catch(() => null);
@@ -156,19 +203,33 @@ export default function OrdersPage() {
       }
 
       const userOrders = Array.isArray(data) ? (data as OrderSummary[]) : [];
-      setOrders(userOrders);
+      setOrders((current) => {
+        if (!append) return userOrders;
+        const existingIds = new Set(current.map((order) => order.id));
+        return [...current, ...userOrders.filter((order) => !existingIds.has(order.id))];
+      });
+      setOrdersPage(page);
+      setHasMoreOrders(response.headers.get("X-Has-More") === "true");
+      setTotalOrders(Number(response.headers.get("X-Total-Orders") ?? userOrders.length));
+      setActiveOrderCount(Number(response.headers.get("X-Active-Orders") ?? 0));
       setMessage("");
+      setOrdersLoadFailed(false);
     } catch (error) {
       console.error("Error fetching orders:", error);
-      setOrders([]);
-      setMessage(getUserFacingErrorMessage(error, "We couldn't load your orders. Please try again."));
+      if (!background) {
+        if (!append) setOrders([]);
+        setMessage(getUserFacingErrorMessage(error, "We couldn't load your orders. Please try again."));
+        setOrdersLoadFailed(true);
+      }
     } finally {
-      setIsLoading(false);
+      if (append) setIsLoadingMore(false);
+      else if (!background) setIsLoading(false);
     }
-  }
+  }, [selectedStatus]);
 
   async function handleCancelOrder(orderId: string) {
     setMessage("");
+    setOrdersLoadFailed(false);
     try {
       const response = await fetchWithTimeout("/api/auth/orders", {
         method: "PUT",
@@ -192,6 +253,7 @@ export default function OrdersPage() {
 
   async function handleMarkAsReceived(orderId: string) {
     setMessage("");
+    setOrdersLoadFailed(false);
     try {
       const response = await fetchWithTimeout("/api/auth/orders", {
         method: "PUT",
@@ -216,10 +278,11 @@ export default function OrdersPage() {
   async function handleProofUpload(orderId: string, file: File | undefined) {
     if (!file) return;
     setMessage("");
+    setOrdersLoadFailed(false);
     setUploadingProofOrderId(orderId);
 
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", await compressUploadImage(file, PAYMENT_PROOF_IMAGE_COMPRESSION));
     formData.append("orderId", orderId);
 
     try {
@@ -240,29 +303,46 @@ export default function OrdersPage() {
   }
 
   function handleBuyAgain(order: OrderSummary) {
-    const latestItem = order.items.at(-1) ?? order.items[0];
+    const repeatItems = order.items.filter((item) => item.productId).map((item) => {
+      const variantLabel = getOrderItemVariantLabel(item);
 
-    if (!latestItem?.productId) {
+      return {
+        productId: item.productId as string,
+        name: item.productNameSnapshot || item.product?.name || "Product",
+        price: Number(item.price ?? item.subtotal ?? 0),
+        imageUrl: getPrimaryImageUrl(item.product?.imageUrl) ?? fallbackProductImage,
+        stock: 9999,
+        quantity: Math.max(1, Number(item.quantity ?? 1)),
+        variantId: item.variantId ?? undefined,
+        variantSku: item.variantSkuSnapshot ?? item.variant?.sku,
+        variantLabel: variantLabel || undefined,
+      };
+    });
+
+    if (!repeatItems.length) {
       return;
     }
 
-    const variantLabel = getVariantLabel(latestItem.variant);
+    const nextCart = getCartItems();
+    repeatItems.forEach((repeatItem) => {
+      const existing = nextCart.find(
+        (item) => item.productId === repeatItem.productId && item.variantId === repeatItem.variantId,
+      );
 
-    saveCartItems([
-      {
-        productId: latestItem.productId,
-        name: latestItem.product?.name ?? "Product",
-        price: Number(latestItem.price ?? latestItem.subtotal ?? 0),
-        imageUrl: getPrimaryImageUrl(latestItem.product?.imageUrl) ?? fallbackProductImage,
-        stock: 9999,
-        quantity: Math.max(1, Number(latestItem.quantity ?? 1)),
-        variantId: latestItem.variantId ?? undefined,
-        variantSku: latestItem.variant?.sku,
-        variantLabel: variantLabel || undefined,
-      },
-    ]);
+      if (existing) {
+        existing.quantity += repeatItem.quantity;
+        existing.price = repeatItem.price;
+        existing.imageUrl = repeatItem.imageUrl;
+        existing.stock = repeatItem.stock;
+        existing.variantSku = repeatItem.variantSku;
+        existing.variantLabel = repeatItem.variantLabel;
+      } else {
+        nextCart.push(repeatItem);
+      }
+    });
 
-    router.push("/checkout");
+    saveCartItems(nextCart);
+    router.push("/cart");
   }
 
   useEffect(() => {
@@ -275,13 +355,18 @@ export default function OrdersPage() {
     const handleReviewUpdate = () => {
       void fetchOrders();
     };
+    const handleCustomerOrderUpdate = () => {
+      void fetchOrders(1, selectedStatus, false, true);
+    };
 
     window.addEventListener("apc-order-review-updated", handleReviewUpdate);
+    window.addEventListener("apc-customer-order-live-event", handleCustomerOrderUpdate);
 
     return () => {
       window.removeEventListener("apc-order-review-updated", handleReviewUpdate);
+      window.removeEventListener("apc-customer-order-live-event", handleCustomerOrderUpdate);
     };
-  }, []);
+  }, [fetchOrders, selectedStatus]);
 
   const orderStatusSteps = [
     { key: "PENDING", label: "Pending" },
@@ -295,14 +380,6 @@ export default function OrdersPage() {
 
   const statusTabs = ["ALL", ...orderStatusSteps.map((step) => step.key)];
 
-  const getDisplayOrderStatus = (status: string) => {
-    if (status === "PENDING_PAYMENT") {
-      return "PENDING";
-    }
-
-    return status;
-  };
-
   const sortedOrders = [...orders].sort((a, b) => {
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
@@ -310,7 +387,8 @@ export default function OrdersPage() {
   const filteredOrders =
     selectedStatus === "ALL"
       ? sortedOrders
-      : sortedOrders.filter((order) => getDisplayOrderStatus(order.status) === selectedStatus);
+      : sortedOrders.filter((order) => order.status === selectedStatus);
+  const messageIsSuccess = message.includes("successfully") || message.includes("submitted");
 
   const statusColors: Record<string, { badge: string; text: string }> = {
     PENDING: { badge: "border-amber-400/30 bg-amber-500/10 text-amber-300", text: "text-amber-400" },
@@ -322,7 +400,7 @@ export default function OrdersPage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
+    <main className="storefront-page-orders min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
       <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 space-y-6">
         
         {/* Navigation Breadcrumb */}
@@ -334,7 +412,7 @@ export default function OrdersPage() {
             <span>← Back to Store Catalog</span>
           </Link>
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
-            <span>{orders.length} total orders</span>
+            <span>{totalOrders} total orders</span>
           </div>
         </div>
 
@@ -348,13 +426,13 @@ export default function OrdersPage() {
               Order History & Tracking
             </h1>
             <p className="mt-1 text-xs sm:text-sm text-slate-400">
-              Track store pickup reservations and review previous purchases.
+              Track store pickup orders and review previous purchases.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <span className="rounded-xl border border-white/10 bg-[#12141c] px-3 py-1.5 text-xs font-semibold text-slate-300">
-              {orders.filter((o) => o.status !== "COMPLETED" && o.status !== "CANCELLED").length} active reservations
+              {activeOrderCount} active orders
             </span>
           </div>
         </div>
@@ -362,13 +440,27 @@ export default function OrdersPage() {
         {/* Status Message Alert */}
         {message && (
           <div
+            role={ordersLoadFailed || !messageIsSuccess ? "alert" : "status"}
             className={`rounded-2xl border p-4 text-xs font-semibold ${
-              message.includes("successfully")
+              messageIsSuccess
                 ? "border-emerald-400/30 bg-emerald-500/15 text-emerald-200"
-                : "border-rose-400/30 bg-rose-500/15 text-rose-200"
+                : "storefront-error-notice"
             }`}
           >
-            {message}
+            <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span>{message}</span>
+              {ordersLoadFailed && (
+                <button
+                  type="button"
+                  onClick={() => void fetchOrders()}
+                  disabled={isLoading}
+                  className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-[#ff8a1e] px-4 font-bold text-slate-950 transition hover:bg-orange-500 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {isLoading ? "Loading orders..." : "Try again"}
+                </button>
+              )}
+            </div>
+            {ordersLoadFailed && <p className="mt-2 text-xs font-normal">Check your connection. Your order list will appear here once it loads.</p>}
           </div>
         )}
 
@@ -376,7 +468,7 @@ export default function OrdersPage() {
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar border-b border-white/10">
           {statusTabs.map((status) => {
             const active = selectedStatus === status;
-            const normalizedStatus = status === "ALL" ? status : getDisplayOrderStatus(status);
+            const normalizedStatus = status;
             const statusLabel =
               status === "ALL"
                 ? "All Orders"
@@ -386,7 +478,10 @@ export default function OrdersPage() {
               <button
                 key={status}
                 type="button"
-                onClick={() => setSelectedStatus(status)}
+                aria-pressed={active}
+                onClick={() => {
+                  setSelectedStatus(status);
+                }}
                 className={`shrink-0 rounded-xl px-4 py-2 text-xs font-semibold transition ${
                   active
                     ? "bg-[#ff8a1e] text-slate-950 shadow-sm"
@@ -430,8 +525,13 @@ export default function OrdersPage() {
         ) : (
           <div className="space-y-4">
             {filteredOrders.map((order) => {
-              const normalizedStatus = getDisplayOrderStatus(order.status);
+              const normalizedStatus = order.status;
               const colors = statusColors[normalizedStatus] || statusColors.PENDING;
+              const paymentStatusLabel = getEffectivePaymentStatus({
+                paymentMethod: order.paymentMethod,
+                paymentStatus: order.paymentStatus,
+                status: order.status,
+              });
               const isPickupDateAhead = isPickupDateAheadOfOrderDate(order.pickupDate, order.createdAt);
               const isTrackingOpen = trackingOrderId === order.id;
 
@@ -468,24 +568,28 @@ export default function OrdersPage() {
                       <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl bg-[#181b24] border border-white/5">
                         <Image
                           src={getPrimaryImageUrl(order.items[0]?.product?.imageUrl) || fallbackProductImage}
-                          alt={order.items[0]?.product?.name ?? "Product item"}
+                          alt={order.items[0]?.productNameSnapshot || order.items[0]?.product?.name || "Product item"}
                           fill
                           sizes="80px"
                           className="object-cover"
-                          unoptimized
                         />
                       </div>
 
                       <div className="min-w-0 flex-1 space-y-1">
                         <div className="font-bold text-white text-sm sm:text-base truncate">
-                          {order.items[0]?.product?.name ?? "Reserved Product"}
+                          {order.items[0]?.productNameSnapshot || order.items[0]?.product?.name || "Reserved Product"}
                         </div>
 
-                        {order.items[0]?.variant && (
+                        {getOrderItemVariantLabel(order.items[0]) && (
                           <div className="text-xs text-slate-400">
-                            {getVariantLabel(order.items[0].variant)}
+                            {getOrderItemVariantLabel(order.items[0])}
                           </div>
                         )}
+                        {order.items[0]?.productSkuSnapshot ? (
+                          <div className="text-[11px] text-slate-500">
+                            SKU: {order.items[0].productSkuSnapshot}
+                          </div>
+                        ) : null}
 
                         <div className="text-xs text-slate-400">
                           Qty: {order.items.reduce((sum, it) => sum + Number(it.quantity ?? 1), 0)} items
@@ -542,11 +646,7 @@ export default function OrdersPage() {
                         </div>
                         {order.paymentStatus && (
                           <span className="inline-block text-[10px] text-[#ffb36f] font-bold uppercase">
-                            {getEffectivePaymentStatus({
-                              paymentMethod: order.paymentMethod,
-                              paymentStatus: order.paymentStatus,
-                              status: order.status,
-                            })}
+                            {paymentStatusLabel === "PROOF_SUBMITTED" ? "AWAITING REVIEW" : paymentStatusLabel}
                           </span>
                         )}
                       </div>
@@ -563,7 +663,7 @@ export default function OrdersPage() {
 
                   {/* Actions Row */}
                   <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-white/5">
-                    {order.status === "PENDING_PAYMENT" && order.paymentMethod !== "CASH" && (
+                    {order.status === "PENDING" && order.paymentMethod !== "CASH" && (
                       <div className="w-full rounded-xl border border-amber-400/20 bg-amber-500/5 p-3 text-xs text-amber-100">
                         {order.proofOfPaymentUrl
                           ? "Receipt submitted. Your reservation remains held during admin review."
@@ -610,7 +710,7 @@ export default function OrdersPage() {
                         onClick={() => handleCancelOrder(order.id)}
                         className="rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/20 transition"
                       >
-                        Cancel Reservation
+                        Cancel Order
                       </button>
                     )}
 
@@ -725,6 +825,18 @@ export default function OrdersPage() {
                 </article>
               );
             })}
+            {hasMoreOrders && (
+              <div className="flex justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => void fetchOrders(ordersPage + 1, selectedStatus, true)}
+                  disabled={isLoadingMore}
+                  className="inline-flex h-11 items-center justify-center rounded-xl border border-white/15 bg-white/5 px-6 text-sm font-semibold text-white transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60"
+                >
+                  {isLoadingMore ? "Loading older orders..." : "Load older orders"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 

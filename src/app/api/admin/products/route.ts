@@ -1,12 +1,16 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { ensureAuthenticatedAdmin, verifyToken } from "@/lib/auth";
+import { ensureAuthenticatedAdmin, getUserForToken } from "@/lib/auth";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { cookies } from "next/headers";
 import { deleteProductImageUrls } from "@/lib/storage";
 import { parseImageUrls } from "@/features/catalog/utils/product-images";
 import { getRequestId, logError } from "@/lib/logger";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { productCreateSchema, productUpdateSchema } from "@/features/catalog/validators/products";
+import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitCatalogUpdatedEvent } from "@/lib/realtime";
 
 function serializeProduct(product: {
   price: number | string | null | { toNumber(): number };
@@ -85,12 +89,95 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
+  if (searchParams.get("view") === "pos") {
+    const page = Math.max(1, Number(searchParams.get("page")) || 1);
+    const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit")) || 30));
+    const search = searchParams.get("search")?.trim().slice(0, 120) ?? "";
+    const where = {
+      isActive: true,
+      AND: [
+        {
+          OR: [
+            { variants: { none: {} } },
+            { variants: { some: { isActive: true } } },
+          ],
+        },
+        ...(search
+          ? [{
+              OR: [
+                { name: { contains: search, mode: "insensitive" as const } },
+                { sku: { contains: search, mode: "insensitive" as const } },
+                { variants: { some: { isActive: true, sku: { contains: search, mode: "insensitive" as const } } } },
+              ],
+            }]
+          : []),
+      ],
+    };
+    const [products, totalCount] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          sku: true,
+          price: true,
+          stock: true,
+          imageUrl: true,
+          hasVariants: true,
+          variants: {
+            where: { isActive: true },
+            select: { id: true, sku: true, price: true, stock: true, attributes: true },
+          },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      prisma.product.count({ where }),
+    ]);
+
+    return NextResponse.json(
+      {
+        products: products.map((product) => ({
+          ...product,
+          price: Number(product.price),
+          stock: Number(product.stock),
+          variants: product.variants.map((variant) => ({
+            ...variant,
+            price: Number(variant.price),
+            stock: Number(variant.stock),
+            attributes: typeof variant.attributes === "string"
+              ? (() => {
+                  try {
+                    const parsed = JSON.parse(variant.attributes);
+                    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+                  } catch {
+                    return {};
+                  }
+                })()
+              : {},
+          })),
+        })),
+        pagination: {
+          page,
+          limit,
+          totalCount,
+          totalPages: Math.max(1, Math.ceil(totalCount / limit)),
+        },
+      },
+      { headers: { "Cache-Control": "no-store, max-age=0" } },
+    );
+  }
+
   if (searchParams.has("page")) {
     const page = Math.max(1, Number(searchParams.get("page")) || 1);
     const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit")) || 10));
     const search = searchParams.get("search")?.trim().slice(0, 120) ?? "";
     const categoryId = searchParams.get("categoryId")?.trim() ?? "";
     const productType = searchParams.get("type");
+    const requestedStatus = searchParams.get("status");
+    const validStatuses = ["DRAFT", "PUBLISHED", "UNPUBLISHED", "ARCHIVED"] as const;
+    const statusFilter = validStatuses.find((value) => value === requestedStatus);
     const baseWhere = {
       ...(categoryId ? { categoryId } : {}),
       ...(search
@@ -100,19 +187,62 @@ export async function GET(request: Request) {
               { sku: { contains: search, mode: "insensitive" as const } },
               { description: { contains: search, mode: "insensitive" as const } },
               { category: { name: { contains: search, mode: "insensitive" as const } } },
+              { variants: { some: { sku: { contains: search, mode: "insensitive" as const } } } },
             ],
           }
         : {}),
     };
     const where = {
       ...baseWhere,
+      ...(statusFilter ? { status: statusFilter } : {}),
       ...(productType === "SIMPLE"
         ? { variants: { none: {} } }
         : productType === "VARIANT"
           ? { variants: { some: {} } }
           : {}),
     };
-    const [products, totalCount, simpleCount, variantCount, summaryRows] = await Promise.all([
+    const includeInventorySummary = searchParams.get("view") !== "management";
+    type ProductSummary = {
+      totalProducts: number;
+      totalStockUnits: number;
+      totalStockValue: number;
+      totalCostValue: number;
+      totalRetailValue: number;
+      lowStockCount: number;
+    };
+    const summaryQuery = includeInventorySummary
+      ? prisma.$queryRaw<ProductSummary[]>`
+          SELECT
+            (SELECT COUNT(*)::int FROM "Product") AS "totalProducts",
+            (
+              COALESCE((SELECT SUM(p."stock") FROM "Product" p
+                WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
+              + COALESCE((SELECT SUM(v."stock") FROM "ProductVariant" v), 0)
+            )::int AS "totalStockUnits",
+            (
+              COALESCE((SELECT SUM(p."cost" * p."stock") FROM "Product" p
+                WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
+              + COALESCE((SELECT SUM(v."cost" * v."stock") FROM "ProductVariant" v), 0)
+            )::double precision AS "totalStockValue",
+            (
+              COALESCE((SELECT SUM(p."cost" * p."stock") FROM "Product" p
+                WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
+              + COALESCE((SELECT SUM(v."cost" * v."stock") FROM "ProductVariant" v), 0)
+            )::double precision AS "totalCostValue",
+            (
+              COALESCE((SELECT SUM(p."price" * p."stock") FROM "Product" p
+                WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
+              + COALESCE((SELECT SUM(v."price" * v."stock") FROM "ProductVariant" v), 0)
+            )::double precision AS "totalRetailValue",
+            (
+              (SELECT COUNT(*) FROM "Product" p
+                WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")
+                  AND p."stock" <= p."minStock")
+              + (SELECT COUNT(*) FROM "ProductVariant" v WHERE v."stock" <= v."minStock")
+            )::int AS "lowStockCount"
+        `
+      : Promise.resolve([] as ProductSummary[]);
+    const [products, totalCount, simpleCount, variantCount, statusCountRows, summaryRows] = await Promise.all([
       prisma.product.findMany({
         where,
         include: { category: true, variants: true },
@@ -121,42 +251,47 @@ export async function GET(request: Request) {
         take: limit,
       }),
       prisma.product.count({ where }),
-      prisma.product.count({ where: { ...baseWhere, variants: { none: {} } } }),
-      prisma.product.count({ where: { ...baseWhere, variants: { some: {} } } }),
-      prisma.$queryRaw<Array<{ totalProducts: number; totalStockUnits: number; totalStockValue: number; lowStockCount: number }>>`
-        SELECT
-          (SELECT COUNT(*)::int FROM "Product") AS "totalProducts",
-          (
-            COALESCE((SELECT SUM(p."stock") FROM "Product" p
-              WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
-            + COALESCE((SELECT SUM(v."stock") FROM "ProductVariant" v), 0)
-          )::int AS "totalStockUnits",
-          (
-            COALESCE((SELECT SUM(p."cost" * p."stock") FROM "Product" p
-              WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")), 0)
-            + COALESCE((SELECT SUM(v."cost" * v."stock") FROM "ProductVariant" v), 0)
-          )::double precision AS "totalStockValue",
-          (
-            (SELECT COUNT(*) FROM "Product" p
-              WHERE NOT EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p."id")
-                AND p."stock" <= p."minStock")
-            + (SELECT COUNT(*) FROM "ProductVariant" v WHERE v."stock" <= v."minStock")
-          )::int AS "lowStockCount"
-      `,
+      includeInventorySummary
+        ? prisma.product.count({ where: { ...baseWhere, variants: { none: {} } } })
+        : Promise.resolve(0),
+      includeInventorySummary
+        ? prisma.product.count({ where: { ...baseWhere, variants: { some: {} } } })
+        : Promise.resolve(0),
+      prisma.product.groupBy({ by: ["status"], where: baseWhere, _count: { id: true } }),
+      summaryQuery,
     ]);
-    const summary = summaryRows[0] ?? { totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, lowStockCount: 0 };
+    const summary = summaryRows[0] ?? { totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, totalCostValue: 0, totalRetailValue: 0, lowStockCount: 0 };
+    const statusCounts = statusCountRows.reduce(
+      (counts, row) => {
+        counts.all += row._count.id;
+        if (row.status === "PUBLISHED") counts.published = row._count.id;
+        if (row.status === "DRAFT") counts.draft = row._count.id;
+        if (row.status === "UNPUBLISHED") counts.unpublished = row._count.id;
+        return counts;
+      },
+      { all: 0, published: 0, draft: 0, unpublished: 0 },
+    );
 
     return NextResponse.json(
       {
         products: products.map((product) => serializeProduct(product)),
         pagination: { page, limit, totalCount, totalPages: Math.max(1, Math.ceil(totalCount / limit)) },
-        typeCounts: { ALL: simpleCount + variantCount, SIMPLE: simpleCount, VARIANT: variantCount },
-        summary: {
-          totalProducts: Number(summary.totalProducts),
-          totalStockUnits: Number(summary.totalStockUnits),
-          totalStockValue: Number(summary.totalStockValue),
-          lowStockCount: Number(summary.lowStockCount),
-        },
+        ...(includeInventorySummary
+          ? { typeCounts: { ALL: simpleCount + variantCount, SIMPLE: simpleCount, VARIANT: variantCount } }
+          : {}),
+        statusCounts,
+        ...(includeInventorySummary
+          ? {
+              summary: {
+                totalProducts: Number(summary.totalProducts),
+                totalStockUnits: Number(summary.totalStockUnits),
+                totalStockValue: Number(summary.totalStockValue),
+                totalCostValue: Number(summary.totalCostValue),
+                totalRetailValue: Number(summary.totalRetailValue),
+                lowStockCount: Number(summary.lowStockCount),
+              },
+            }
+          : {}),
       },
       { headers: { "Cache-Control": "no-store, max-age=0" } },
     );
@@ -184,7 +319,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, productCreateSchema, "Product details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
     const nextImageUrls = typeof body.imageUrls !== "undefined"
       ? (Array.isArray(body.imageUrls) ? body.imageUrls.filter((value: unknown): value is string => typeof value === "string" && value.trim().length > 0).map((value: string) => value.trim()) : [])
       : parseImageUrls(body.imageUrl ?? null);
@@ -197,15 +334,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "At least one variant is required." }, { status: 400 });
     }
 
-    const normalizedVariants: NormalizedVariant[] = submittedVariants.map((variant: Record<string, unknown>) => ({
-      sku: typeof variant.sku === "string" ? variant.sku.trim() : "",
+    const normalizedVariants: NormalizedVariant[] = submittedVariants.map((variant) => ({
+      sku: variant.sku.trim(),
       price: Number(variant.price ?? 0),
       cost: Number(variant.cost ?? 0),
       stock: Number(variant.stock ?? 0),
       minStock: Number(variant.minStock ?? body.minStock ?? 5),
       isActive: variant.isActive !== false,
-      attributes: JSON.stringify(variant.attributeValues && typeof variant.attributeValues === "object" && !Array.isArray(variant.attributeValues) ? variant.attributeValues : {}),
-      imageUrl: Array.isArray(variant.imageUrls) ? JSON.stringify(variant.imageUrls.filter((value): value is string => typeof value === "string" && Boolean(value.trim())).map((value) => value.trim())) : null,
+      attributes: JSON.stringify(variant.attributeValues ?? {}),
+      imageUrl: variant.imageUrls ? JSON.stringify(variant.imageUrls) : null,
     }));
 
     if (hasVariants && normalizedVariants.some((variant) => !variant.sku || !Number.isFinite(variant.price) || !Number.isFinite(variant.cost) || !Number.isInteger(variant.stock) || variant.stock < 0)) {
@@ -266,6 +403,7 @@ export async function POST(request: Request) {
           data: {
             productId: createdProduct.id,
             productName: createdProduct.name,
+            performedById: userId,
             type: "STOCK_IN",
             eventType: "STOCK_IN",
             quantity: initialStock,
@@ -283,20 +421,25 @@ export async function POST(request: Request) {
         await tx.productVariant.createMany({ data: normalizedVariants.map((variant) => ({ productId: createdProduct.id, ...variant })) });
         const createdVariants = await tx.productVariant.findMany({ where: { productId: createdProduct.id }, select: { id: true, sku: true, stock: true } });
         await tx.inventoryTransaction.createMany({
-          data: normalizedVariants.filter((variant) => variant.stock > 0).map((variant) => ({
-            productId: createdProduct.id,
-            variantId: createdVariants.find((createdVariant) => createdVariant.sku === variant.sku)?.id,
-            productName: createdProduct.name,
-            type: "STOCK_IN" as const,
-            eventType: "STOCK_IN",
-            quantity: variant.stock,
-            stockBefore: 0,
-            stockAfter: variant.stock,
-            remarks: `Initial stock - variant ${variant.sku}`,
-            performedByName: actor?.name ?? null,
-            performedByType: actor?.role ?? "ADMIN",
-            source: "INVENTORY",
-          })),
+          data: normalizedVariants.filter((variant) => variant.stock > 0).map((variant) => {
+            const createdVariant = createdVariants.find((entry) => entry.sku === variant.sku);
+            return {
+              productId: createdProduct.id,
+              variantId: createdVariant?.id,
+              variantSku: createdVariant?.sku,
+              productName: createdProduct.name,
+              performedById: userId,
+              type: "STOCK_IN" as const,
+              eventType: "STOCK_IN",
+              quantity: variant.stock,
+              stockBefore: 0,
+              stockAfter: variant.stock,
+              remarks: `Initial stock - variant ${variant.sku}`,
+              performedByName: actor?.name ?? null,
+              performedByType: actor?.role ?? "ADMIN",
+              source: "INVENTORY",
+            };
+          }),
         });
       }
 
@@ -308,6 +451,8 @@ export async function POST(request: Request) {
       include: { category: true, variants: true },
     });
 
+    revalidateTag("public-products", { expire: 0 });
+    emitCatalogUpdatedEvent({ productId: product.id });
     return NextResponse.json({ success: true, product: updatedProduct ? serializeProduct(updatedProduct) : serializeProduct(product) }, { status: 201 });
   } catch (error: unknown) {
     logError("admin.products.create_failed", error, { requestId: getRequestId(request) });
@@ -329,8 +474,11 @@ export async function PUT(request: Request) {
     if (!userId) {
       return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
     }
+    const actor = await prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } });
 
-    const body = await request.json();
+    const parsed = await parseJsonRequestBody(request, productUpdateSchema, "Product changes are invalid.");
+    if (!parsed.success) return parsed.response;
+    const body = parsed.data;
     if (!body.id) {
       return NextResponse.json({ success: false, message: "Product id is required." }, { status: 400 });
     }
@@ -352,6 +500,12 @@ export async function PUT(request: Request) {
     if (typeof body.cost !== "undefined") updateData.cost = Number(body.cost ?? 0);
     if (typeof body.stock !== "undefined") updateData.stock = Number(body.stock ?? 0);
     if (typeof body.minStock !== "undefined") updateData.minStock = Number(body.minStock ?? 5);
+    if (typeof updateData.stock === "number" && (!Number.isInteger(updateData.stock) || updateData.stock < 0)) {
+      return NextResponse.json({ success: false, message: "Stock must be a non-negative whole number." }, { status: 400 });
+    }
+    if (typeof updateData.minStock === "number" && (!Number.isInteger(updateData.minStock) || updateData.minStock < 0)) {
+      return NextResponse.json({ success: false, message: "Minimum stock must be a non-negative whole number." }, { status: 400 });
+    }
     if (typeof body.isActive !== "undefined") updateData.isActive = body.isActive;
     if (typeof body.sellingMode === "string" && ["SIMPLE", "PARENT_AND_VARIANTS"].includes(body.sellingMode)) updateData.sellingMode = body.sellingMode;
       if (typeof body.status === "string" && ["DRAFT", "PUBLISHED", "UNPUBLISHED", "ARCHIVED"].includes(body.status)) updateData.status = body.status;
@@ -368,16 +522,20 @@ export async function PUT(request: Request) {
       updateData.optionValues = normalizeOptionValues(body.optionValues);
     }
 
-    const submittedVariants = Array.isArray(body.variants) ? body.variants : [];
-    const productVariantUpdates: Array<{ id: string; sku?: string; price?: number; cost?: number; minStock?: number; attributes?: string; imageUrl?: string }> = submittedVariants.filter((variant: unknown): variant is Record<string, unknown> => Boolean(variant) && typeof variant === "object").map((variant: Record<string, unknown>) => ({
-      id: typeof variant.id === "string" ? variant.id : "",
+    const submittedVariants = body.variants ?? [];
+    const productVariantUpdates: Array<{ id: string; sku?: string; price?: number; cost?: number; minStock?: number; attributes?: string; imageUrl?: string }> = submittedVariants.map((variant) => ({
+      id: variant.id,
       sku: typeof variant.sku === "string" ? variant.sku.trim() : undefined,
       price: typeof variant.price !== "undefined" ? Number(variant.price) : undefined,
       cost: typeof variant.cost !== "undefined" ? Number(variant.cost) : undefined,
       minStock: typeof variant.minStock !== "undefined" ? Number(variant.minStock) : undefined,
-      attributes: variant.attributeValues && typeof variant.attributeValues === "object" && !Array.isArray(variant.attributeValues) ? JSON.stringify(variant.attributeValues) : undefined,
-      imageUrl: Array.isArray(variant.imageUrls) ? JSON.stringify(variant.imageUrls.filter((value: unknown): value is string => typeof value === "string" && Boolean(value.trim())).map((value: string) => value.trim())) : undefined,
-    })).filter((variant: { id: string }) => variant.id);
+      attributes: variant.attributeValues ? JSON.stringify(variant.attributeValues) : undefined,
+      imageUrl: variant.imageUrls ? JSON.stringify(variant.imageUrls) : undefined,
+    }));
+
+    if (productVariantUpdates.some((variant) => typeof variant.minStock === "number" && (!Number.isInteger(variant.minStock) || variant.minStock < 0))) {
+      return NextResponse.json({ success: false, message: "Variant minimum stock must be a non-negative whole number." }, { status: 400 });
+    }
 
     if (!Object.keys(updateData).length) {
       return NextResponse.json({ success: false, message: "No product data to update." }, { status: 400 });
@@ -402,11 +560,65 @@ export async function PUT(request: Request) {
       : updateData;
 
     const product = await prisma.$transaction(async (tx) => {
+      const originalProduct = await tx.product.findUnique({
+        where: { id: String(body.id) },
+        select: { stock: true, minStock: true },
+      });
+      if (!originalProduct) throw new Error("Product not found.");
+
       const updated = await tx.product.update({
         where: { id: String(body.id) },
         data: productUpdateData,
         include: { category: true, variants: true },
       });
+
+      const previousStock = Number(originalProduct.stock);
+      const nextStock = Number(updated.stock);
+      if (previousStock !== nextStock) {
+          await tx.inventoryTransaction.create({
+            data: {
+              productId: updated.id,
+              productName: updated.name,
+              performedById: userId,
+              performedByName: actor?.name ?? null,
+              performedByType: actor?.role ?? "ADMIN",
+              source: "INVENTORY",
+              type: "ADJUSTMENT",
+              eventType: "ADJUSTMENT",
+              quantity: nextStock,
+              stockBefore: previousStock,
+              stockAfter: nextStock,
+              remarks: typeof body.stockChangeReason === "string" && body.stockChangeReason.trim()
+                ? body.stockChangeReason.trim().slice(0, 500)
+                : "Stock quantity updated from product management",
+            },
+          });
+      }
+
+      const previousMinStock = Number(originalProduct.minStock);
+      const nextMinStock = Number(updated.minStock);
+      if (previousMinStock !== nextMinStock) {
+          await tx.inventoryTransaction.create({
+            data: {
+              productId: updated.id,
+              productName: updated.name,
+              performedById: userId,
+              performedByName: actor?.name ?? null,
+              performedByType: actor?.role ?? "ADMIN",
+              source: "INVENTORY",
+              type: "ADJUSTMENT",
+              eventType: "THRESHOLD_ADJUSTMENT",
+              quantity: nextMinStock,
+              stockBefore: Number(updated.stock),
+              stockAfter: Number(updated.stock),
+              minStockBefore: previousMinStock,
+              minStockAfter: nextMinStock,
+              remarks: typeof body.minStockChangeReason === "string" && body.minStockChangeReason.trim()
+                ? body.minStockChangeReason.trim().slice(0, 500)
+                : "Minimum stock threshold updated from product management",
+            },
+          });
+      }
 
       for (const variant of productVariantUpdates) {
         const data: Record<string, unknown> = {};
@@ -417,13 +629,43 @@ export async function PUT(request: Request) {
         if (typeof variant.attributes !== "undefined") data.attributes = variant.attributes;
         if (typeof variant.imageUrl !== "undefined") data.imageUrl = variant.imageUrl;
         if (Object.keys(data).length) {
-          await tx.productVariant.update({ where: { id: variant.id, productId: updated.id }, data });
+          const existingVariant = await tx.productVariant.findFirst({
+            where: { id: variant.id, productId: updated.id },
+            select: { minStock: true, stock: true, sku: true },
+          });
+          const updatedVariant = await tx.productVariant.update({ where: { id: variant.id, productId: updated.id }, data });
+          if (existingVariant && typeof variant.minStock !== "undefined" && existingVariant.minStock !== updatedVariant.minStock) {
+            await tx.inventoryTransaction.create({
+              data: {
+                productId: updated.id,
+                variantId: updatedVariant.id,
+                variantSku: existingVariant.sku,
+                productName: updated.name,
+                performedById: userId,
+                performedByName: actor?.name ?? null,
+                performedByType: actor?.role ?? "ADMIN",
+                source: "INVENTORY",
+                type: "ADJUSTMENT",
+                eventType: "THRESHOLD_ADJUSTMENT",
+                quantity: updatedVariant.minStock,
+                stockBefore: existingVariant.stock,
+                stockAfter: existingVariant.stock,
+                minStockBefore: existingVariant.minStock,
+                minStockAfter: updatedVariant.minStock,
+                remarks: typeof body.minStockChangeReason === "string" && body.minStockChangeReason.trim()
+                  ? body.minStockChangeReason.trim().slice(0, 500)
+                  : "Minimum stock threshold updated from product management",
+              },
+            });
+          }
         }
       }
 
       return tx.product.findUnique({ where: { id: updated.id }, include: { category: true, variants: true } });
     });
 
+    revalidateTag("public-products", { expire: 0 });
+    emitCatalogUpdatedEvent({ productId: body.id });
     return NextResponse.json({ success: true, product: product ? serializeProduct(product) : null });
   } catch (error: unknown) {
     logError("admin.products.update_failed", error, { requestId: getRequestId(request) });
@@ -436,7 +678,7 @@ export async function DELETE(request: Request) {
     const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:products:delete", "admin");
     if (rateLimitResponse) return rateLimitResponse;
     const token = (await cookies()).get("token")?.value;
-    const payload = token ? (verifyToken(token) as { sub?: string } | null) : null;
+    const payload = token ? await getUserForToken(token) : null;
     const admin = payload?.sub
       ? await prisma.user.findUnique({ where: { id: payload.sub }, select: { role: true } })
       : null;
@@ -465,6 +707,8 @@ export async function DELETE(request: Request) {
     ]);
 
     await prisma.product.delete({ where: { id } });
+    revalidateTag("public-products", { expire: 0 });
+    emitCatalogUpdatedEvent({ productId: id });
     return NextResponse.json({ success: true, message: "Product deleted." });
   } catch (error: unknown) {
     logError("admin.products.delete_failed", error, { requestId: getRequestId(request) });

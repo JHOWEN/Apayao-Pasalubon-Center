@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { unstable_cache } from "next/cache";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { enforceRateLimit } from "@/lib/rate-limit";
@@ -6,8 +7,6 @@ import { prisma } from "@/lib/prisma";
 import { parseImageUrls } from "@/features/catalog/utils/product-images";
 import { getRequestId, logError } from "@/lib/logger";
 import { apiError } from "@/lib/api-response";
-
-const PUBLIC_PRODUCTS_CACHE_MS = 15_000;
 
 type PublicProductsCachePayload =
   | {
@@ -22,7 +21,12 @@ type PublicProductsCachePayload =
       status: number;
     };
 
-const publicProductsCache = new Map<string, { expiresAt: number; payload: PublicProductsCachePayload }>();
+const getCachedPublicProductsPayload = unstable_cache(
+  async (categoryId: string, search: string, page: number, limit: number) =>
+    buildPublicProductsPayload({ categoryId: categoryId || undefined, search: search || undefined, page, limit }) as Promise<PublicProductsCachePayload>,
+  ["public-products-v1"],
+  { tags: ["public-products"], revalidate: 15 },
+);
 
 const publicProductsQuerySchema = z.object({
   id: z.string().trim().cuid().optional().or(z.literal("")),
@@ -31,6 +35,62 @@ const publicProductsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(1000).default(1),
   limit: z.coerce.number().int().min(1).max(24).default(12),
 });
+
+const publicCatalogProductSelect = {
+  id: true,
+  name: true,
+  sku: true,
+  description: true,
+  imageUrl: true,
+  price: true,
+  stock: true,
+  minStock: true,
+  isActive: true,
+  categoryId: true,
+  hasVariants: true,
+  sellingMode: true,
+  optionValues: true,
+  optionType: true,
+  optionName: true,
+  createdAt: true,
+  updatedAt: true,
+  category: { select: { id: true, name: true, description: true, createdAt: true, updatedAt: true } },
+  variants: {
+    select: {
+      id: true,
+      sku: true,
+      price: true,
+      stock: true,
+      minStock: true,
+      isActive: true,
+      attributes: true,
+      imageUrl: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  },
+} satisfies Prisma.ProductSelect;
+
+const publicGroupChildSelect = {
+  id: true,
+  name: true,
+  sku: true,
+  description: true,
+  imageUrl: true,
+  price: true,
+  stock: true,
+  minStock: true,
+  isActive: true,
+  categoryId: true,
+  hasVariants: true,
+  sellingMode: true,
+  optionValues: true,
+  optionType: true,
+  optionName: true,
+  createdAt: true,
+  updatedAt: true,
+  category: { select: { id: true, name: true, description: true, createdAt: true, updatedAt: true } },
+} satisfies Prisma.ProductSelect;
 
 type PublicProductShape = {
   id: string;
@@ -45,16 +105,20 @@ type PublicProductShape = {
   categoryId: string;
   createdAt: Date;
   updatedAt: Date;
+  hasVariants?: boolean;
+  sellingMode?: string;
+  optionValues?: string | null;
+  optionType?: string | null;
+  optionName?: string | null;
   variants?: Array<{
     id: string;
     sku: string;
-    measurementValue: number | null;
-    measurementUnit: string | null;
-    color: string | null;
     price: unknown;
-    cost: unknown;
     stock: unknown;
     minStock: unknown;
+    isActive: boolean;
+    attributes?: unknown;
+    imageUrl?: string | null;
     imageUrls?: string[];
   }>;
   category?: {
@@ -93,33 +157,87 @@ function normalizeVariantAttributes(attributes: unknown): Record<string, string>
   return {};
 }
 
+function getAssignedProductIds(optionValues: string | null | undefined, currentProductId: string) {
+  if (!optionValues) return [];
+  try {
+    const parsed = JSON.parse(optionValues);
+    if (!Array.isArray(parsed)) return [];
+    return [...new Set(parsed
+      .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+      .map((item) => typeof item.assignedProductId === "string" ? item.assignedProductId.trim() : "")
+      .filter((id) => id && id !== currentProductId))];
+  } catch {
+    return [];
+  }
+}
+
 function serializeProduct(product: PublicProductShape) {
   const normalizedImageUrls = parseImageUrls((product as { imageUrl?: string | null }).imageUrl ?? null);
 
   return {
-    ...product,
+    id: product.id,
+    name: product.name,
+    sku: product.sku,
+    description: product.description,
     imageUrl: normalizedImageUrls.length ? JSON.stringify(normalizedImageUrls) : null,
     price: Number(product.price),
     stock: Number(product.stock),
     minStock: Number(product.minStock),
+    isActive: product.isActive,
+    categoryId: product.categoryId,
+    createdAt: product.createdAt,
+    updatedAt: product.updatedAt,
+    hasVariants: product.hasVariants ?? false,
+    sellingMode: product.sellingMode,
+    optionValues: product.optionValues,
+    optionType: product.optionType,
+    optionName: product.optionName,
+    category: product.category ? {
+      id: product.category.id,
+      name: product.category.name,
+      description: product.category.description,
+      createdAt: product.category.createdAt,
+      updatedAt: product.category.updatedAt,
+    } : null,
     variants: product.variants?.map((variant) => {
       const imageUrls = parseImageUrls((variant as { imageUrl?: string | null }).imageUrl ?? null);
 
       return {
-        ...variant,
+        id: variant.id,
+        sku: variant.sku,
         attributes: normalizeVariantAttributes((variant as { attributes?: unknown }).attributes),
         price: Number(variant.price),
-        cost: Number(variant.cost),
         stock: Number(variant.stock),
         minStock: Number(variant.minStock),
+        isActive: variant.isActive,
         imageUrl: imageUrls.length ? JSON.stringify(imageUrls) : null,
         imageUrls,
+        createdAt: (variant as { createdAt?: Date }).createdAt,
+        updatedAt: (variant as { updatedAt?: Date }).updatedAt,
       };
     }) ?? [],
   };
 }
 
 type ProductReviewSummary = { averageRating: number; reviewCount: number; latestReview: string | null; latestReviewAt: Date | null };
+
+async function getSoldCounts(productIds: string[]) {
+  const uniqueIds = [...new Set(productIds)];
+  if (!uniqueIds.length) return new Map<string, number>();
+
+  const rows = await prisma.orderItem.groupBy({
+    by: ["productId"],
+    where: {
+      productId: { in: uniqueIds },
+      order: {
+        status: { in: ["CONFIRMED", "PREPARING", "READY_FOR_PICKUP", "COMPLETED"] },
+      },
+    },
+    _sum: { quantity: true },
+  });
+
+  return new Map(rows.map((row) => [row.productId, Number(row._sum.quantity ?? 0)]));
+}
 
 async function getReviewSummaries(productIds: string[]) {
   const uniqueIds = [...new Set(productIds)];
@@ -192,9 +310,7 @@ async function buildPublicProductsPayload({
       include: {
         items: {
           include: {
-            inventoryProduct: {
-              include: { category: true, variants: true },
-            },
+            inventoryProduct: { select: publicGroupChildSelect },
           },
           orderBy: { sortOrder: "asc" },
         },
@@ -261,38 +377,46 @@ async function buildPublicProductsPayload({
 
     const product = await prisma.product.findUnique({
       where: { id: normalizedId },
-      include: { category: true, variants: true },
+      select: publicCatalogProductSelect,
     });
 
     if (!product) {
       return { success: false, message: "Product not found.", status: 404 };
     }
 
-    const matchingGroups = await prisma.productGroup.findMany({
-      where: {
-        status: "PUBLISHED",
-        items: {
-          some: {
-            inventoryProductId: normalizedId,
-          },
-        },
-      },
-      include: {
-        items: {
-          include: {
-            inventoryProduct: {
-              include: { category: true, variants: true },
+    const assignedProductIds = getAssignedProductIds(product.optionValues, normalizedId);
+    const [matchingGroups, configuredOptionProducts] = await Promise.all([
+      prisma.productGroup.findMany({
+        where: {
+          status: "PUBLISHED",
+          items: {
+            some: {
+              inventoryProductId: normalizedId,
             },
           },
-          orderBy: { sortOrder: "asc" },
         },
-      },
-    });
+        include: {
+          items: {
+            include: {
+              inventoryProduct: { select: publicGroupChildSelect },
+            },
+            orderBy: { sortOrder: "asc" },
+          },
+        },
+      }),
+      assignedProductIds.length
+        ? prisma.product.findMany({
+            where: { id: { in: assignedProductIds } },
+            select: publicGroupChildSelect,
+          })
+        : Promise.resolve([]),
+    ]);
 
-    const reviewSummary = combineReviewSummaries(
-      [normalizedId],
-      await getReviewSummaries([normalizedId]),
-    );
+    const optionReviewSummaries = await getReviewSummaries([
+      normalizedId,
+      ...configuredOptionProducts.map((optionProduct) => optionProduct.id),
+    ]);
+    const reviewSummary = combineReviewSummaries([normalizedId], optionReviewSummaries);
     const matchedProductGroup = matchingGroups[0] ?? null;
 
     return {
@@ -300,6 +424,10 @@ async function buildPublicProductsPayload({
       product: {
         ...serializeProduct(product as unknown as PublicProductShape),
         ...reviewSummary,
+        optionProducts: configuredOptionProducts.map((optionProduct) => ({
+          ...serializeProduct(optionProduct as unknown as PublicProductShape),
+          ...combineReviewSummaries([optionProduct.id], optionReviewSummaries),
+        })),
         productGroup: matchedProductGroup
           ? {
               id: matchedProductGroup.id,
@@ -391,16 +519,14 @@ async function buildPublicProductsPayload({
   const [publishedProducts, publishedGroups] = await Promise.all([
     prisma.product.findMany({
       where: { id: { in: selectedProductIds } },
-      include: { category: true, variants: true },
+      select: publicCatalogProductSelect,
     }),
     prisma.productGroup.findMany({
       where: { id: { in: selectedGroupIds } },
       include: {
       items: {
         include: {
-          inventoryProduct: {
-            include: { category: true, variants: true },
-          },
+          inventoryProduct: { select: publicGroupChildSelect },
         },
         orderBy: { sortOrder: "asc" },
       },
@@ -412,12 +538,16 @@ async function buildPublicProductsPayload({
     ...publishedProducts.map((product) => product.id),
     ...publishedGroups.flatMap((group) => group.items.map((item) => item.inventoryProduct.id)),
   ];
-  const reviewSummaries = await getReviewSummaries(reviewProductIds);
+  const [reviewSummaries, soldCounts] = await Promise.all([
+    getReviewSummaries(reviewProductIds),
+    getSoldCounts(reviewProductIds),
+  ]);
 
   const directProducts = publishedProducts.map((product) => {
     return {
       ...serializeProduct(product as unknown as PublicProductShape),
       ...combineReviewSummaries([product.id], reviewSummaries),
+      soldCount: soldCounts.get(product.id) ?? 0,
     };
   });
 
@@ -441,6 +571,10 @@ async function buildPublicProductsPayload({
       items.map((item) => item.inventoryProduct.id),
       reviewSummaries,
     );
+    const soldCount = items.reduce(
+      (total, item) => total + (soldCounts.get(item.inventoryProduct.id) ?? 0),
+      0,
+    );
 
     return {
       id: group.id,
@@ -457,6 +591,7 @@ async function buildPublicProductsPayload({
       updatedAt: group.updatedAt,
       category: items[0]?.inventoryProduct.category ?? null,
       ...reviewSummary,
+      soldCount,
       productGroup: {
         id: group.id,
         name: group.name,
@@ -503,48 +638,6 @@ async function buildPublicProductsPayload({
       hasNextPage: page < totalPages,
     },
   };
-}
-
-async function getCachedPublicProductsPayload({
-  id,
-  categoryId,
-  search,
-  page,
-  limit,
-}: {
-  id?: string;
-  categoryId?: string;
-  search?: string;
-  page: number;
-  limit: number;
-}) {
-  const cacheKey = JSON.stringify({
-    id: typeof id === "string" ? id.trim() : "",
-    categoryId: typeof categoryId === "string" ? categoryId.trim() : "",
-    search: typeof search === "string" ? search.trim() : "",
-    page,
-    limit,
-  });
-
-  const now = Date.now();
-  const cachedEntry = publicProductsCache.get(cacheKey);
-  if (cachedEntry && cachedEntry.expiresAt > now) {
-    return cachedEntry.payload;
-  }
-
-  const payload = (await buildPublicProductsPayload({ id, categoryId, search, page, limit })) as PublicProductsCachePayload;
-  if (publicProductsCache.size >= 200) {
-    const expiredKeys = [...publicProductsCache.entries()]
-      .filter(([, entry]) => entry.expiresAt <= now)
-      .map(([key]) => key);
-    for (const key of expiredKeys) publicProductsCache.delete(key);
-    if (publicProductsCache.size >= 200) {
-      const oldestKey = publicProductsCache.keys().next().value;
-      if (oldestKey) publicProductsCache.delete(oldestKey);
-    }
-  }
-  publicProductsCache.set(cacheKey, { expiresAt: now + PUBLIC_PRODUCTS_CACHE_MS, payload });
-  return payload;
 }
 
 export async function GET(request: Request) {
@@ -601,12 +694,12 @@ export async function GET(request: Request) {
         return NextResponse.json(payload as Record<string, unknown>);
       }
 
-      const payload = await getCachedPublicProductsPayload({
-        categoryId: categoryId ?? undefined,
-        search: search ?? undefined,
+      const payload = await getCachedPublicProductsPayload(
+        categoryId?.trim() ?? "",
+        search?.trim() ?? "",
         page,
         limit,
-      });
+      );
 
       if (payload && "success" in payload && payload.success === false) {
         return NextResponse.json(
@@ -616,7 +709,7 @@ export async function GET(request: Request) {
       }
 
       return NextResponse.json(payload as Record<string, unknown>, {
-        headers: { "Cache-Control": "public, max-age=0, s-maxage=15, stale-while-revalidate=30" },
+        headers: { "Cache-Control": "public, max-age=0, s-maxage=0, must-revalidate" },
       });
     } catch (error) {
       logError("public.products.get_failed", error, { requestId: getRequestId(request) });

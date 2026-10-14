@@ -1,6 +1,7 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
-import NextImage from "next/image";
+import NextImage from "@/components/safe-image";
 import { AdminToast } from "@/components/admin/admin-toast";
 import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
 import {
@@ -11,6 +12,7 @@ import {
   KeyRound,
   MapPin,
   Phone,
+  Printer,
   QrCode,
   ShieldCheck,
   Store,
@@ -26,14 +28,22 @@ import {
   ADMIN_MODAL_PANEL_CLASS,
 } from "@/utils/admin-modal";
 import { useEffect, useState } from "react";
+import { getNewPasswordPolicyError, MIN_NEW_PASSWORD_CHARACTERS } from "@/lib/password-policy";
 
 const fallbackAvatarSrc =
-  process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+  process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png";
 
-type SettingsTab = "profile" | "store" | "wallets" | "security" | "team";
+type SettingsTab = "profile" | "store" | "pos" | "wallets" | "security" | "team";
 
 type SettingsState = {
   appName?: string;
+  registeredBusinessName?: string | null;
+  businessAddress?: string | null;
+  contactEmail?: string | null;
+  contactPhone?: string | null;
+  facebookUrl?: string | null;
+  storeHours?: string | null;
+  tinNumber?: string | null;
   currency?: string;
   gcashAccountName?: string | null;
   gcashAccountNumber?: string | null;
@@ -63,9 +73,15 @@ type TeamUser = {
 
 export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
-
   const [settingsForm, setSettingsForm] = useState<SettingsState>({
     appName: "APC Inventory",
+    registeredBusinessName: "APAYAO PASALUBONG CENTER",
+    businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+    contactEmail: "info@apayao-pasalubong.com",
+    contactPhone: "0917 123 4567",
+    facebookUrl: "https://www.facebook.com/apayaopasalubong",
+    storeHours: "Open daily, 7:00 AM - 8:30 PM.",
+    tinNumber: "",
     currency: "PHP",
     gcashAccountName: "",
     gcashAccountNumber: "",
@@ -125,20 +141,42 @@ export default function AdminSettingsPage() {
   const [isDeletingUser, setIsDeletingUser] = useState(false);
 
   const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
+  const [isRoleLoading, setIsRoleLoading] = useState(true);
   const isAdmin = userRole === "ADMIN";
+  const showAdminTabs = isRoleLoading || isAdmin;
+  const getTabClassName = (tab: SettingsTab) =>
+    [
+      "inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition",
+      activeTab === tab
+        ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
+        : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800",
+      isRoleLoading && tab !== "profile" && tab !== "security"
+        ? "cursor-not-allowed opacity-60"
+        : "",
+    ].join(" ");
 
   const showToast = (type: "success" | "error", message: string) => {
     setToast({ show: true, type, message });
   };
 
   useEffect(() => {
+    let canManageAdminSettings = false;
+
     async function loadSettings() {
       try {
-        const response = await fetch("/api/admin/settings");
+        const response = await adminFetch("/api/admin/settings");
         const data = await response.json();
-        const nextSettings = data?.settings ?? {
+        const nextSettings = {
           appName: "APC Inventory",
+          registeredBusinessName: "APAYAO PASALUBONG CENTER",
+          businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+          contactEmail: "info@apayao-pasalubong.com",
+          contactPhone: "0917 123 4567",
+          facebookUrl: "https://www.facebook.com/apayaopasalubong",
+          storeHours: "Open daily, 7:00 AM - 8:30 PM.",
+          tinNumber: "",
           currency: "PHP",
+          ...data?.settings,
         };
         setSettingsForm(nextSettings);
       } catch (err) {
@@ -148,12 +186,13 @@ export default function AdminSettingsPage() {
 
     async function loadProfile() {
       try {
-        const response = await fetch("/api/admin/profile");
+        const response = await adminFetch("/api/admin/profile");
         const data = await response.json();
 
         if (response.ok && data.user) {
           const role =
             data.user.role === "ADMIN" ? "ADMIN" : data.user.role === "STAFF" ? "STAFF" : null;
+          canManageAdminSettings = role === "ADMIN";
           setUserRole(role);
           setProfileForm({
             name: data.user.name ?? "",
@@ -171,12 +210,14 @@ export default function AdminSettingsPage() {
         }
       } catch (err) {
         console.error("Failed to load profile:", err);
+      } finally {
+        setIsRoleLoading(false);
       }
     }
 
     async function loadTeamUsers() {
       try {
-        const response = await fetch("/api/admin/users");
+        const response = await adminFetch("/api/admin/users");
         if (response.ok) {
           const data = await response.json();
           setTeamUsers(Array.isArray(data) ? data : []);
@@ -193,7 +234,18 @@ export default function AdminSettingsPage() {
       }
     }
 
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (!canManageAdminSettings) return;
+      if (message?.type === "settings-updated") void loadSettings();
+      if (message?.type === "users-updated") void loadTeamUsers();
+    };
+
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
+
     void loadProfile();
+
+    return () => window.removeEventListener("apc-admin-live-event", handleLiveEvent);
   }, []);
 
   async function handleProfileSave(e: React.FormEvent) {
@@ -201,7 +253,7 @@ export default function AdminSettingsPage() {
     setIsSavingProfile(true);
 
     try {
-      const response = await fetch("/api/admin/profile", {
+      const response = await adminFetch("/api/admin/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(profileForm),
@@ -297,7 +349,7 @@ export default function AdminSettingsPage() {
       const formData = new FormData();
       formData.append("file", blob, file.name.replace(/\.[^.]+$/, ".png"));
 
-      const response = await fetch("/api/admin/profile/upload", {
+      const response = await adminFetch("/api/admin/profile/upload", {
         method: "POST",
         body: formData,
       });
@@ -312,7 +364,7 @@ export default function AdminSettingsPage() {
       setProfileForm(updatedProfile);
       setPreviewImage(data.url);
 
-      const saveResponse = await fetch("/api/admin/profile", {
+      const saveResponse = await adminFetch("/api/admin/profile", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedProfile),
@@ -343,7 +395,7 @@ export default function AdminSettingsPage() {
     setIsSavingSettings(true);
 
     try {
-      const response = await fetch("/api/admin/settings", {
+      const response = await adminFetch("/api/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settingsForm),
@@ -357,9 +409,9 @@ export default function AdminSettingsPage() {
 
       const nextSettings = data?.settings ?? settingsForm;
       setSettingsForm(nextSettings);
-      showToast("success", "Store configuration saved successfully.");
+      showToast("success", "Settings saved successfully.");
     } catch {
-      showToast("error", "Error saving store configuration.");
+      showToast("error", "Error saving settings.");
     } finally {
       setIsSavingSettings(false);
     }
@@ -373,7 +425,7 @@ export default function AdminSettingsPage() {
     try {
       const formData = new FormData();
       formData.append("file", file);
-      const response = await fetch("/api/admin/payment-qr/upload", {
+      const response = await adminFetch("/api/admin/payment-qr/upload", {
         method: "POST",
         body: formData,
       });
@@ -389,7 +441,7 @@ export default function AdminSettingsPage() {
       setSettingsForm(updatedForm);
 
       // Auto-save settings with new QR code
-      await fetch("/api/admin/settings", {
+      await adminFetch("/api/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedForm),
@@ -411,15 +463,16 @@ export default function AdminSettingsPage() {
       return;
     }
 
-    if (passwordForm.newPassword.length < 8) {
-      showToast("error", "Password must be at least 8 characters.");
+    const passwordError = getNewPasswordPolicyError(passwordForm.newPassword);
+    if (passwordError) {
+      showToast("error", passwordError);
       return;
     }
 
     setIsChangingPassword(true);
 
     try {
-      const response = await fetch("/api/admin/profile/password", {
+      const response = await adminFetch("/api/admin/profile/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -435,7 +488,8 @@ export default function AdminSettingsPage() {
       }
 
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-      showToast("success", "Password updated successfully.");
+      showToast("success", "Password updated. Please log in again.");
+      window.setTimeout(() => window.location.replace("/login?reason=session-expired"), 1000);
     } catch {
       showToast("error", "Unable to change password.");
     } finally {
@@ -451,7 +505,7 @@ export default function AdminSettingsPage() {
     setCopiedTempPass(false);
 
     try {
-      const response = await fetch("/api/admin/users", {
+      const response = await adminFetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(teamForm),
@@ -480,7 +534,7 @@ export default function AdminSettingsPage() {
     changes: { role?: TeamUser["role"]; isBlocked?: boolean }
   ) {
     try {
-      const response = await fetch("/api/admin/users", {
+      const response = await adminFetch("/api/admin/users", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: user.id, ...changes }),
@@ -489,6 +543,12 @@ export default function AdminSettingsPage() {
 
       if (!response.ok) {
         showToast("error", data.message ?? "Unable to update account.");
+        return;
+      }
+
+      if (data.sessionEnded) {
+        showToast("success", "Your role or account status changed. Please log in again.");
+        window.setTimeout(() => window.location.replace("/login?reason=session-expired"), 1000);
         return;
       }
 
@@ -507,7 +567,7 @@ export default function AdminSettingsPage() {
     setIsDeletingUser(true);
 
     try {
-      const response = await fetch("/api/admin/users", {
+      const response = await adminFetch("/api/admin/users", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: userToDelete.id }),
@@ -588,80 +648,70 @@ export default function AdminSettingsPage() {
               </span>
             </div>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Manage personal profile, store setup, payment receiving wallets, security, and team
-              access.
+              Manage your profile, store configuration, POS receipt details, payment wallets, security, and team access.
             </p>
           </div>
         </div>
 
-        {/* Segmented Category Tabs */}
         <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800/80">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0">
             <button
               type="button"
               onClick={() => setActiveTab("profile")}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                activeTab === "profile"
-                  ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-              }`}
+              className={getTabClassName("profile")}
             >
               <User className="h-3.5 w-3.5" />
               <span>Profile & Account</span>
             </button>
-
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("store")}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                  activeTab === "store"
-                    ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-                }`}
-              >
-                <Store className="h-3.5 w-3.5" />
-                <span>Store & POS</span>
-              </button>
+            {showAdminTabs && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("store")}
+                  disabled={!isAdmin}
+                  aria-label={isRoleLoading ? "Store Setup (checking access)" : "Store Setup"}
+                  className={getTabClassName("store")}
+                >
+                  <Store className="h-3.5 w-3.5" />
+                  <span>Store Setup</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("pos")}
+                  disabled={!isAdmin}
+                  aria-label={isRoleLoading ? "POS Receipt (checking access)" : "POS Receipt"}
+                  className={getTabClassName("pos")}
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  <span>POS Receipt</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("wallets")}
+                  disabled={!isAdmin}
+                  aria-label={isRoleLoading ? "Payment Wallets (checking access)" : "Payment Wallets"}
+                  className={getTabClassName("wallets")}
+                >
+                  <CreditCard className="h-3.5 w-3.5" />
+                  <span>Payment Wallets</span>
+                </button>
+              </>
             )}
-
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => setActiveTab("wallets")}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                  activeTab === "wallets"
-                    ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-                }`}
-              >
-                <CreditCard className="h-3.5 w-3.5" />
-                <span>Payment Wallets</span>
-              </button>
-            )}
-
             <button
               type="button"
               onClick={() => setActiveTab("security")}
-              className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                activeTab === "security"
-                  ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                  : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-              }`}
+              className={getTabClassName("security")}
             >
               <KeyRound className="h-3.5 w-3.5" />
               <span>Security</span>
             </button>
-
-            {isAdmin && (
+            {showAdminTabs && (
               <button
                 type="button"
                 onClick={() => setActiveTab("team")}
-                className={`inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium tracking-tight transition ${
-                  activeTab === "team"
-                    ? "bg-slate-900 font-semibold text-white shadow-sm dark:bg-emerald-600"
-                    : "text-slate-600 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
-                }`}
+                disabled={!isAdmin}
+                aria-label={isRoleLoading ? "Team Management (checking access)" : "Team Management"}
+                className={getTabClassName("team")}
               >
                 <Users className="h-3.5 w-3.5" />
                 <span>Team Management</span>
@@ -692,7 +742,7 @@ export default function AdminSettingsPage() {
                 fill
                 sizes="80px"
                 className="object-cover"
-                unoptimized
+                unoptimized={Boolean(previewImage?.startsWith("blob:"))}
               />
             </div>
             <div>
@@ -822,10 +872,10 @@ export default function AdminSettingsPage() {
         <section className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
-              Store & POS Setup
+              Store Setup
             </h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Configure store identity, financial currency defaults, tax computation, and POS checkout options.
+              Configure the storefront contact details shown in Ecommerce Info. The store address is also used on POS receipts.
             </p>
           </div>
 
@@ -865,7 +915,89 @@ export default function AdminSettingsPage() {
               />
             </div>
 
+            <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                Ecommerce Contact Information
+              </h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Leave a field blank to hide that contact method from customers.
+              </p>
+            </div>
 
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="store-contact-email" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Contact Email
+                </label>
+                <input
+                  id="store-contact-email"
+                  type="email"
+                  maxLength={160}
+                  value={settingsForm.contactEmail ?? ""}
+                  onChange={(e) => setSettingsForm((curr) => ({ ...curr, contactEmail: e.target.value }))}
+                  placeholder="store@example.com"
+                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                />
+              </div>
+              <div>
+                <label htmlFor="store-contact-phone" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Contact Phone
+                </label>
+                <input
+                  id="store-contact-phone"
+                  type="tel"
+                  maxLength={40}
+                  value={settingsForm.contactPhone ?? ""}
+                  onChange={(e) => setSettingsForm((curr) => ({ ...curr, contactPhone: e.target.value }))}
+                  placeholder="0917 123 4567"
+                  className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="store-facebook-url" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Facebook Page URL
+              </label>
+              <input
+                id="store-facebook-url"
+                type="url"
+                maxLength={240}
+                value={settingsForm.facebookUrl ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, facebookUrl: e.target.value }))}
+                placeholder="https://www.facebook.com/yourpage"
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="store-business-address" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Store Address
+              </label>
+              <textarea
+                id="store-business-address"
+                maxLength={240}
+                rows={2}
+                value={settingsForm.businessAddress ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, businessAddress: e.target.value }))}
+                placeholder="Street, barangay, municipality, province"
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="store-hours" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Store Hours
+              </label>
+              <input
+                id="store-hours"
+                maxLength={120}
+                value={settingsForm.storeHours ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, storeHours: e.target.value }))}
+                placeholder="Open daily, 7:00 AM - 8:30 PM"
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
 
             <div className="flex justify-end pt-2">
               <button
@@ -881,6 +1013,73 @@ export default function AdminSettingsPage() {
                     <span>Save Store Settings</span>
                   </>
                 )}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {/* POS receipt business details (Admin Only) */}
+      {activeTab === "pos" && isAdmin && (
+        <section className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">POS Receipt Header</h2>
+            <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+              Set the business name and address shown at the top of browser and USB thermal receipts. The address is also used in Store Setup.
+            </p>
+          </div>
+
+          <form className="mt-5 space-y-4" onSubmit={handleSettingsSave}>
+            <div>
+              <label htmlFor="receipt-business-name" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Registered Business Name
+              </label>
+              <input
+                id="receipt-business-name"
+                maxLength={120}
+                value={settingsForm.registeredBusinessName ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, registeredBusinessName: e.target.value }))}
+                placeholder="Enter the registered business name"
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="receipt-business-address" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Business Address
+              </label>
+              <textarea
+                id="receipt-business-address"
+                maxLength={240}
+                rows={2}
+                value={settingsForm.businessAddress ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, businessAddress: e.target.value }))}
+                placeholder="Street, barangay, municipality, province"
+                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="receipt-tin" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                TIN No.
+              </label>
+              <input
+                id="receipt-tin"
+                maxLength={40}
+                value={settingsForm.tinNumber ?? ""}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, tinNumber: e.target.value }))}
+                placeholder="Enter TIN, or leave blank to omit it"
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="submit"
+                disabled={isSavingSettings}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+              >
+                {isSavingSettings ? <span>Saving...</span> : <><Check className="h-3.5 w-3.5" /><span>Save POS Receipt Settings</span></>}
               </button>
             </div>
           </form>
@@ -1157,7 +1356,7 @@ export default function AdminSettingsPage() {
 
       {/* 5. TAB 4: SECURITY & AUTHENTICATION */}
       {activeTab === "security" && (
-        <section className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <section className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-6 dark:border-slate-800 dark:bg-slate-900">
           <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">
               Password & Account Security
@@ -1167,11 +1366,11 @@ export default function AdminSettingsPage() {
             </p>
           </div>
 
-          <form className="mt-5 max-w-xl space-y-4" onSubmit={handlePasswordChange}>
+          <form className="mt-5 w-full max-w-xl space-y-5 sm:space-y-4" onSubmit={handlePasswordChange}>
             <div>
               <label
                 htmlFor="current-password"
-                className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
+                className="block text-sm font-bold text-slate-800 dark:text-slate-200"
               >
                 Current Password
               </label>
@@ -1186,14 +1385,14 @@ export default function AdminSettingsPage() {
                     currentPassword: e.target.value,
                   }))
                 }
-                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                className="mt-2 h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
 
             <div>
               <label
                 htmlFor="new-password"
-                className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
+                className="block text-sm font-bold text-slate-800 dark:text-slate-200"
               >
                 New Password
               </label>
@@ -1201,7 +1400,7 @@ export default function AdminSettingsPage() {
                 id="new-password"
                 type="password"
                 required
-                minLength={8}
+                minLength={MIN_NEW_PASSWORD_CHARACTERS}
                 value={passwordForm.newPassword}
                 onChange={(e) =>
                   setPasswordForm((curr) => ({
@@ -1209,17 +1408,17 @@ export default function AdminSettingsPage() {
                     newPassword: e.target.value,
                   }))
                 }
-                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                className="mt-2 h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
-              <p className="mt-1 text-[11px] text-slate-500">
-                Minimum 8 characters with letters, numbers, and symbols recommended.
+              <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                Use at least {MIN_NEW_PASSWORD_CHARACTERS} characters, including uppercase and lowercase letters, a number, and a symbol. Maximum 72 UTF-8 bytes.
               </p>
             </div>
 
             <div>
               <label
                 htmlFor="confirm-password"
-                className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
+                className="block text-sm font-bold text-slate-800 dark:text-slate-200"
               >
                 Confirm New Password
               </label>
@@ -1234,7 +1433,7 @@ export default function AdminSettingsPage() {
                     confirmPassword: e.target.value,
                   }))
                 }
-                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                className="mt-2 h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
 
@@ -1242,7 +1441,7 @@ export default function AdminSettingsPage() {
               <button
                 type="submit"
                 disabled={isChangingPassword}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60 sm:w-auto dark:bg-emerald-500 dark:hover:bg-emerald-600"
               >
                 {isChangingPassword ? (
                   <span>Updating...</span>

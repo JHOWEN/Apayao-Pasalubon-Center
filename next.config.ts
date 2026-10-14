@@ -1,12 +1,14 @@
 import type { NextConfig } from "next";
+import { SUPABASE_STORAGE_HOST } from "./src/lib/storage/public-image-host";
 
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   images: {
+    formats: ["image/avif", "image/webp"],
     remotePatterns: [
       {
         protocol: "https",
-        hostname: "aitlwnyerhzliyekormo.supabase.co",
+        hostname: SUPABASE_STORAGE_HOST,
         pathname: "/storage/v1/object/public/**",
       },
     ],
@@ -28,12 +30,7 @@ const nextConfig: NextConfig = {
     ];
   },
   allowedDevOrigins: [
-    "10.245.240.110",
-    "10.34.154.110",
-    "10.75.176.110",
-    "10.238.153.110",
-    "10.94.247.110",
-    "127.0.0.1",
+    "10.193.95.110",
     "localhost",
   ],
 };

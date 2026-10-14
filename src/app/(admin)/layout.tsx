@@ -1,56 +1,126 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import {
   Bell,
-  ChevronRight,
   ExternalLink,
+  Menu,
   Moon,
   Sun,
 } from "lucide-react";
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
-import { syncAdminPickupAlertCount } from "@/lib/admin-notifications";
+import { AdminQueryProvider, getAdminQueryClient } from "@/components/providers/admin-query-provider";
+import { adminFetch, invalidateAdminDataForEvent } from "@/lib/admin-data-cache";
+import { notifyAdminOfNewOrder } from "@/lib/admin-notifications";
 import { getPickupDateKey } from "@/lib/order";
 
-const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png";
+const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
+const ADMIN_ACTIVITY_STORAGE_KEY = "apc-admin-last-activity";
 type ThemeMode = "light" | "dark" | "system";
 
-function getRouteInfo(pathname: string) {
-  if (pathname.startsWith("/pos")) return { category: "Sales Channels", title: "Point of Sale" };
-  if (pathname.startsWith("/admin-orders")) return { category: "Sales Channels", title: "Orders" };
-  if (pathname.startsWith("/products")) return { category: "Inventory", title: "Storefront Products" };
-  if (pathname.startsWith("/categories")) return { category: "Inventory", title: "Categories" };
-  if (pathname.startsWith("/inventory/transactions")) return { category: "Inventory", title: "Stock Transactions" };
-  if (pathname.startsWith("/inventory")) return { category: "Inventory", title: "Inventory" };
-  if (pathname.startsWith("/customers")) return { category: "Customer", title: "User Management" };
-  if (pathname.startsWith("/analytics")) return { category: "System", title: "Analytics" };
-  if (pathname.startsWith("/reports")) return { category: "System", title: "Reports" };
-  if (pathname.startsWith("/admin-settings")) return { category: "System", title: "Settings" };
-  if (pathname.startsWith("/dashboard")) return { category: "Dashboard", title: "Dashboard" };
-  return { category: "Admin", title: "Console" };
+export default function AdminLayout({ children }: { children: ReactNode }) {
+  return (
+    <AdminQueryProvider>
+      <AdminLayoutContent>{children}</AdminLayoutContent>
+    </AdminQueryProvider>
+  );
 }
 
-export default function AdminLayout({ children }: { children: ReactNode }) {
+function AdminSessionLoading({
+  sessionUnavailable,
+  onRetry,
+}: {
+  sessionUnavailable: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <>
+      <div className="mb-6 space-y-2" aria-hidden="true">
+        <div className="h-7 w-48 animate-pulse rounded bg-slate-200 dark:bg-slate-800" />
+        <div className="h-3 w-64 animate-pulse rounded bg-slate-100 dark:bg-slate-800/70" />
+      </div>
+
+      {sessionUnavailable ? (
+        <div role="alert" className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+          <span>Admin workspace is temporarily unavailable. Check your connection and try again.</span>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-lg bg-emerald-700 px-3 py-2 font-semibold text-white transition-colors hover:bg-emerald-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+          >
+            Retry
+          </button>
+        </div>
+      ) : null}
+
+      <section aria-label="Loading admin workspace" aria-live="polite" aria-busy={!sessionUnavailable}>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-hidden="true">
+          {Array.from({ length: 4 }, (_, index) => (
+            <div key={index} className="h-32 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
+              <div className="h-3 w-24 rounded bg-slate-200 dark:bg-slate-800" />
+              <div className="mt-5 h-7 w-20 rounded bg-slate-200 dark:bg-slate-800" />
+              <div className="mt-3 h-3 w-32 rounded bg-slate-100 dark:bg-slate-800/70" />
+            </div>
+          ))}
+        </div>
+        <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]" aria-hidden="true">
+          <div className="h-72 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
+            <div className="h-4 w-36 rounded bg-slate-200 dark:bg-slate-800" />
+            <div className="mt-6 h-48 rounded-xl bg-slate-100 dark:bg-slate-800/70" />
+          </div>
+          <div className="h-72 animate-pulse rounded-2xl border border-slate-200 bg-white/80 p-5 dark:border-slate-800 dark:bg-slate-900/70">
+            <div className="h-4 w-32 rounded bg-slate-200 dark:bg-slate-800" />
+            <div className="mt-6 space-y-4">
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="h-8 rounded-lg bg-slate-100 dark:bg-slate-800/70" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
+function AdminLayoutContent({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const routeInfo = getRouteInfo(pathname);
+  const queryClient = getAdminQueryClient();
 
   const [avatarSrc, setAvatarSrc] = useState(fallbackAvatarSrc);
   const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
   const [sessionStatus, setSessionStatus] = useState<"checking" | "verified" | "unavailable">("checking");
   const [sessionRetryVersion, setSessionRetryVersion] = useState(0);
   const [theme, setTheme] = useState<ThemeMode>("system");
+  const [systemPrefersDark, setSystemPrefersDark] = useState(false);
+  const [isThemeInitialized, setIsThemeInitialized] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<
     Array<{ id: string; orderNumber: string; customerName: string; pickupDate: string; status: string }>
   >([]);
 
   const notificationMenuRef = useRef<HTMLDivElement>(null);
-  const orderChannelRef = useRef<BroadcastChannel | null>(null);
+  const isDarkAppearance = theme === "dark" || (theme === "system" && systemPrefersDark);
+
+  useEffect(() => {
+    if (sessionStatus !== "verified") queryClient.clear();
+  }, [queryClient, sessionStatus]);
+
+  useEffect(() => {
+    if (!isMobileNavOpen) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsMobileNavOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileNavOpen]);
 
   useEffect(() => {
     let isActive = true;
@@ -61,7 +131,13 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       isCheckingSession = true;
 
       try {
-        const response = await fetch("/api/admin/profile", { cache: "no-store" });
+        let response = await adminFetch("/api/admin/profile", { cache: "reload" });
+        if (response.status === 401) {
+          const refreshResponse = await adminFetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+          if (refreshResponse.ok || refreshResponse.status === 409) {
+            response = await adminFetch("/api/admin/profile", { cache: "reload" });
+          }
+        }
         if (response.status === 401) {
           window.location.replace("/login?reason=session-expired");
           return;
@@ -109,13 +185,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       }
     };
 
-    const storedTheme = window.localStorage.getItem("apc-theme") as ThemeMode | null;
-    if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "system") {
-      window.setTimeout(() => {
-        setTheme(storedTheme);
-      }, 0);
-    }
-
     loadProfileAvatar();
 
     window.addEventListener("apc-user-updated", loadProfileAvatar);
@@ -133,23 +202,193 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }, [sessionRetryVersion]);
 
   useEffect(() => {
+    if (sessionStatus !== "verified") return;
+
+    let isRefreshing = false;
+    const refreshSession = async () => {
+      if (isRefreshing) return;
+      isRefreshing = true;
+      try {
+        const response = await adminFetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+        if (response.status === 401) {
+          window.location.replace("/login?reason=session-expired");
+        } else if (response.status === 409) {
+          const profileResponse = await adminFetch("/api/admin/profile", { cache: "reload" });
+          if (profileResponse.status === 401) {
+            window.location.replace("/login?reason=session-expired");
+          }
+        }
+      } catch {
+        // Keep the current session state; the next interval will retry.
+      } finally {
+        isRefreshing = false;
+      }
+    };
+    const refreshInterval = window.setInterval(() => void refreshSession(), 4 * 60 * 1000);
+    return () => window.clearInterval(refreshInterval);
+  }, [sessionStatus]);
+
+  useEffect(() => {
+    if (sessionStatus !== "verified") return;
+
+    let lastActivityAt = Date.now();
+    let lastActivityRequestAt = 0;
+    let lastBroadcastAt = 0;
+    let activityRequestInFlight = false;
+    let idleTimer = 0;
+
+    const leaveDashboard = () => {
+      setSessionStatus("checking");
+      window.location.replace("/login?reason=session-expired");
+    };
+
+    const scheduleIdleTimeout = () => {
+      window.clearTimeout(idleTimer);
+      const remaining = ADMIN_IDLE_TIMEOUT_MS - (Date.now() - lastActivityAt);
+      if (remaining <= 0) {
+        leaveDashboard();
+        return;
+      }
+      idleTimer = window.setTimeout(scheduleIdleTimeout, remaining);
+    };
+
+    const sendActivity = async () => {
+      const now = Date.now();
+      if (activityRequestInFlight || now - lastActivityRequestAt < 30_000) return;
+      lastActivityRequestAt = now;
+      activityRequestInFlight = true;
+
+      try {
+        let response = await adminFetch("/api/auth/activity", {
+          method: "POST",
+          cache: "no-store",
+        });
+
+        if (response.status === 401) {
+          const refreshResponse = await adminFetch("/api/auth/refresh", {
+            method: "POST",
+            cache: "no-store",
+          });
+          if (!refreshResponse.ok && refreshResponse.status !== 409) return;
+          response = await adminFetch("/api/auth/activity", {
+            method: "POST",
+            cache: "no-store",
+          });
+        }
+
+        if (response.status === 401) leaveDashboard();
+        else if (response.status === 403) window.location.replace("/login?reason=access-denied");
+      } catch {
+        // The local idle timer still expires the dashboard if the server cannot be reached.
+      } finally {
+        activityRequestInFlight = false;
+      }
+    };
+
+    const recordActivity = (broadcast: boolean) => {
+      if (document.visibilityState !== "visible") return;
+      lastActivityAt = Date.now();
+      scheduleIdleTimeout();
+
+      if (broadcast && lastActivityAt - lastBroadcastAt >= 10_000) {
+        lastBroadcastAt = lastActivityAt;
+        try {
+          window.localStorage.setItem(ADMIN_ACTIVITY_STORAGE_KEY, String(lastActivityAt));
+        } catch {
+          // The server-side idle timeout remains authoritative if browser storage is unavailable.
+        }
+      }
+
+      void sendActivity();
+    };
+
+    const handleStorageActivity = (event: StorageEvent) => {
+      if (event.key !== ADMIN_ACTIVITY_STORAGE_KEY || !event.newValue) return;
+      const activityAt = Number(event.newValue);
+      if (Number.isFinite(activityAt) && activityAt > lastActivityAt && activityAt <= Date.now() + 5_000) {
+        lastActivityAt = activityAt;
+        scheduleIdleTimeout();
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") recordActivity(true);
+    };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) recordActivity(true);
+    };
+
+    const activityEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart"];
+    const handleUserActivity = () => recordActivity(true);
+    for (const eventName of activityEvents) {
+      window.addEventListener(eventName, handleUserActivity, { passive: true });
+    }
+    window.addEventListener("scroll", handleUserActivity, { passive: true, capture: true });
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("storage", handleStorageActivity);
+    scheduleIdleTimeout();
+
+    return () => {
+      window.clearTimeout(idleTimer);
+      for (const eventName of activityEvents) {
+        window.removeEventListener(eventName, handleUserActivity);
+      }
+      window.removeEventListener("scroll", handleUserActivity, true);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("storage", handleStorageActivity);
+    };
+  }, [sessionStatus]);
+
+  useEffect(() => {
+    const themeTimeout = window.setTimeout(() => {
+      let storedTheme: string | null = null;
+      setSystemPrefersDark(window.matchMedia("(prefers-color-scheme: dark)").matches);
+      try {
+        storedTheme = window.localStorage.getItem("apc-theme");
+      } catch {
+        // Keep the system theme when browser storage is unavailable.
+      }
+
+      setTheme(storedTheme === "light" || storedTheme === "dark" || storedTheme === "system"
+        ? storedTheme
+        : "system");
+      setIsThemeInitialized(true);
+    }, 0);
+
+    return () => window.clearTimeout(themeTimeout);
+  }, []);
+
+  useEffect(() => {
     if (userRole !== "STAFF") return;
 
-    const staffRestrictedPaths = ["/dashboard", "/admin-orders", "/categories", "/inventory", "/customers"];
+    const staffRestrictedPaths = ["/dashboard", "/categories", "/inventory", "/customers"];
     if (staffRestrictedPaths.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
       router.replace("/pos");
     }
   }, [pathname, router, userRole]);
 
   useEffect(() => {
+    if (!isThemeInitialized) return;
+
     const root = document.documentElement;
-    const systemPrefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const resolvedTheme = theme === "system" ? (systemPrefersDark ? "dark" : "light") : theme;
 
     root.classList.toggle("dark", resolvedTheme === "dark");
     root.style.colorScheme = resolvedTheme;
-    window.localStorage.setItem("apc-theme", theme);
-  }, [theme]);
+    try {
+      window.localStorage.setItem("apc-theme", theme);
+    } catch {
+      // Theme still applies when browser storage is unavailable.
+    }
+  }, [isThemeInitialized, systemPrefersDark, theme]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const syncSystemPreference = () => setSystemPrefersDark(mediaQuery.matches);
+    mediaQuery.addEventListener("change", syncSystemPreference);
+    return () => mediaQuery.removeEventListener("change", syncSystemPreference);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -167,7 +406,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
     async function loadPickupNotifications() {
       try {
-        const response = await fetch("/api/admin/orders?status=ACTIVE&filterDate=NEXT_7_DAYS&limit=50");
+        const response = await adminFetch("/api/admin/orders?status=ACTIVE&filterDate=NEXT_7_DAYS&limit=50");
         if (!response.ok) {
           setNotifications([]);
           return;
@@ -215,148 +454,145 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
               .slice(0, 5)
 
         setNotifications(upcoming);
-        syncAdminPickupAlertCount(upcoming);
       } catch {
         setNotifications([]);
-        syncAdminPickupAlertCount([]);
       }
     }
 
-    const handleNewOrder = () => {
-      void loadPickupNotifications();
-    };
-
-    const handleStorageRefresh = (event: StorageEvent) => {
-      if (event.key === "apc-new-order-trigger") {
-        void loadPickupNotifications();
-      }
-    };
-
     const handleSseMessage = (event: MessageEvent) => {
       try {
-        const message = JSON.parse(event.data) as { type?: string };
-        if (message?.type === "order-created" || message?.type === "order-updated" || message?.type === "inventory-updated") {
-          void loadPickupNotifications();
+        const message = JSON.parse(event.data) as {
+          type?:
+            | "order-created"
+            | "order-updated"
+            | "inventory-updated"
+            | "inventory-history-updated"
+            | "catalog-updated"
+            | "customer-updated"
+            | "settings-updated"
+            | "users-updated";
+          payload?: { orderId?: string };
+        };
+        if (
+          message?.type === "order-created" ||
+          message?.type === "order-updated" ||
+          message?.type === "inventory-updated" ||
+          message?.type === "inventory-history-updated" ||
+          message?.type === "catalog-updated" ||
+          message?.type === "customer-updated" ||
+          message?.type === "settings-updated" ||
+          message?.type === "users-updated"
+        ) {
+          invalidateAdminDataForEvent(queryClient, message.type);
+          if (message.type === "order-created" && message.payload?.orderId) {
+            notifyAdminOfNewOrder(message.payload.orderId);
+          }
+          window.dispatchEvent(new CustomEvent("apc-admin-live-event", { detail: message }));
+          if (message.type === "order-created" || message.type === "order-updated") {
+            void loadPickupNotifications();
+          }
         }
       } catch {
         // Ignore invalid SSE payloads.
       }
     };
 
-    if (typeof BroadcastChannel !== "undefined") {
-      const channel = new BroadcastChannel("apc-order-events");
-      channel.onmessage = (event) => {
-        const message = event?.data as { type?: string } | undefined;
-        if (message?.type === "apc-new-order") {
-          void loadPickupNotifications();
-        }
-      };
-      orderChannelRef.current = channel;
-    }
-
     const eventSource = new EventSource("/api/admin/live");
+    let hasConnectedOnce = false;
+    const invalidateAfterReconnect = () => {
+      if (!hasConnectedOnce) {
+        hasConnectedOnce = true;
+        return;
+      }
+      invalidateAdminDataForEvent(queryClient, "admin-data-invalidated");
+      window.dispatchEvent(new CustomEvent("apc-admin-live-event", { detail: { type: "admin-data-invalidated" } }));
+    };
+    const invalidateAfterNetworkRestore = () => {
+      invalidateAdminDataForEvent(queryClient, "admin-data-invalidated");
+      window.dispatchEvent(new CustomEvent("apc-admin-live-event", { detail: { type: "admin-data-invalidated" } }));
+    };
+    eventSource.addEventListener("open", invalidateAfterReconnect);
     eventSource.addEventListener("order-created", handleSseMessage);
     eventSource.addEventListener("order-updated", handleSseMessage);
     eventSource.addEventListener("inventory-updated", handleSseMessage);
+    eventSource.addEventListener("inventory-history-updated", handleSseMessage);
+    eventSource.addEventListener("catalog-updated", handleSseMessage);
+    eventSource.addEventListener("customer-updated", handleSseMessage);
+    eventSource.addEventListener("settings-updated", handleSseMessage);
+    eventSource.addEventListener("users-updated", handleSseMessage);
+    window.addEventListener("online", invalidateAfterNetworkRestore);
 
     void loadPickupNotifications();
-    window.addEventListener("apc-new-order", handleNewOrder);
-    window.addEventListener("storage", handleStorageRefresh);
-
-    const refreshInterval = window.setInterval(() => {
-      void loadPickupNotifications();
-    }, 30000);
 
     return () => {
-      window.removeEventListener("apc-new-order", handleNewOrder);
-      window.removeEventListener("storage", handleStorageRefresh);
-      window.clearInterval(refreshInterval);
       eventSource.close();
-      if (orderChannelRef.current) {
-        orderChannelRef.current.close();
-        orderChannelRef.current = null;
-      }
+      window.removeEventListener("online", invalidateAfterNetworkRestore);
     };
-  }, [sessionStatus]);
+  }, [queryClient, sessionStatus]);
 
-  if (sessionStatus !== "verified") {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5 text-slate-800 dark:bg-slate-950 dark:text-slate-100">
-        <section className="w-full max-w-sm text-center" aria-live="polite" role="status">
-          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-emerald-500/25 border-t-emerald-500" />
-          <h1 className="text-lg font-semibold">{sessionStatus === "checking" ? "Verifying your session" : "Can’t verify your session"}</h1>
-          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
-            {sessionStatus === "checking"
-              ? "Protected dashboard content is hidden while we confirm your access."
-              : "Check your connection and retry to continue to the dashboard."}
-          </p>
-          {sessionStatus === "unavailable" ? (
-            <button
-              type="button"
-              onClick={() => setSessionRetryVersion((version) => version + 1)}
-              className="mt-5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
-            >
-              Retry verification
-            </button>
-          ) : null}
-        </section>
-      </main>
-    );
-  }
+  const isSessionVerified = sessionStatus === "verified" && userRole !== null;
+  const sessionUnavailable = sessionStatus === "unavailable";
 
   return (
-    <div className="fixed inset-0 h-dvh overflow-hidden bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+    <div className="fixed inset-0 h-dvh overflow-hidden bg-[#f5f6f4] text-slate-800 dark:bg-slate-950 dark:text-slate-100">
       <div className="flex h-dvh overflow-visible">
-        {/* Desktop Collapsible Sidebar */}
-        <AdminSidebar />
+        {isMobileNavOpen ? (
+          <button
+            type="button"
+            aria-label="Close navigation"
+            onClick={() => setIsMobileNavOpen(false)}
+            className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-[2px] lg:hidden"
+          />
+        ) : null}
+        <AdminSidebar
+          isMobile={isMobileNavOpen}
+          onCloseMobile={() => setIsMobileNavOpen(false)}
+          userRole={userRole}
+        />
 
         {/* Main Application Area */}
         <div className="relative z-0 flex min-h-0 min-w-0 flex-1 flex-col overflow-visible">
           {/* Top Panel Header */}
-          <header className="relative z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 shadow-xs transition-colors duration-200 sm:px-5 lg:px-7 dark:border-slate-800 dark:bg-slate-900">
-            {/* Header Left: Route breadcrumb and page title */}
-            <div className="flex items-center gap-3">
-              <div className="flex min-w-0 items-center gap-2.5 rounded-lg px-1 py-1 text-slate-900 transition-all duration-200 dark:text-white">
-                <div className="hidden sm:flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                  <span className="rounded-md bg-slate-100 dark:bg-slate-800/90 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:text-slate-400 border border-slate-200/60 dark:border-slate-700/60">
-                    {routeInfo.category}
-                  </span>
-                  <ChevronRight className="h-3.5 w-3.5 text-slate-300 dark:text-slate-600" />
-                </div>
-                <h1 className="truncate text-sm font-semibold text-slate-900 dark:text-white sm:text-base">
-                  {routeInfo.title}
-                </h1>
-              </div>
+          <header className="relative z-30 flex h-16 shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-[#06262b] px-3 text-slate-200 sm:px-5 lg:px-7">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <button
+                type="button"
+                onClick={() => setIsMobileNavOpen(true)}
+                aria-label="Open navigation"
+                aria-expanded={isMobileNavOpen}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-none border border-white/15 text-slate-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7] lg:hidden"
+              >
+                <Menu className="h-4.5 w-4.5" />
+              </button>
             </div>
 
-            {/* Header Right: Store link, Notifications, Theme toggle, Profile menu */}
-            <div className="flex items-center gap-2 sm:gap-2.5">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2.5">
               {/* Storefront preview shortcut */}
               <Link
                 href="/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hidden sm:inline-flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 py-1.5 text-xs font-semibold text-slate-700 shadow-xs transition-all duration-150 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-white active:scale-[0.98]"
+                className="hidden sm:inline-flex items-center gap-2 rounded-none px-3 py-2 text-xs font-medium text-slate-300 transition-colors hover:bg-white/10 hover:text-white"
                 title="Open customer storefront in a new tab"
               >
-                <ExternalLink className="h-3.5 w-3.5 text-slate-400 dark:text-slate-500" />
+                <ExternalLink className="h-3.5 w-3.5 text-slate-400" />
                 <span>View Store</span>
               </Link>
 
-              <div className="hidden sm:block h-4 w-px bg-slate-200 dark:bg-slate-800 mx-0.5" />
+              <div className="hidden sm:block h-5 w-px bg-white/15 mx-0.5" />
 
               {/* Pickup Notifications Popover */}
               <div className="relative z-40" ref={notificationMenuRef}>
                 <button
                   type="button"
                   onClick={() => setIsNotificationsOpen((value) => !value)}
-                  className="relative flex h-9.5 w-9.5 items-center justify-center rounded-xl border border-slate-200/90 bg-white text-slate-600 shadow-xs transition-all duration-150 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-white active:scale-95"
+                  className="relative flex h-9 w-9 items-center justify-center rounded-none text-slate-300 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"
                   aria-label="Pickup alerts"
                   title="Pickup alerts"
                 >
                   <Bell className="h-4.5 w-4.5" />
                   {notifications.length > 0 ? (
-                    <span className="absolute -right-1 -top-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-sm ring-2 ring-white dark:ring-slate-900 animate-in zoom-in-50">
+                    <span className="absolute -right-1 -top-1 flex h-4.5 min-w-4.5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white shadow-sm ring-2 ring-[#06262b] animate-in zoom-in-50">
                       {notifications.length}
                     </span>
                   ) : null}
@@ -431,58 +667,74 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 )}
               </div>
 
-              {/* Theme Toggle Button */}
+              {/* Appearance toggle */}
               <button
                 type="button"
-                onClick={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-                title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
-                className={`relative inline-flex h-8 w-14 items-center rounded-full border p-0.5 transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 ${
-                  theme === "dark"
-                    ? "border-emerald-500/50 bg-emerald-500/15"
-                    : "border-slate-200/90 bg-slate-100 hover:border-slate-300"
-                }`}
+                role="switch"
+                aria-checked={isDarkAppearance}
+                aria-label="Dark appearance"
+                title={`Dark appearance ${isDarkAppearance ? "on" : "off"}`}
+                onClick={() => {
+                  const nextAppearance = !isDarkAppearance;
+                  setTheme(nextAppearance ? "dark" : "light");
+                }}
+                className="inline-flex h-11 min-w-11 items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"
               >
                 <span
-                  className={`flex h-6.5 w-6.5 items-center justify-center rounded-full bg-white text-slate-700 shadow-sm transition-transform duration-200 ease-out dark:bg-slate-900 dark:text-amber-400 ${
-                    theme === "dark" ? "translate-x-6" : "translate-x-0"
+                  aria-hidden="true"
+                  className={`relative h-5 w-9 rounded-full transition-colors ${
+                    isDarkAppearance ? "bg-[#0b4650]" : "bg-slate-300 dark:bg-slate-600"
                   }`}
                 >
-                  {theme === "dark" ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+                  <span
+                    className={`absolute left-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-white shadow-sm transition-transform ${
+                      isDarkAppearance ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  >
+                    {isDarkAppearance ? (
+                      <Moon aria-hidden="true" className="h-2.5 w-2.5 text-[#0b4650]" />
+                    ) : (
+                      <Sun aria-hidden="true" className="h-2.5 w-2.5 text-amber-500" />
+                    )}
+                  </span>
                 </span>
               </button>
 
-              {/* Profile Icon */}
-              <div className="relative">
-                <button
-                  type="button"
-                  className="relative flex h-9.5 w-9.5 items-center justify-center rounded-full border border-transparent bg-transparent shadow-none transition-all duration-150 hover:border-transparent hover:bg-transparent hover:shadow-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 active:scale-95"
-                  aria-label="Profile"
-                  title="Profile"
+              <div className="ml-1 flex items-center sm:ml-1.5">
+                <div
+                  role="img"
+                  className="relative flex h-9 w-9 items-center justify-center rounded-full bg-white/10 ring-1 ring-white/15"
+                  aria-label={userRole === null ? "Account" : userRole === "STAFF" ? "Staff account" : "Admin account"}
+                  title={userRole === null ? "Account" : userRole === "STAFF" ? "Staff account" : "Admin account"}
                 >
-                  <div className="relative h-7.5 w-7.5 overflow-hidden rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 ring-1 ring-emerald-500/20">
+                  <div className="relative h-7 w-7 overflow-hidden rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
                     <Image
                       src={avatarSrc}
-                      alt="Admin profile"
+                      alt=""
                       fill
                       sizes="30px"
                       className="object-cover"
                     />
                   </div>
 
-                  <span className="absolute -bottom-0.5 -right-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900">
-                    <span className="h-1.5 w-1.5 rounded-full bg-white" />
-                  </span>
-                </button>
+                  <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[#06262b] bg-emerald-500" />
+                </div>
               </div>
             </div>
           </header>
 
           {/* Main scrollable page content */}
-          <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-50 p-4 text-slate-800 sm:p-5 lg:p-7 dark:bg-slate-950 dark:text-slate-100">
-            <div key={pathname} className="admin-page-enter">
-              {children}
-            </div>
+          <main className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#f5f6f4] p-4 text-slate-800 sm:p-5 lg:p-7 dark:bg-slate-950 dark:text-slate-100">
+            {isSessionVerified ? (
+              <div key={pathname} className="admin-page-enter">
+                {children}
+              </div>
+            ) : (
+              <AdminSessionLoading
+                sessionUnavailable={sessionUnavailable}
+                onRetry={() => setSessionRetryVersion((version) => version + 1)}
+              />
+            )}
           </main>
         </div>
       </div>

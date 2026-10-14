@@ -1,23 +1,28 @@
 "use client";
+import { adminFetch, invalidateCurrentAdminApiPaths } from "@/lib/admin-data-cache";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertCircle,
+  BarChart3,
   CalendarRange,
+  CheckCircle2,
   Download,
-  Filter,
+  FileText,
+  Loader2,
   Printer,
-  RefreshCw,
   Search,
   ShoppingCart,
   SlidersHorizontal,
   TrendingUp,
   Boxes,
-  PackageCheck,
   AlertTriangle,
   RotateCcw,
   Store,
   CreditCard,
+  X,
 } from "lucide-react";
+import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
 
 type ReportType = "ALL" | "INVENTORY" | "SALES" | "LOW_STOCK" | "TOP_PRODUCTS";
 
@@ -41,8 +46,22 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 2,
   }).format(value);
 
+function escapeHtml(value: unknown) {
+  return String(value ?? "").replace(/[&<>"']/g, (character) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[character];
+  });
+}
+
 type ReportSummary = {
   totalRevenue: number;
+  grossProfit: number;
   completedOrders: number;
   totalItemsSold: number;
   stockValue: number;
@@ -56,13 +75,19 @@ type ReportBreakdown = Record<string, { count: number; revenue: number }>;
 type RecentOrderItem = {
   quantity: number;
   productName: string;
+  sku: string;
+  unitPrice: number;
+  unitCost: number;
+  subtotal: number;
+  grossProfit: number;
 };
 
 type RecentOrder = {
   id: string;
   orderNumber: string;
   totalAmount: string;
-  createdAt: string;
+  grossProfit: number;
+  completedAt: string;
   itemCount: number;
   items: RecentOrderItem[];
 };
@@ -97,6 +122,10 @@ type InventoryItem = {
 };
 
 type ReportState = {
+  business: {
+    name: string;
+    address: string;
+  };
   summary: ReportSummary;
   recentOrders: RecentOrder[];
   lowStock: LowStockItem[];
@@ -107,9 +136,68 @@ type ReportState = {
   paymentBreakdown: ReportBreakdown;
 };
 
+function escapeReportStrings(report: ReportState): ReportState {
+  return {
+    ...report,
+    business: {
+      name: escapeHtml(report.business.name),
+      address: escapeHtml(report.business.address),
+    },
+    recentOrders: report.recentOrders.map((order) => ({
+      ...order,
+      orderNumber: escapeHtml(order.orderNumber),
+      items: order.items.map((item) => ({
+        ...item,
+        productName: escapeHtml(item.productName),
+        sku: escapeHtml(item.sku),
+      })),
+    })),
+    lowStock: report.lowStock.map((item) => ({
+      ...item,
+      name: escapeHtml(item.name),
+      sku: escapeHtml(item.sku),
+    })),
+    topProducts: report.topProducts.map((item) => ({
+      ...item,
+      name: escapeHtml(item.name),
+      sku: escapeHtml(item.sku),
+    })),
+    inventoryItems: report.inventoryItems.map((item) => ({
+      ...item,
+      name: escapeHtml(item.name),
+      sku: escapeHtml(item.sku),
+    })),
+    channelBreakdown: Object.fromEntries(
+      Object.entries(report.channelBreakdown).map(([name, values]) => [escapeHtml(name), values]),
+    ),
+    paymentBreakdown: Object.fromEntries(
+      Object.entries(report.paymentBreakdown).map(([name, values]) => [escapeHtml(name), values]),
+    ),
+  };
+}
+
+type PrintScope = {
+  periodLabel: string;
+  categoryLabel: string;
+  businessName: string;
+  businessAddress: string;
+};
+
+type PrintPreview = {
+  reportTitle: string;
+  periodLabel: string;
+  categoryLabel: string;
+  summary: ReportSummary;
+};
+
 const initialState: ReportState = {
+  business: {
+    name: "APAYAO PASALUBONG CENTER",
+    address: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+  },
   summary: {
     totalRevenue: 0,
+    grossProfit: 0,
     completedOrders: 0,
     totalItemsSold: 0,
     stockValue: 0,
@@ -128,26 +216,45 @@ const initialState: ReportState = {
 
 export default function ReportsPage() {
   const [report, setReport] = useState<ReportState>(initialState);
-  const [loading, setLoading] = useState(true);
+  const [hasLoadedReport, setHasLoadedReport] = useState(false);
+  const [settledReportRequestKey, setSettledReportRequestKey] = useState<string | null>(null);
+  const [reportLoadFailure, setReportLoadFailure] = useState<{ requestKey: string; message: string } | null>(null);
+  const [reportRequestVersion, setReportRequestVersion] = useState(0);
   const [reportType, setReportType] = useState<ReportType>("ALL");
   const [startDate, setStartDate] = useState(() => formatInputDate(new Date()));
   const [endDate, setEndDate] = useState(() => formatInputDate(new Date()));
   const [category, setCategory] = useState("");
   const [activePreset, setActivePreset] = useState<string>("today");
   const [searchQuery, setSearchQuery] = useState("");
+  const [printStatus, setPrintStatus] = useState<"loading" | "preparing" | "ready" | "error" | null>(null);
+  const [printError, setPrintError] = useState("");
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
+  const [pdfExportError, setPdfExportError] = useState("");
+  const [printPreview, setPrintPreview] = useState<PrintPreview | null>(null);
+  const printAbortControllerRef = useRef<AbortController | null>(null);
+  const printFrameRef = useRef<HTMLIFrameElement | null>(null);
+  const reportRequestKey = JSON.stringify([startDate, endDate, category, reportRequestVersion]);
+  const isReportLoading = settledReportRequestKey !== reportRequestKey;
+  const reportLoadError = reportLoadFailure?.requestKey === reportRequestKey
+    ? reportLoadFailure.message
+    : "";
 
   const fetchReportData = useCallback(
     async (
       selectedStartDate = startDate,
       selectedEndDate = endDate,
-      selectedCategory = category
+      selectedCategory = category,
+      signal?: AbortSignal,
     ) => {
       const params = new URLSearchParams();
       if (selectedStartDate) params.set("startDate", selectedStartDate);
       if (selectedEndDate) params.set("endDate", selectedEndDate);
       if (selectedCategory) params.set("category", selectedCategory);
 
-      const response = await fetch(`/api/admin/reports?${params.toString()}`);
+      const response = await adminFetch(`/api/admin/reports?${params.toString()}`, {
+        cache: "no-store",
+        signal,
+      });
       if (!response.ok) throw new Error("Failed to load report data");
       return (await response.json()) as ReportState;
     },
@@ -160,7 +267,6 @@ export default function ReportsPage() {
       selectedEndDate = endDate,
       selectedCategory = category
     ) => {
-      setLoading(true);
       try {
         const data = await fetchReportData(
           selectedStartDate,
@@ -168,46 +274,64 @@ export default function ReportsPage() {
           selectedCategory
         );
         setReport(data);
+        setHasLoadedReport(true);
         return data;
       } catch (err) {
         console.error("Reports loading error:", err);
         return null;
-      } finally {
-        setLoading(false);
       }
     },
     [category, endDate, fetchReportData, startDate]
   );
 
   useEffect(() => {
-    let ignore = false;
-    async function init() {
-      try {
-        const params = new URLSearchParams();
-        if (startDate) params.set("startDate", startDate);
-        if (endDate) params.set("endDate", endDate);
-        if (category) params.set("category", category);
+    const controller = new AbortController();
+    const requestKey = reportRequestKey;
 
-        const res = await fetch(`/api/admin/reports?${params.toString()}`);
-        if (!res.ok) return;
-        const data = (await res.json()) as ReportState;
-        if (!ignore) {
-          setReport(data);
-        }
-      } catch (err) {
-        console.error("Failed to fetch initial report", err);
-      } finally {
-        if (!ignore) {
-          setLoading(false);
-        }
-      }
-    }
+    void fetchReportData(startDate, endDate, category, controller.signal)
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setReport(data);
+        setHasLoadedReport(true);
+        setReportLoadFailure(null);
+        setSettledReportRequestKey(requestKey);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.error("Failed to fetch report", error);
+        setReportLoadFailure({
+          requestKey,
+          message: "We couldn't load this report. Check your connection and try again.",
+        });
+        setSettledReportRequestKey(requestKey);
+      });
 
-    void init();
     return () => {
-      ignore = true;
+      controller.abort();
     };
-  }, [startDate, endDate, category]);
+  }, [category, endDate, fetchReportData, reportRequestKey, startDate]);
+
+  useEffect(() => {
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "catalog-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        void loadReport();
+      }
+    };
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
+    return () => window.removeEventListener("apc-admin-live-event", handleLiveEvent);
+  }, [loadReport]);
+
+  const handleRetryReportLoad = () => {
+    invalidateCurrentAdminApiPaths(["/api/admin/reports"]);
+    setReportRequestVersion((version) => version + 1);
+  };
 
   // Preset handlers
   const handleApplyPreset = (preset: "today" | "7days" | "30days" | "month" | "all") => {
@@ -256,15 +380,32 @@ export default function ReportsPage() {
     );
   }, [report.inventoryItems, searchQuery]);
 
-  const filteredOrders = useMemo(() => {
-    if (!searchQuery.trim()) return report.recentOrders;
-    const q = searchQuery.toLowerCase();
-    return report.recentOrders.filter(
-      (order) =>
-        order.orderNumber.toLowerCase().includes(q) ||
-        order.items.some((item) => item.productName.toLowerCase().includes(q))
+  const filteredSalesLines = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return report.recentOrders.flatMap((order) =>
+      order.items
+        .filter((item) =>
+          !query ||
+          order.orderNumber.toLowerCase().includes(query) ||
+          item.productName.toLowerCase().includes(query) ||
+          item.sku.toLowerCase().includes(query),
+        )
+        .map((item, index) => ({
+          ...item,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          completedAt: order.completedAt,
+          lineKey: `${order.id}:${index}`,
+        })),
     );
   }, [report.recentOrders, searchQuery]);
+
+  const salesTotals = useMemo(() => ({
+    totalRevenue: filteredSalesLines.reduce((sum, line) => sum + line.subtotal, 0),
+    grossProfit: filteredSalesLines.reduce((sum, line) => sum + line.grossProfit, 0),
+    completedOrders: new Set(filteredSalesLines.map((line) => line.orderId)).size,
+    totalItemsSold: filteredSalesLines.reduce((sum, line) => sum + line.quantity, 0),
+  }), [filteredSalesLines]);
 
   const filteredLowStock = useMemo(() => {
     if (!searchQuery.trim()) return report.lowStock;
@@ -282,17 +423,27 @@ export default function ReportsPage() {
     );
   }, [report.topProducts, searchQuery]);
 
-  // REDESIGNED PRINT TEMPLATE
-  const printOfficialDocument = (title: string, subCategory: string, content: string) => {
+  // PRINT TEMPLATE
+  const printOfficialDocument = async (
+    title: string,
+    subCategory: string,
+    content: string,
+    scope: PrintScope,
+  ): Promise<boolean> => {
     const printFrame = document.createElement("iframe");
     printFrame.setAttribute("aria-hidden", "true");
+    printFrame.title = `${title} print preview`;
     printFrame.style.position = "fixed";
-    printFrame.style.inset = "0";
+    printFrame.style.left = "0";
+    printFrame.style.top = "0";
     printFrame.style.width = "100vw";
     printFrame.style.height = "100vh";
     printFrame.style.border = "0";
-    printFrame.style.visibility = "hidden";
+    printFrame.style.opacity = "0";
+    printFrame.style.pointerEvents = "none";
+    printFrame.style.zIndex = "-1";
     document.body.appendChild(printFrame);
+    printFrameRef.current = printFrame;
 
     const generatedDate = new Date().toLocaleDateString("en-PH", {
       year: "numeric",
@@ -304,228 +455,174 @@ export default function ReportsPage() {
       minute: "2-digit",
     });
 
-    const periodLabel = startDate && endDate
-      ? `${startDate} to ${endDate}`
-      : startDate
-      ? `From ${startDate}`
-      : endDate
-      ? `Until ${endDate}`
-      : "All Record History";
-    const logoUrl = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+    const safeTitle = escapeHtml(title);
+    const safeSubCategory = escapeHtml(subCategory);
+    const safePeriodLabel = escapeHtml(scope.periodLabel);
+    const safeCategoryLabel = escapeHtml(scope.categoryLabel);
+    const safeBusinessName = escapeHtml(scope.businessName);
+    const safeBusinessAddress = escapeHtml(scope.businessAddress);
 
     const header = `
       <header class="report-header">
-        <div class="brand-lockup">
-          <img class="brand-logo" src="${logoUrl}" alt="Apayao Pasalubong Center logo">
-          <div>
-            <div class="brand-name">Apayao Pasalubong Center</div>
-            <div class="brand-contact">San Isidro Sur, Luna, Apayao, Philippines | apcstore@example.com | +63 912 345 6789</div>
-          </div>
+        <h1 class="report-title">${safeTitle}</h1>
+        <div class="business-block">
+          <div class="brand-name">${safeBusinessName}</div>
+          <div class="brand-location">${safeBusinessAddress}</div>
         </div>
-        <div class="report-meta">
-          <span class="meta-badge">${subCategory}</span>
-          <div class="report-title">${title}</div>
-          <div class="report-date">Generated: ${generatedDate} ${generatedTime}</div>
-        </div>
+        <div class="meta-badge">${safeSubCategory}</div>
       </header>
 
       <div class="meta-strip">
-        <div><strong>Reporting Period:</strong> ${periodLabel}</div>
-        <div><strong>Category Scope:</strong> ${category ? (report.categories.find((c) => c.id === category)?.name ?? "Selected") : "All Catalog Categories"}</div>
-        <div><strong>Document Status:</strong> Certified Official Copy</div>
+        <div><strong>Period</strong><span>${safePeriodLabel}</span></div>
+        <div><strong>Category</strong><span>${safeCategoryLabel}</span></div>
+        <div><strong>Generated</strong><span>${generatedDate} at ${generatedTime}</span></div>
       </div>
-    `;
-
-    const auditFooter = `
-      <footer class="audit-footer">
-        <div>
-          <div class="sign-title">Report Prepared By:</div>
-          <div class="sign-line"></div>
-          <div class="sign-label">System Administrator / Inventory Clerk</div>
-        </div>
-        <div>
-          <div class="sign-title">Verified & Audited By:</div>
-          <div class="sign-line"></div>
-          <div class="sign-label">Store Manager / Operations Lead</div>
-        </div>
-        <div>
-          <div class="sign-title">Official Acknowledgement:</div>
-          <div class="sign-line"></div>
-          <div class="sign-label">Signature / Seal & Date</div>
-        </div>
-      </footer>
     `;
 
     const styles = `
       @page {
         size: A4 portrait;
-        margin: 0;
+        margin: 14mm 15mm;
       }
       * { box-sizing: border-box; }
+      html, body { width: auto; min-width: 0; }
       body {
-        margin: 14mm 12mm;
+        margin: 0;
         background: #ffffff;
-        color: #0f172a;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        font-size: 11px;
-        line-height: 1.45;
+        color: #1f2937;
+        font-family: Arial, Helvetica, sans-serif;
+        font-size: 10pt;
+        line-height: 1.4;
       }
       .report-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 20px;
+        display: block;
         padding-bottom: 14px;
-        border-bottom: 3px solid #059669;
-        margin-bottom: 14px;
+        border-bottom: 2px solid #047857;
+        margin-bottom: 12px;
+        text-align: center;
       }
-      .brand-lockup {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-      }
-      .brand-logo {
-        width: 52px;
-        height: 52px;
-        flex: 0 0 auto;
-        object-fit: contain;
-      }
+      .business-block { min-width: 0; margin-top: 4px; }
       .brand-name {
-        color: #0f172a;
-        font-size: 17px;
-        font-weight: 800;
-        letter-spacing: -0.02em;
+        color: #111827;
+        font-size: 12pt;
+        font-weight: 700;
       }
-      .brand-contact {
-        margin-top: 3px;
-        color: #64748b;
-        font-size: 9.5px;
-      }
-      .report-meta {
-        text-align: right;
+      .brand-location {
+        margin-top: 2px;
+        color: #4b5563;
+        font-size: 8.5pt;
       }
       .meta-badge {
-        display: inline-block;
-        background: #ecfdf5;
-        color: #065f46;
-        border: 1px solid #a7f3d0;
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 9px;
+        margin-top: 5px;
+        color: #047857;
+        font-size: 8pt;
         font-weight: 700;
-        letter-spacing: 0.1em;
+        letter-spacing: 0.08em;
         text-transform: uppercase;
       }
       .report-title {
-        margin-top: 4px;
-        color: #0f172a;
-        font-size: 15px;
-        font-weight: 800;
-      }
-      .report-date {
-        margin-top: 2px;
-        color: #64748b;
-        font-size: 9.5px;
+        margin: 0;
+        color: #111827;
+        font-size: 17pt;
+        font-weight: 700;
       }
       .meta-strip {
-        display: flex;
-        gap: 20px;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: 1.2fr 1fr 1fr;
+        gap: 12px;
         margin: 0 0 16px;
-        padding: 8px 12px;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        background: #f8fafc;
-        font-size: 10px;
-        color: #475569;
+        padding: 0 0 10px;
+        border-bottom: 1px solid #cbd5e1;
+        background: #ffffff;
+        color: #374151;
+        font-size: 9pt;
+      }
+      .meta-strip div { display: grid; gap: 3px; }
+      .meta-strip strong {
+        color: #4b5563;
+        font-size: 8pt;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
       }
       .kpi-grid {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 8px;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 0;
         margin: 0 0 16px;
+        border-top: 1px solid #cbd5e1;
+        border-bottom: 1px solid #cbd5e1;
       }
       .kpi-card {
-        padding: 9px 12px;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        background: #f8fafc;
+        padding: 9px 10px;
+        border: 0;
+        border-right: 1px solid #d1d5db;
+        background: #ffffff;
       }
+      .kpi-card:last-child { border-right: 0; }
       .kpi-label {
-        color: #64748b;
-        font-size: 8.5px;
+        color: #4b5563;
+        font-size: 8pt;
         font-weight: 700;
         text-transform: uppercase;
-        letter-spacing: 0.05em;
+        letter-spacing: 0.04em;
       }
       .kpi-val {
-        margin-top: 3px;
-        color: #0f172a;
-        font-size: 14px;
-        font-weight: 800;
+        margin-top: 4px;
+        color: #111827;
+        font-size: 12pt;
+        font-weight: 700;
       }
       .section-title {
-        margin: 18px 0 8px;
-        padding-bottom: 4px;
-        border-bottom: 2px solid #059669;
-        color: #0f172a;
-        font-size: 13px;
-        font-weight: 800;
+        margin: 18px 0 7px;
+        padding-bottom: 5px;
+        border-bottom: 1px solid #047857;
+        color: #111827;
+        font-size: 11pt;
+        font-weight: 700;
       }
       table {
         width: 100%;
-        border-collapse: separate;
-        border-spacing: 0;
-        margin-top: 8px;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        overflow: hidden;
+        border-collapse: collapse;
+        margin-top: 6px;
       }
       th, td {
-        padding: 7px 10px;
-        border-bottom: 1px solid #f1f5f9;
+        padding: 6px 7px;
+        border-bottom: 1px solid #d1d5db;
         text-align: left;
         vertical-align: top;
+        overflow-wrap: anywhere;
       }
       th {
-        background: #f1f5f9;
-        color: #334155;
-        font-size: 9px;
-        font-weight: 800;
-        letter-spacing: 0.05em;
+        background: #f3f4f6;
+        color: #374151;
+        font-size: 8pt;
+        font-weight: 700;
+        letter-spacing: 0.04em;
         text-transform: uppercase;
       }
-      tr:last-child td { border-bottom: 0; }
-      tbody tr:nth-child(even) { background: #f8fafc; }
+      td { font-size: 9pt; }
+      code { font-family: "Courier New", monospace; font-size: 8.5pt; }
       td.right, th.right { text-align: right; }
-      .audit-footer {
-        margin-top: 28px;
-        padding-top: 14px;
-        border-top: 1px solid #e2e8f0;
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 20px;
-        page-break-inside: avoid;
+      .report-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 24px;
+        padding-top: 7px;
+        border-top: 1px solid #cbd5e1;
+        color: #4b5563;
+        font-size: 8pt;
       }
-      .sign-title {
-        font-size: 9.5px;
-        font-weight: 700;
-        color: #334155;
-      }
-      .sign-line {
-        margin-top: 32px;
-        border-bottom: 1px solid #94a3b8;
-      }
-      .sign-label {
-        margin-top: 4px;
-        font-size: 8.5px;
-        color: #64748b;
-        text-align: center;
+      @media screen {
+        body { visibility: hidden; }
       }
       @media print {
-        .report-header, thead, tr, .audit-footer, .kpi-grid, section {
-          break-inside: avoid;
-        }
+        body { visibility: visible; }
+        .report-header, .meta-strip, .kpi-grid { break-inside: avoid; page-break-inside: avoid; }
+        .section-title { break-after: avoid; page-break-after: avoid; }
+        thead { display: table-header-group; }
+        tr { break-inside: avoid; page-break-inside: avoid; }
+        table { break-inside: auto; page-break-inside: auto; }
       }
     `;
 
@@ -533,7 +630,8 @@ export default function ReportsPage() {
     const printWindow = printFrame.contentWindow;
     if (!printDocument || !printWindow) {
       printFrame.remove();
-      return;
+      if (printFrameRef.current === printFrame) printFrameRef.current = null;
+      return false;
     }
 
     printDocument.open();
@@ -542,31 +640,157 @@ export default function ReportsPage() {
       <html>
         <head>
           <meta charset="utf-8">
-          <title>${title} - Apayao Pasalubong Center</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>${safeTitle} - Apayao Pasalubong Center</title>
           <style>${styles}</style>
         </head>
         <body>
           ${header}
           ${content}
-          ${auditFooter}
+          <footer class="report-footer">
+            <span>Apayao Pasalubong Center</span>
+            <span>Generated from current system records</span>
+          </footer>
         </body>
       </html>
     `);
     printDocument.close();
 
-    setTimeout(() => {
+    if (printAbortControllerRef.current?.signal.aborted) {
+      printFrame.remove();
+      if (printFrameRef.current === printFrame) printFrameRef.current = null;
+      return false;
+    }
+    setPrintStatus("ready");
+    return true;
+  };
+
+  const closePrintModal = useCallback(() => {
+    printAbortControllerRef.current?.abort();
+    printAbortControllerRef.current = null;
+    printFrameRef.current?.remove();
+    printFrameRef.current = null;
+    setPrintPreview(null);
+    setPrintError("");
+    setPrintStatus(null);
+  }, []);
+
+  useEffect(() => {
+    if (!printStatus) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closePrintModal();
+      }
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [closePrintModal, printStatus]);
+
+  const handleConfirmPrint = () => {
+    const printFrame = printFrameRef.current;
+    const printWindow = printFrame?.contentWindow;
+    if (!printFrame || !printWindow) {
+      setPrintStatus("error");
+      setPrintError("The report preview is no longer available. Prepare the report again.");
+      return;
+    }
+
+    const removePrintFrame = () => {
+      printFrame.remove();
+      if (printFrameRef.current === printFrame) printFrameRef.current = null;
+    };
+
+    const pageCover = document.createElement("div");
+    pageCover.setAttribute("aria-hidden", "true");
+    pageCover.style.cssText = [
+      "position:fixed",
+      "inset:0",
+      "z-index:2147483647",
+      "background:#f8fafc",
+      "pointer-events:none",
+    ].join(";");
+    document.body.appendChild(pageCover);
+
+    let cleanupTimer: number | null = null;
+    const cleanupPrint = () => {
+      if (cleanupTimer !== null) window.clearTimeout(cleanupTimer);
+      pageCover.remove();
+      removePrintFrame();
+    };
+
+    try {
+      printWindow.addEventListener("afterprint", cleanupPrint, { once: true });
+      cleanupTimer = window.setTimeout(cleanupPrint, 120_000);
       printWindow.focus();
-      printWindow.addEventListener("afterprint", () => printFrame.remove(), { once: true });
+      setPrintError("");
+      setPrintStatus(null);
+      setPrintPreview(null);
       printWindow.print();
-    }, 250);
+    } catch (error) {
+      console.error("Unable to open the browser print dialog:", error);
+      setPrintStatus("error");
+      setPrintError("Your browser couldn't open printing. Use its menu and choose Print or Save as PDF.");
+      cleanupPrint();
+    }
   };
 
   // PRINT DISPATCHER BASED ON REPORT TYPE
   const handlePrintCurrentReport = async () => {
-    const data = await loadReport(startDate, endDate, category);
-    if (!data) return;
+    const controller = new AbortController();
+    printAbortControllerRef.current?.abort();
+    printAbortControllerRef.current = controller;
+    setPrintStatus("loading");
+    setPrintError("");
+    setPrintPreview(null);
+    printFrameRef.current?.remove();
+    printFrameRef.current = null;
 
-    if (reportType === "INVENTORY") {
+    const selectedStartDate = startDate;
+    const selectedEndDate = endDate;
+    const selectedCategory = category;
+    const selectedReportType = reportType;
+
+    try {
+      const loadedReport = await fetchReportData(
+        selectedStartDate,
+        selectedEndDate,
+        selectedCategory,
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      setReport(loadedReport);
+      setHasLoadedReport(true);
+      const data = escapeReportStrings(loadedReport);
+
+      const periodLabel = selectedStartDate && selectedEndDate
+        ? `${selectedStartDate} to ${selectedEndDate}`
+        : selectedStartDate
+          ? `From ${selectedStartDate}`
+          : selectedEndDate
+            ? `Until ${selectedEndDate}`
+            : "All Record History";
+      const categoryLabel = selectedCategory
+        ? loadedReport.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
+        : "All catalog categories";
+      const reportTitle = {
+        INVENTORY: "Inventory Report",
+        SALES: "Sales Report",
+        LOW_STOCK: "Low Stock Alerts Report",
+        TOP_PRODUCTS: "Top Products Report",
+        ALL: "Business Summary Report",
+      }[selectedReportType];
+
+      setPrintPreview({ reportTitle, periodLabel, categoryLabel, summary: loadedReport.summary });
+      setPrintStatus("preparing");
+      const printScope = {
+        periodLabel,
+        categoryLabel,
+        businessName: loadedReport.business.name,
+        businessAddress: loadedReport.business.address,
+      };
+
+      if (selectedReportType === "INVENTORY") {
       const rows = data.inventoryItems.length > 0
         ? data.inventoryItems.map(
             (item) => `
@@ -589,7 +813,7 @@ export default function ReportsPage() {
           <div class="kpi-card"><div class="kpi-label">Cataloged Products</div><div class="kpi-val">${data.summary.activeProducts} items</div></div>
           <div class="kpi-card"><div class="kpi-label">Low Stock Urgency</div><div class="kpi-val">${data.lowStock.length} items</div></div>
         </div>
-        <h2 class="section-title">Catalog Inventory Valuation & Stock Ledger</h2>
+        <h2 class="section-title">Inventory and valuation</h2>
         <table>
           <thead>
             <tr>
@@ -605,25 +829,25 @@ export default function ReportsPage() {
         </table>
       `;
 
-      printOfficialDocument("Inventory Valuation & Stock Report", "Inventory Audit", content);
-    } else if (reportType === "SALES") {
-      const rows = data.recentOrders.length > 0
-        ? data.recentOrders.map((order) => {
-            const itemsSummary = order.items
-              .map((i) => `${i.productName} (x${i.quantity})`)
-              .join(", ");
-            const totalQty = order.items.reduce((sum, i) => sum + Number(i.quantity ?? 0), 0);
-            return `
-            <tr>
-              <td><strong>${order.orderNumber}</strong></td>
-              <td>${new Date(order.createdAt).toLocaleDateString()}</td>
-              <td>${itemsSummary || "-"}</td>
-              <td class="right">${totalQty}</td>
-              <td class="right"><strong>₱${Number(order.totalAmount).toFixed(2)}</strong></td>
-            </tr>
-          `;
-          }).join("")
-        : `<tr><td colspan="5" style="text-align:center;color:#64748b;">No sales transactions for this period.</td></tr>`;
+      if (!(await printOfficialDocument("Inventory Report", "Inventory Summary", content, printScope))) {
+        throw new Error("The print preview could not be created.");
+      }
+    } else if (selectedReportType === "SALES") {
+      const rows = data.recentOrders.flatMap((order) =>
+        order.items.map((item) =>
+          '<tr>' +
+          '<td><strong>' + order.orderNumber + '</strong></td>' +
+          '<td>' + new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }) + '</td>' +
+          '<td>' + item.productName + '</td>' +
+          '<td><code>' + item.sku + '</code></td>' +
+          '<td style="text-align:right">' + item.quantity + '</td>' +
+          '<td style="text-align:right">' + formatCurrency(item.unitPrice) + '</td>' +
+          '<td style="text-align:right">' + formatCurrency(item.unitCost) + '</td>' +
+          '<td style="text-align:right"><strong>' + formatCurrency(item.subtotal) + '</strong></td>' +
+          '<td style="text-align:right">' + formatCurrency(item.grossProfit) + '</td>' +
+          '</tr>',
+        ),
+      ).join("") || '<tr><td colspan="9" style="text-align:center;color:#64748b;">No sales transactions for this period.</td></tr>';
 
       const channelRows = Object.entries(data.channelBreakdown)
         .map(
@@ -634,35 +858,42 @@ export default function ReportsPage() {
 
       const content = `
         <div class="kpi-grid">
-          <div class="kpi-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-val">₱${Number(data.summary.totalRevenue).toFixed(2)}</div></div>
-          <div class="kpi-card"><div class="kpi-label">Completed Transactions</div><div class="kpi-val">${data.summary.completedOrders} orders</div></div>
-          <div class="kpi-card"><div class="kpi-label">Units Sold</div><div class="kpi-val">${data.summary.totalItemsSold} units</div></div>
-          <div class="kpi-card"><div class="kpi-label">Avg. Order Value</div><div class="kpi-val">₱${data.summary.completedOrders > 0 ? (data.summary.totalRevenue / data.summary.completedOrders).toFixed(2) : "0.00"}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-val">${formatCurrency(data.summary.totalRevenue)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Cost of Goods (current costs)</div><div class="kpi-val">${formatCurrency(data.summary.totalRevenue - data.summary.grossProfit)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Gross Profit (current costs)</div><div class="kpi-val">${formatCurrency(data.summary.grossProfit)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Completed Orders</div><div class="kpi-val">${data.summary.completedOrders}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Units Sold</div><div class="kpi-val">${data.summary.totalItemsSold}</div></div>
         </div>
 
-        <h2 class="section-title">Sales Channel Breakdown</h2>
+        <h2 class="section-title">Sales by channel</h2>
         <table>
           <thead><tr><th>Sales Channel</th><th class="right">Completed Orders</th><th class="right">Gross Sales</th></tr></thead>
           <tbody>${channelRows || `<tr><td colspan="3">No channel sales found.</td></tr>`}</tbody>
         </table>
 
-        <h2 class="section-title">Completed Orders Ledger</h2>
+        <h2 class="section-title">Completed orders</h2>
         <table>
           <thead>
             <tr>
               <th>Order Number</th>
-              <th>Date</th>
-              <th>Items Purchased</th>
+              <th>Completed Date</th>
+              <th>Product / Variant</th>
+              <th>SKU</th>
               <th class="right">Qty</th>
-              <th class="right">Order Amount</th>
+              <th class="right">Unit Price</th>
+              <th class="right">Unit Cost</th>
+              <th class="right">Line Total</th>
+              <th class="right">Gross Profit</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
         </table>
       `;
 
-      printOfficialDocument("Sales & Revenue Performance Report", "Sales Audit", content);
-    } else if (reportType === "LOW_STOCK") {
+      if (!(await printOfficialDocument("Sales Report", "Sales Summary", content, printScope))) {
+        throw new Error("The print preview could not be created.");
+      }
+    } else if (selectedReportType === "LOW_STOCK") {
       const rows = data.lowStock.length > 0
         ? data.lowStock.map(
             (item) => `
@@ -682,9 +913,9 @@ export default function ReportsPage() {
           <div class="kpi-card"><div class="kpi-label">Items at Critical Level</div><div class="kpi-val" style="color:#b91c1c;">${data.lowStock.length} items</div></div>
           <div class="kpi-card"><div class="kpi-label">Catalog Products</div><div class="kpi-val">${data.summary.activeProducts} items</div></div>
           <div class="kpi-card"><div class="kpi-label">Inventory Cost Value</div><div class="kpi-val">₱${Number(data.summary.stockValue).toFixed(2)}</div></div>
-          <div class="kpi-card"><div class="kpi-label">Audit Risk State</div><div class="kpi-val">${data.lowStock.length > 0 ? "Replenishment Required" : "Healthy"}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Stock Status</div><div class="kpi-val">${data.lowStock.length > 0 ? "Reorder needed" : "All items stocked"}</div></div>
         </div>
-        <h2 class="section-title">Critical Low-Stock & Reorder Monitoring</h2>
+        <h2 class="section-title">Low-stock items</h2>
         <table>
           <thead>
             <tr>
@@ -699,8 +930,10 @@ export default function ReportsPage() {
         </table>
       `;
 
-      printOfficialDocument("Low Stock & Reorder Alert Report", "Stock Risk Audit", content);
-    } else if (reportType === "TOP_PRODUCTS") {
+      if (!(await printOfficialDocument("Low Stock Report", "Stock Monitoring", content, printScope))) {
+        throw new Error("The print preview could not be created.");
+      }
+    } else if (selectedReportType === "TOP_PRODUCTS") {
       const rows = data.topProducts.length > 0
         ? data.topProducts.map(
             (item, index) => `
@@ -722,7 +955,7 @@ export default function ReportsPage() {
           <div class="kpi-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-val">₱${Number(data.summary.totalRevenue).toFixed(2)}</div></div>
           <div class="kpi-card"><div class="kpi-label">Average Order Value</div><div class="kpi-val">₱${data.summary.completedOrders > 0 ? (data.summary.totalRevenue / data.summary.completedOrders).toFixed(2) : "0.00"}</div></div>
         </div>
-        <h2 class="section-title">Top Performing Products Leaderboard</h2>
+        <h2 class="section-title">Top products</h2>
         <table>
           <thead>
             <tr>
@@ -737,16 +970,24 @@ export default function ReportsPage() {
         </table>
       `;
 
-      printOfficialDocument("Top Performing Products Report", "Product Intelligence", content);
+      if (!(await printOfficialDocument("Top Products Report", "Product Summary", content, printScope))) {
+        throw new Error("The print preview could not be created.");
+      }
     } else {
       // ALL-IN-ONE SUMMARY
-      const salesRows = data.recentOrders.map((order) => {
-        const products = order.items
-          .map((item) => `${item.productName} (x${item.quantity})`)
-          .join("<br>");
-        const quantity = order.items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
-        return `<tr><td>${order.orderNumber}</td><td>${new Date(order.createdAt).toLocaleDateString()}</td><td>${products || "-"}</td><td class="right">${quantity}</td><td class="right">₱${Number(order.totalAmount).toFixed(2)}</td></tr>`;
-      }).join("");
+      const salesRows = data.recentOrders.flatMap((order) => order.items.map((item) =>
+        '<tr>' +
+        '<td>' + order.orderNumber + '</td>' +
+        '<td>' + new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }) + '</td>' +
+        '<td>' + item.productName + '</td>' +
+        '<td><code>' + item.sku + '</code></td>' +
+        '<td style="text-align:right">' + item.quantity + '</td>' +
+        '<td style="text-align:right">' + formatCurrency(item.unitPrice) + '</td>' +
+        '<td style="text-align:right">' + formatCurrency(item.unitCost) + '</td>' +
+        '<td style="text-align:right">' + formatCurrency(item.subtotal) + '</td>' +
+        '<td style="text-align:right">' + formatCurrency(item.grossProfit) + '</td>' +
+        '</tr>',
+      )).join("");
 
       const inventoryRows = data.inventoryItems.map(
         (item) =>
@@ -779,13 +1020,14 @@ export default function ReportsPage() {
 
       const content = `
         <div class="kpi-grid">
-          <div class="kpi-card"><div class="kpi-label">Total Revenue</div><div class="kpi-val">₱${Number(data.summary.totalRevenue).toFixed(2)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Gross Revenue</div><div class="kpi-val">${formatCurrency(data.summary.totalRevenue)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Cost of Goods (current costs)</div><div class="kpi-val">${formatCurrency(data.summary.totalRevenue - data.summary.grossProfit)}</div></div>
+          <div class="kpi-card"><div class="kpi-label">Gross Profit (current costs)</div><div class="kpi-val">${formatCurrency(data.summary.grossProfit)}</div></div>
           <div class="kpi-card"><div class="kpi-label">Completed Orders</div><div class="kpi-val">${data.summary.completedOrders}</div></div>
           <div class="kpi-card"><div class="kpi-label">Units Sold</div><div class="kpi-val">${data.summary.totalItemsSold}</div></div>
-          <div class="kpi-card"><div class="kpi-label">Cost Valuation</div><div class="kpi-val">₱${Number(data.summary.stockValue).toFixed(2)}</div></div>
         </div>
 
-        <h2 class="section-title">1. Sales Channels & Payment Breakdown</h2>
+        <h2 class="section-title">Sales and payments</h2>
         <table>
           <thead><tr><th>Channel</th><th class="right">Orders</th><th class="right">Revenue</th></tr></thead>
           <tbody>${channelRows || `<tr><td colspan="3">No channel records.</td></tr>`}</tbody>
@@ -795,32 +1037,44 @@ export default function ReportsPage() {
           <tbody>${paymentRows || `<tr><td colspan="3">No payment records.</td></tr>`}</tbody>
         </table>
 
-        <h2 class="section-title">2. Completed Sales Orders</h2>
+        <h2 class="section-title">Itemized sales</h2>
         <table>
-          <thead><tr><th>Order #</th><th>Date</th><th>Items</th><th class="right">Units</th><th class="right">Total</th></tr></thead>
-          <tbody>${salesRows || `<tr><td colspan="5">No completed sales.</td></tr>`}</tbody>
+          <thead><tr><th>Order #</th><th>Completed Date</th><th>Product / Variant</th><th>SKU</th><th class="right">Qty</th><th class="right">Unit Price</th><th class="right">Unit Cost</th><th class="right">Line Total</th><th class="right">Gross Profit</th></tr></thead>
+          <tbody>${salesRows || '<tr><td colspan="9">No completed sales.</td></tr>'}</tbody>
         </table>
 
-        <h2 class="section-title">3. Inventory Snapshot</h2>
+        <h2 class="section-title">Inventory</h2>
         <table>
           <thead><tr><th>Product / Variant</th><th>SKU</th><th class="right">Stock</th><th class="right">Stock Value</th></tr></thead>
           <tbody>${inventoryRows || `<tr><td colspan="4">No inventory records.</td></tr>`}</tbody>
         </table>
 
-        <h2 class="section-title">4. Critical Low Stock Snapshot</h2>
+        <h2 class="section-title">Low stock</h2>
         <table>
           <thead><tr><th>Product / Variant</th><th>SKU</th><th class="right">Current Stock</th><th class="right">Minimum Threshold</th></tr></thead>
           <tbody>${lowStockRows || `<tr><td colspan="4">No low stock items.</td></tr>`}</tbody>
         </table>
 
-        <h2 class="section-title">5. Top Selling Products</h2>
+        <h2 class="section-title">Top products</h2>
         <table>
           <thead><tr><th>Rank</th><th>Product / Variant</th><th>SKU</th><th class="right">Units Sold</th><th class="right">Revenue</th></tr></thead>
           <tbody>${topProductRows || `<tr><td colspan="5">No product sales recorded.</td></tr>`}</tbody>
         </table>
       `;
 
-      printOfficialDocument("Complete Business Summary Audit", "Comprehensive Audit", content);
+      if (!(await printOfficialDocument("Business Summary Report", "Business Summary", content, printScope))) {
+        throw new Error("The print preview could not be created.");
+      }
+    }
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      console.error("Unable to prepare report for printing:", error);
+      setPrintStatus("error");
+      setPrintError("We couldn't prepare this report for printing. Check your connection and try again.");
+    } finally {
+      if (printAbortControllerRef.current === controller) {
+        printAbortControllerRef.current = null;
+      }
     }
   };
 
@@ -840,6 +1094,8 @@ export default function ReportsPage() {
 
     addSection("Report Header", ["Field", "Value"], [
       ["Report Type", reportType],
+      ["Business Name", data.business.name],
+      ["Business Address", data.business.address],
       ["Period Start", startDate || "All time"],
       ["Period End", endDate || "All time"],
       ["Category", category ? data.categories.find((item) => item.id === category)?.name ?? "Selected" : "All categories"],
@@ -860,13 +1116,25 @@ export default function ReportsPage() {
       filename = "sales-orders-report.csv";
       addSection("Sales Channels", ["Channel", "Orders", "Revenue"], Object.entries(data.channelBreakdown).map(([label, v]) => [label, v.count, v.revenue]));
       addSection("Payment Methods", ["Payment Method", "Orders", "Revenue"], Object.entries(data.paymentBreakdown).map(([label, v]) => [label, v.count, v.revenue]));
-      addSection("Completed Sales Orders", ["Order Number", "Date", "Items", "Quantity", "Total Amount"], data.recentOrders.map((order) => [
+      addSection("Sales Summary", ["Metric", "Amount"], [
+        ["Gross Revenue", data.summary.totalRevenue],
+        ["Cost of Goods (current costs)", data.summary.totalRevenue - data.summary.grossProfit],
+        ["Gross Profit (current costs)", data.summary.grossProfit],
+        ["Completed Orders", data.summary.completedOrders],
+        ["Units Sold", data.summary.totalItemsSold],
+        ["Average Order Value", data.summary.completedOrders > 0 ? data.summary.totalRevenue / data.summary.completedOrders : 0],
+      ]);
+      addSection("Itemized Sales", ["Order Number", "Completed Date", "Product / Variant", "SKU", "Quantity", "Unit Price", "Unit Cost", "Line Total", "Gross Profit"], data.recentOrders.flatMap((order) => order.items.map((item) => [
         order.orderNumber,
-        new Date(order.createdAt).toLocaleDateString(),
-        order.items.map((i) => `${i.productName} (Qty. ${i.quantity})`).join("; "),
-        order.items.reduce((sum, i) => sum + Number(i.quantity ?? 0), 0),
-        order.totalAmount,
-      ]));
+        new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }),
+        item.productName,
+        item.sku,
+        item.quantity,
+        item.unitPrice,
+        item.unitCost,
+        item.subtotal,
+        item.grossProfit,
+      ])));
     } else if (reportType === "LOW_STOCK") {
       filename = "low-stock-report.csv";
       addSection("Low Stock Alerts", ["Product / Variant", "SKU", "Current Stock", "Minimum Threshold", "Deficit"], data.lowStock.map((item) => [
@@ -890,13 +1158,24 @@ export default function ReportsPage() {
       filename = "complete-business-summary-report.csv";
       addSection("Sales Breakdown", ["Channel", "Orders", "Revenue"], Object.entries(data.channelBreakdown).map(([l, v]) => [l, v.count, v.revenue]));
       addSection("Payment Breakdown", ["Payment method", "Orders", "Revenue"], Object.entries(data.paymentBreakdown).map(([l, v]) => [l, v.count, v.revenue]));
-      addSection("Sales Orders", ["Order", "Date", "Items", "Quantity", "Total"], data.recentOrders.map((order) => [
+      addSection("Sales Totals", ["Metric", "Amount"], [
+        ["Gross Revenue", data.summary.totalRevenue],
+        ["Cost of Goods (current costs)", data.summary.totalRevenue - data.summary.grossProfit],
+        ["Gross Profit (current costs)", data.summary.grossProfit],
+        ["Completed Orders", data.summary.completedOrders],
+        ["Units Sold", data.summary.totalItemsSold],
+      ]);
+      addSection("Itemized Sales", ["Order", "Completed Date", "Product / Variant", "SKU", "Quantity", "Unit Price", "Unit Cost", "Line Total", "Gross Profit"], data.recentOrders.flatMap((order) => order.items.map((item) => [
         order.orderNumber,
-        new Date(order.createdAt).toLocaleDateString(),
-        order.items.map((i) => `${i.productName} (Qty. ${i.quantity})`).join("; "),
-        order.items.reduce((sum, i) => sum + Number(i.quantity ?? 0), 0),
-        order.totalAmount,
-      ]));
+        new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }),
+        item.productName,
+        item.sku,
+        item.quantity,
+        item.unitPrice,
+        item.unitCost,
+        item.subtotal,
+        item.grossProfit,
+      ])));
       addSection("Inventory Snapshot", ["Product / Variant", "SKU", "Stock", "Cost", "Price", "Stock Value"], data.inventoryItems.map((item) => [
         item.name,
         item.sku,
@@ -928,18 +1207,76 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportPdf = async () => {
+    setIsPdfExporting(true);
+    setPdfExportError("");
+
+    try {
+      const selectedStartDate = startDate;
+      const selectedEndDate = endDate;
+      const selectedCategory = category;
+      const selectedReportType = reportType;
+      const data = await fetchReportData(selectedStartDate, selectedEndDate, selectedCategory);
+      setReport(data);
+      setHasLoadedReport(true);
+
+      const periodLabel = selectedStartDate && selectedEndDate
+        ? `${selectedStartDate} to ${selectedEndDate}`
+        : selectedStartDate
+          ? `From ${selectedStartDate}`
+          : selectedEndDate
+            ? `Until ${selectedEndDate}`
+            : "All Record History";
+      const categoryLabel = selectedCategory
+        ? data.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
+        : "All catalog categories";
+      const reportTitle = {
+        INVENTORY: "Inventory Report",
+        SALES: "Sales Report",
+        LOW_STOCK: "Low Stock Alerts Report",
+        TOP_PRODUCTS: "Top Products Report",
+        ALL: "Business Summary Report",
+      }[selectedReportType];
+
+      const [{ pdf }, { default: ReportPdfDocument }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("@/components/admin/report-pdf-document"),
+      ]);
+      const document = createElement(ReportPdfDocument, {
+        report: data,
+        reportType: selectedReportType,
+        reportTitle,
+        periodLabel,
+        categoryLabel,
+        generatedAt: new Date(),
+      }) as unknown as Parameters<typeof pdf>[0];
+      const blob = await pdf(document).toBlob();
+      const url = URL.createObjectURL(blob);
+      const link = window.document.createElement("a");
+      link.href = url;
+      link.download = `${reportTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-")}.pdf`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    } catch (error) {
+      console.error("Unable to export PDF report:", error);
+      setPdfExportError("We couldn't create the PDF. Please try again or use Print / Export CSV.");
+    } finally {
+      setIsPdfExporting(false);
+    }
+  };
+
   const currentReportLabel = useMemo(() => {
     switch (reportType) {
       case "INVENTORY":
-        return "Inventory Valuation";
+        return "Inventory Report";
       case "SALES":
-        return "Sales & Orders";
+        return "Sales Report";
       case "LOW_STOCK":
-        return "Low Stock Alerts";
+        return "Low Stock Alerts Report";
       case "TOP_PRODUCTS":
-        return "Top Products";
+        return "Top Products Report";
       default:
-        return "Full Summary";
+        return "Full Summary Report";
     }
   }, [reportType]);
 
@@ -947,18 +1284,11 @@ export default function ReportsPage() {
     <div className="space-y-6 pb-16 text-slate-900 dark:text-slate-100">
       {/* 1. Header & Quick Actions */}
       <header className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex gap-3 flex-row items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="font-bold tracking-tight text-slate-950 dark:text-white text-2xl">
-                Reports
-              </h1>
-              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-                {currentReportLabel}
-              </span>
-            </div>
+            <p className="text-sm font-semibold text-slate-900 dark:text-white">Reports</p>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Generate, preview, and export audited financial, sales, and inventory valuation reports.
+              Generate, preview, and export audited financial, sales, and inventory reports.
             </p>
           </div>
 
@@ -966,68 +1296,106 @@ export default function ReportsPage() {
             <button
               type="button"
               onClick={() => void handlePrintCurrentReport()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+              disabled={isReportLoading || printStatus !== null || isPdfExporting}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60 dark:bg-emerald-500 dark:hover:bg-emerald-600"
             >
-              <Printer className="h-3.5 w-3.5" />
-              <span>Print {currentReportLabel}</span>
+              {printStatus === "loading" || printStatus === "preparing" ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Printer className="h-3.5 w-3.5" />
+              )}
+              <span>{printStatus === "loading" || printStatus === "preparing" ? "Preparing..." : `Print ${currentReportLabel}`}</span>
             </button>
             <button
               type="button"
               onClick={() => void handleExportCsv()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              disabled={isReportLoading || printStatus !== null || isPdfExporting}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               <Download className="h-3.5 w-3.5" />
               <span>Export CSV</span>
             </button>
             <button
               type="button"
-              onClick={() => void loadReport(startDate, endDate, category)}
-              disabled={loading}
-              title="Refresh Data"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white p-2 text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+              onClick={() => void handleExportPdf()}
+              disabled={isReportLoading || printStatus !== null || isPdfExporting}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-950"
             >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-emerald-600" : ""}`} />
+              {isPdfExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+              <span>{isPdfExporting ? "Creating PDF..." : "Download PDF"}</span>
             </button>
           </div>
         </div>
+        {pdfExportError && (
+          <p className="mt-3 text-xs font-medium text-rose-700 dark:text-rose-300" role="alert">
+            {pdfExportError}
+          </p>
+        )}
 
         {/* 2. Report Scope Tabs (Filter by Report) */}
         <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800/80">
-          <div className="flex items-center justify-between gap-2 overflow-x-auto pb-0">
-            <div className="flex items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 p-1 dark:border-slate-800 dark:bg-slate-950/60">
+          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
               {(
                 [
-                  { id: "ALL", label: "Full Summary" },
-                  { id: "INVENTORY", label: "Inventory Valuation" },
-                  { id: "SALES", label: "Sales & Orders" },
-                  { id: "LOW_STOCK", label: "Low Stock Alerts" },
-                  { id: "TOP_PRODUCTS", label: "Top Products" },
+                  {
+                    id: "ALL",
+                    label: "Full Summary Reports",
+                    icon: BarChart3,
+                    activeClass: "border-emerald-300 bg-emerald-100 text-emerald-800 dark:border-emerald-700 dark:bg-emerald-950/70 dark:text-emerald-200",
+                    idleClass: "border-emerald-200 bg-emerald-50/60 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-300 dark:hover:bg-emerald-950/60",
+                  },
+                  {
+                    id: "INVENTORY",
+                    label: "Inventory Reports",
+                    icon: Boxes,
+                    activeClass: "border-blue-300 bg-blue-100 text-blue-800 dark:border-blue-700 dark:bg-blue-950/70 dark:text-blue-200",
+                    idleClass: "border-blue-200 bg-blue-50/60 text-blue-700 hover:bg-blue-100 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300 dark:hover:bg-blue-950/60",
+                  },
+                  {
+                    id: "SALES",
+                    label: "Sales Reports",
+                    icon: ShoppingCart,
+                    activeClass: "border-violet-300 bg-violet-100 text-violet-800 dark:border-violet-700 dark:bg-violet-950/70 dark:text-violet-200",
+                    idleClass: "border-violet-200 bg-violet-50/60 text-violet-700 hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/30 dark:text-violet-300 dark:hover:bg-violet-950/60",
+                  },
+                  {
+                    id: "LOW_STOCK",
+                    label: "Low Stock Alerts Reports",
+                    icon: AlertTriangle,
+                    activeClass: "border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-700 dark:bg-amber-950/70 dark:text-amber-200",
+                    idleClass: "border-amber-200 bg-amber-50/60 text-amber-800 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300 dark:hover:bg-amber-950/60",
+                  },
+                  {
+                    id: "TOP_PRODUCTS",
+                    label: "Top Products Reports",
+                    icon: TrendingUp,
+                    activeClass: "border-teal-300 bg-teal-100 text-teal-800 dark:border-teal-700 dark:bg-teal-950/70 dark:text-teal-200",
+                    idleClass: "border-teal-200 bg-teal-50/60 text-teal-700 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-300 dark:hover:bg-teal-950/60",
+                  },
                 ] as const
               ).map((tab) => {
                 const isActive = reportType === tab.id;
+                const Icon = tab.icon;
                 return (
                   <button
                     key={tab.id}
                     type="button"
                     onClick={() => setReportType(tab.id)}
-                    className={`shrink-0 rounded-md px-3 py-1.5 text-xs font-medium tracking-tight transition ${
+                    className={`flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border px-3 py-2 text-center text-xs tracking-tight transition ${
                       isActive
-                        ? "bg-white font-semibold text-emerald-700 shadow-sm ring-1 ring-slate-200/80 dark:bg-slate-800 dark:text-emerald-400 dark:ring-slate-700"
-                        : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100"
+                        ? `${tab.activeClass} font-semibold shadow-sm`
+                        : `${tab.idleClass} font-medium`
                     }`}
                   >
-                    {tab.label}
+                    <Icon aria-hidden="true" className="h-4 w-4 shrink-0" />
+                    <span>{tab.label}</span>
                   </button>
                 );
               })}
-            </div>
           </div>
         </div>
-      </header>
 
-      {/* 3. Filter Parameters Toolbar (Dates, Category, Reset) */}
-      <section className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex gap-4 flex-row items-end justify-between">
+        <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800/80">
           <div className="space-y-2">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
               Quick Period Presets
@@ -1056,8 +1424,8 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="grid gap-3 grid-cols-3 w-auto">
-            <div>
+          <div className="mt-4 grid w-full grid-cols-1 gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2 lg:grid-cols-4 dark:border-slate-800/80">
+            <div className="min-w-0">
               <label
                 htmlFor="report-start-date"
                 className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300"
@@ -1077,7 +1445,7 @@ export default function ReportsPage() {
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label
                 htmlFor="report-end-date"
                 className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300"
@@ -1098,7 +1466,7 @@ export default function ReportsPage() {
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label
                 htmlFor="report-category"
                 className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300"
@@ -1120,129 +1488,68 @@ export default function ReportsPage() {
                 ))}
               </select>
             </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                title="Reset all filters"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-black px-6 text-sm font-semibold text-white transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 dark:bg-black dark:text-white dark:hover:bg-slate-800 dark:focus-visible:ring-offset-slate-900"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset</span>
+              </button>
+            </div>
           </div>
+        </div>
+      </header>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleResetFilters}
-              title="Reset all filters"
-              className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>Reset</span>
+      {hasLoadedReport && isReportLoading ? (
+        <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200" role="status" aria-live="polite">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+          <span>Refreshing report data for the selected dates and category…</span>
+        </div>
+      ) : null}
+
+      {hasLoadedReport && reportLoadError ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200" role="alert">
+          <span>{reportLoadError} The previous report is still shown.</span>
+          <button type="button" onClick={() => void handleRetryReportLoad()} className="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-semibold hover:bg-rose-100 dark:border-rose-800 dark:hover:bg-rose-900/40">
+            Try again
+          </button>
+        </div>
+      ) : null}
+
+      {!hasLoadedReport ? (
+        isReportLoading ? (
+          <section className="space-y-5 rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900" aria-busy="true" aria-live="polite" role="status">
+            <div className="flex items-center gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                <Loader2 className="h-5 w-5 animate-spin" />
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-white">Loading report data</h2>
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Fetching the latest figures for your selected report.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />)}
+            </div>
+            <div className="space-y-2">
+              {Array.from({ length: 5 }, (_, index) => <div key={index} className="h-9 animate-pulse rounded-md bg-slate-100 dark:bg-slate-800" />)}
+            </div>
+          </section>
+        ) : reportLoadError ? (
+          <section className="rounded-xl border border-rose-200 bg-white p-8 text-center shadow-sm dark:border-rose-900/60 dark:bg-slate-900" role="alert">
+            <AlertCircle className="mx-auto h-8 w-8 text-rose-500" />
+            <h2 className="mt-3 text-base font-semibold text-slate-900 dark:text-white">Report unavailable</h2>
+            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{reportLoadError}</p>
+            <button type="button" onClick={() => void handleRetryReportLoad()} className="mt-5 inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+              <RotateCcw className="h-4 w-4" /> Try again
             </button>
-            <div className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white dark:bg-slate-100 dark:text-slate-900">
-              <Filter className="h-3.5 w-3.5" />
-              <span>{loading ? "Refreshing..." : "Filters Applied"}</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 4. Primary 5-Card Metric Summary Grid (With Philippine Peso Sign) */}
-      <section aria-label="Summary KPIs" className="grid gap-4 grid-cols-5">
-        {/* Gross Revenue with PESO SIGN BADGE */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Gross Revenue
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-50 text-xs font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
-              ₱
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : formatCurrency(report.summary.totalRevenue)}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Completed sales in period
-            </p>
-          </div>
-        </div>
-
-        {/* Completed Orders */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Completed Orders
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/50 dark:text-blue-400">
-              <ShoppingCart className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : report.summary.completedOrders}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Finalized transactions
-            </p>
-          </div>
-        </div>
-
-        {/* Units Sold */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Units Sold
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-              <PackageCheck className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : report.summary.totalItemsSold}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Total volume dispensed
-            </p>
-          </div>
-        </div>
-
-        {/* Inventory Cost on Hand */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Cost on Hand
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
-              <Boxes className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : formatCurrency(report.summary.stockValue)}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Inventory capital cost
-            </p>
-          </div>
-        </div>
-
-        {/* Retail Potential Valuation */}
-        <div className="group rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm transition hover:shadow dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-              Retail Valuation
-            </span>
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-50 text-teal-600 dark:bg-teal-950/50 dark:text-teal-400">
-              <TrendingUp className="h-3.5 w-3.5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <p className="text-xl font-bold tracking-tight text-slate-950 dark:text-white">
-              {loading ? "--" : formatCurrency(report.summary.retailValue)}
-            </p>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Expected gross retail value
-            </p>
-          </div>
-        </div>
-      </section>
-
+          </section>
+        ) : null
+      ) : (
+      <>
       {/* 5. Interactive Report Workspace (Changes based on Report Type) */}
 
       {/* VIEW A: ALL-IN-ONE SUMMARY */}
@@ -1513,7 +1820,7 @@ export default function ReportsPage() {
                 </h2>
               </div>
               <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-                Audited record of all completed orders across the evaluated timeframe
+                Completed orders for this period. Gross profit uses current product and variant costs.
               </p>
             </div>
             <div className="relative w-64">
@@ -1528,52 +1835,106 @@ export default function ReportsPage() {
             </div>
           </div>
 
+          <div className="grid grid-cols-2 gap-3 border-b border-slate-100 p-4 sm:grid-cols-3 xl:grid-cols-5 dark:border-slate-800">
+            {[
+              {
+                label: "Gross Revenue",
+                value: formatCurrency(salesTotals.totalRevenue),
+                detail: "Completed sales",
+                valueClass: "text-slate-900 dark:text-white",
+              },
+              {
+                label: "Cost of Goods",
+                value: formatCurrency(salesTotals.totalRevenue - salesTotals.grossProfit),
+                detail: "At current costs",
+                valueClass: "text-slate-700 dark:text-slate-200",
+              },
+              {
+                label: "Gross Profit",
+                value: formatCurrency(salesTotals.grossProfit),
+                detail: "At current costs",
+                valueClass: salesTotals.grossProfit < 0
+                  ? "text-rose-700 dark:text-rose-300"
+                  : "text-emerald-700 dark:text-emerald-400",
+              },
+              {
+                label: "Completed Orders",
+                value: salesTotals.completedOrders.toLocaleString(),
+                detail: "In this period",
+                valueClass: "text-slate-900 dark:text-white",
+              },
+              {
+                label: "Units Sold",
+                value: salesTotals.totalItemsSold.toLocaleString(),
+                detail: "In this period",
+                valueClass: "text-slate-900 dark:text-white",
+              },
+            ].map((total) => (
+              <div key={total.label} className="rounded-lg border border-slate-200 bg-slate-50/70 px-3 py-3 dark:border-slate-800 dark:bg-slate-950/50">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{total.label}</p>
+                <p className={`mt-1 text-sm font-bold ${total.valueClass}`}>{total.value}</p>
+                <p className="mt-0.5 text-[10px] text-slate-500 dark:text-slate-500">{total.detail}</p>
+              </div>
+            ))}
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-3">Order Number</th>
-                  <th className="px-4 py-3">Date & Time</th>
-                  <th className="px-4 py-3">Items Purchased</th>
-                  <th className="px-4 py-3 text-right">Total Units</th>
-                  <th className="px-4 py-3 text-right">Order Amount</th>
+                  <th className="px-4 py-3">Completed Date</th>
+                  <th className="px-4 py-3">Product / Variant</th>
+                  <th className="px-4 py-3">SKU</th>
+                  <th className="px-4 py-3 text-right">Qty</th>
+                  <th className="px-4 py-3 text-right">Unit Price</th>
+                  <th className="px-4 py-3 text-right">Unit Cost</th>
+                  <th className="px-4 py-3 text-right">Line Total</th>
+                  <th className="px-4 py-3 text-right">Gross Profit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredOrders.length > 0 ? (
-                  filteredOrders.map((order) => {
-                    const totalQty = order.items.reduce((s, i) => s + Number(i.quantity ?? 0), 0);
-                    return (
-                      <tr
-                        key={order.id}
-                        className="transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                      >
-                        <td className="px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
-                          {order.orderNumber}
-                        </td>
-                        <td className="px-4 py-3 text-slate-500">
-                          {new Date(order.createdAt).toLocaleDateString("en-PH", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 dark:text-slate-300 max-w-xs truncate">
-                          {order.items.map((i) => `${i.productName} (x${i.quantity})`).join(", ")}
-                        </td>
-                        <td className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">
-                          {totalQty}
-                        </td>
-                        <td className="px-4 py-3 text-right font-bold text-slate-900 dark:text-white">
-                          {formatCurrency(Number(order.totalAmount))}
-                        </td>
-                      </tr>
-                    );
-                  })
+                {filteredSalesLines.length > 0 ? (
+                  filteredSalesLines.map((line) => (
+                    <tr key={line.lineKey} className="transition hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className="whitespace-nowrap px-4 py-3 font-semibold text-slate-900 dark:text-slate-100">
+                        {line.orderNumber}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-slate-500">
+                        {new Date(line.completedAt).toLocaleDateString("en-PH", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                          timeZone: "Asia/Manila",
+                        })}
+                      </td>
+                      <td className="min-w-48 px-4 py-3 font-medium text-slate-800 dark:text-slate-200">
+                        {line.productName}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 font-mono text-[11px] text-slate-500">
+                        {line.sku}
+                      </td>
+                      <td className="px-4 py-3 text-right font-medium text-slate-600 dark:text-slate-400">
+                        {line.quantity}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600 dark:text-slate-400">
+                        {formatCurrency(line.unitPrice)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right text-slate-600 dark:text-slate-400">
+                        {formatCurrency(line.unitCost)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold text-slate-900 dark:text-white">
+                        {formatCurrency(line.subtotal)}
+                      </td>
+                      <td className={`whitespace-nowrap px-4 py-3 text-right font-semibold ${line.grossProfit < 0 ? "text-rose-700 dark:text-rose-300" : "text-emerald-700 dark:text-emerald-400"}`}>
+                        {formatCurrency(line.grossProfit)}
+                      </td>
+                    </tr>
+                  ))
                 ) : (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-xs text-slate-500">
-                      No completed orders recorded in this period.
+                    <td colSpan={9} className="py-12 text-center text-xs text-slate-500">
+                      No completed sale items found for this period.
                     </td>
                   </tr>
                 )}
@@ -1581,10 +1942,8 @@ export default function ReportsPage() {
             </table>
           </div>
           <div className="flex items-center justify-between border-t border-slate-100 p-3.5 text-xs text-slate-500 dark:border-slate-800">
-            <span>Showing {filteredOrders.length} completed transactions</span>
-            <span className="font-bold text-slate-900 dark:text-white">
-              Gross Volume: {formatCurrency(report.summary.totalRevenue)}
-            </span>
+            <span>Showing {filteredSalesLines.length} itemized sale lines</span>
+            <span>Totals reflect the current search results and selected dates.</span>
           </div>
         </section>
       )}
@@ -1755,6 +2114,132 @@ export default function ReportsPage() {
           </div>
         </section>
       )}
+      </>
+      )}
+
+      {printStatus ? (
+        <AdminModalPortal>
+          <div
+            className="fixed inset-0 z-100 flex items-center justify-center overflow-y-auto bg-slate-950/55 p-3 backdrop-blur-sm sm:p-6"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget && printStatus !== "preparing") closePrintModal();
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="report-print-dialog-title"
+              aria-busy={printStatus === "loading" || printStatus === "preparing"}
+              className="w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+            >
+              <header className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 dark:border-slate-800 sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                    <FileText className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">Print center</p>
+                    <h2 id="report-print-dialog-title" className="mt-0.5 truncate text-base font-semibold text-slate-950 dark:text-white">
+                      {printPreview?.reportTitle ?? currentReportLabel}
+                    </h2>
+                  </div>
+                </div>
+                <button type="button" onClick={closePrintModal} aria-label="Close print preview" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 dark:hover:bg-slate-800 dark:hover:text-white">
+                  <X className="h-4 w-4" />
+                </button>
+              </header>
+
+              <div className="p-5 sm:p-6">
+                {printStatus === "loading" ? (
+                  <div className="py-4 text-center" role="status" aria-live="polite">
+                    <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                      <Loader2 className="h-7 w-7 animate-spin" />
+                    </span>
+                    <h3 className="mt-4 text-lg font-semibold text-slate-950 dark:text-white">Loading report data</h3>
+                    <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500 dark:text-slate-400">We’re getting the latest figures for your date range and category. You can cancel while it loads.</p>
+                    <div className="mx-auto mt-5 h-1.5 max-w-xs overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div className="h-full w-1/3 animate-pulse rounded-full bg-emerald-500" />
+                    </div>
+                  </div>
+                ) : printStatus === "preparing" ? (
+                  <div className="py-4 text-center" role="status" aria-live="polite">
+                    <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
+                      <Loader2 className="h-7 w-7 animate-spin" />
+                    </span>
+                    <h3 className="mt-4 text-lg font-semibold text-slate-950 dark:text-white">Preparing print preview</h3>
+                    <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-500 dark:text-slate-400">The report is ready. We’re finishing the page layout and loading the logo.</p>
+                  </div>
+                ) : printStatus === "ready" && printPreview ? (
+                  <div>
+                    <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800 dark:text-emerald-300">
+                      <CheckCircle2 className="h-5 w-5" /> Your report is ready
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Choose Print or Save as PDF in your device’s print dialog.</p>
+                    <div role="note" className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-300" />
+                      <p className="text-xs leading-5">
+                        <span className="font-semibold">Before printing:</span> this app can’t detect whether a printer is connected. Check that it’s powered on and selected in the print dialog. If it isn’t available, choose Save as PDF.
+                      </p>
+                    </div>
+                    <dl className="mt-5 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm dark:border-slate-700 dark:bg-slate-950/50 sm:grid-cols-2">
+                      <div>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Period</dt>
+                        <dd className="mt-1 wrap-break-word font-medium text-slate-900 dark:text-slate-100">{printPreview.periodLabel}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Category</dt>
+                        <dd className="mt-1 wrap-break-word font-medium text-slate-900 dark:text-slate-100">{printPreview.categoryLabel}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Completed sales</dt>
+                        <dd className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{printPreview.summary.completedOrders.toLocaleString()}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Revenue</dt>
+                        <dd className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{formatCurrency(printPreview.summary.totalRevenue)}</dd>
+                      </div>
+                      {printPreview.reportTitle === "Sales Report" && (
+                        <div>
+                          <dt className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Gross profit (current costs)</dt>
+                          <dd className="mt-1 font-semibold text-slate-900 dark:text-slate-100">{formatCurrency(printPreview.summary.grossProfit)}</dd>
+                        </div>
+                      )}
+                    </dl>
+                  </div>
+                ) : (
+                  <div className="py-3" role="alert">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">
+                      <AlertCircle className="h-6 w-6" />
+                    </span>
+                    <h3 className="mt-4 text-lg font-semibold text-slate-950 dark:text-white">Couldn’t prepare the report</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{printError || "Check your connection, then try again."}</p>
+                  </div>
+                )}
+              </div>
+
+              <footer className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4 dark:border-slate-800 dark:bg-slate-950/40 sm:flex-row sm:justify-end sm:px-6">
+                {printStatus === "error" ? (
+                  <>
+                    <button type="button" onClick={closePrintModal} className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Close</button>
+                    <button type="button" onClick={() => void handlePrintCurrentReport()} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">
+                      <RotateCcw className="h-4 w-4" /> Try again
+                    </button>
+                  </>
+                ) : printStatus === "ready" ? (
+                  <>
+                    <button type="button" onClick={closePrintModal} className="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Cancel</button>
+                    <button type="button" onClick={handleConfirmPrint} className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2">
+                      <Printer className="h-4 w-4" /> Print report
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={closePrintModal} className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800 sm:w-auto">Cancel</button>
+                )}
+              </footer>
+            </section>
+          </div>
+        </AdminModalPortal>
+      ) : null}
     </div>
   );
 }

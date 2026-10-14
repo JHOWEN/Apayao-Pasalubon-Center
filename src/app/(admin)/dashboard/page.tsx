@@ -1,31 +1,31 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
 import Link from "next/link";
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import {
+  Activity,
   AlertTriangle,
   ArrowRight,
   Calendar,
   CheckCircle2,
   Clock,
+  Database,
+  HardDrive,
+  Mail,
   Package,
   Plus,
   Printer,
   Receipt,
+  RefreshCw,
+  Server,
+  Store,
+  Globe,
   TrendingUp,
   Warehouse,
   XCircle,
 } from "lucide-react";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getPrimaryImageUrl } from "@/features/catalog/utils/product-images";
 
 type LowStockItem = {
@@ -45,18 +45,47 @@ type TopProductItem = {
   orders: number;
 };
 
-type RevenueTrendItem = {
-  label: string;
-  revenue: number;
-};
-
 type SalesCategoryItem = {
   name: string;
   revenue: number;
   quantity: number;
 };
 
+type SalesChannelItem = {
+  name: string;
+  orders: number;
+  revenue: number;
+};
+
 type DashboardRange = "DAILY" | "WEEKLY" | "MONTHLY" | "ANNUALLY" | "CUSTOM";
+
+type SystemCheckStatus = "operational" | "configured" | "attention" | "unavailable";
+
+type SystemCheck = {
+  status: SystemCheckStatus;
+  label: string;
+  detail: string;
+  action: string;
+};
+
+type SystemStatusData = {
+  checkedAt: string;
+  checks: Record<"database" | "storage" | "redis" | "email", SystemCheck>;
+};
+
+const SYSTEM_STATUS_ITEMS = [
+  { key: "database", label: "Database", icon: Database },
+  { key: "storage", label: "File storage", icon: HardDrive },
+  { key: "redis", label: "Sessions and rate limits", icon: Server },
+  { key: "email", label: "Email", icon: Mail },
+] as const;
+
+const SYSTEM_STATUS_CLASSES: Record<SystemCheckStatus, string> = {
+  operational: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300",
+  configured: "bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300",
+  attention: "bg-amber-100 text-amber-800 dark:bg-amber-950/50 dark:text-amber-300",
+  unavailable: "bg-rose-100 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300",
+};
 
 function formatDateInput(date: Date) {
   const year = date.getFullYear();
@@ -85,33 +114,7 @@ function getAnnualDateRange() {
   return { start: formatDateInput(start), end: formatDateInput(end) };
 }
 
-interface CustomTooltipProps {
-  active?: boolean;
-  payload?: Array<{ value: number }>;
-  label?: string;
-}
-
-function ChartTooltip({ active, payload, label }: CustomTooltipProps) {
-  if (active && payload && payload.length) {
-    return (
-      <div className="rounded-lg border border-slate-200 bg-white p-2.5 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900">
-        <p className="font-medium text-slate-500 dark:text-slate-400">{label}</p>
-        <p className="mt-1 text-sm font-bold text-slate-950 dark:text-white">
-          ₱{Number(payload[0].value ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        </p>
-      </div>
-    );
-  }
-  return null;
-}
-
-const emptySubscribe = () => () => {};
-function useIsMounted() {
-  return useSyncExternalStore(emptySubscribe, () => true, () => false);
-}
-
 export default function DashboardPage() {
-  const isMounted = useIsMounted();
   const [userName, setUserName] = useState("Admin");
   const [startDate, setStartDate] = useState(() => {
     return formatDateInput(new Date());
@@ -120,23 +123,29 @@ export default function DashboardPage() {
   const [range, setRange] = useState<DashboardRange>("DAILY");
   const startDateInputRef = useRef<HTMLInputElement>(null);
   const endDateInputRef = useRef<HTMLInputElement>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const dashboardRequestSequence = useRef(0);
+  const dashboardHasLoaded = useRef(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [systemStatus, setSystemStatus] = useState<SystemStatusData | null>(null);
+  const [isSystemStatusLoading, setIsSystemStatusLoading] = useState(true);
+  const [systemStatusLoadError, setSystemStatusLoadError] = useState(false);
 
   const [stats, setStats] = useState({
-    customers: 0,
     products: 0,
     orders: 0,
     pendingOrders: 0,
     cancelledOrders: 0,
     completedOrders: 0,
     revenue: 0,
+    grossProfit: 0,
     lowStock: [] as LowStockItem[],
     totalCost: 0,
     totalPrice: 0,
     topProducts: [] as TopProductItem[],
-    revenueTrend: [] as RevenueTrendItem[],
     salesByCategory: [] as SalesCategoryItem[],
+    channelComparison: [] as SalesChannelItem[],
   });
 
   const [todayStats, setTodayStats] = useState({
@@ -145,43 +154,104 @@ export default function DashboardPage() {
     completedOrders: 0,
   });
 
-  useEffect(() => {
-    async function loadDashboardData() {
-      try {
-        const profileResponse = await fetch("/api/admin/profile");
-        const profileData = await profileResponse.json();
+  const loadSystemStatus = useCallback(async (forceRefresh = false) => {
+    const response = await adminFetch("/api/admin/system-status", { cache: forceRefresh ? "reload" : "no-store" });
+    if (!response.ok) throw new Error("Unable to load system status.");
+    return (await response.json()) as SystemStatusData;
+  }, []);
 
-        if (profileData?.success && typeof profileData?.user?.name === "string" && profileData.user.name.trim()) {
+  const refreshSystemStatus = useCallback(async () => {
+    setIsSystemStatusLoading(true);
+    try {
+      const data = await loadSystemStatus(true);
+      setSystemStatus(data);
+      setSystemStatusLoadError(false);
+    } catch {
+      setSystemStatusLoadError(true);
+    } finally {
+      setIsSystemStatusLoading(false);
+    }
+  }, [loadSystemStatus]);
+
+  useEffect(() => {
+    let isActive = true;
+    void loadSystemStatus()
+      .then((data) => {
+        if (!isActive) return;
+        setSystemStatus(data);
+        setSystemStatusLoadError(false);
+      })
+      .catch(() => {
+        if (isActive) setSystemStatusLoadError(true);
+      })
+      .finally(() => {
+        if (isActive) setIsSystemStatusLoading(false);
+      });
+
+    return () => {
+      isActive = false;
+    };
+  }, [loadSystemStatus]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    adminFetch("/api/admin/profile", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((profileData) => {
+        if (
+          isActive &&
+          profileData?.success &&
+          typeof profileData?.user?.name === "string" &&
+          profileData.user.name.trim()
+        ) {
           setUserName(profileData.user.name.trim());
         }
-      } catch {
-        // Fallback to default name
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    async function loadDashboardData() {
+      const requestSequence = ++dashboardRequestSequence.current;
+      if (!dashboardHasLoaded.current) {
+        setIsLoading(true);
+      } else {
+        setIsRefreshing(true);
       }
 
+      const params = new URLSearchParams({ range, includeToday: "true" });
+      if (range === "CUSTOM") {
+        params.set("from", startDate);
+        params.set("to", endDate);
+      }
+
+      const summaryRequest = adminFetch(`/api/admin/dashboard?${params.toString()}`);
+
       try {
-        setIsLoading(true);
-        const params = new URLSearchParams({ range, includeToday: "true" });
-        if (range === "CUSTOM") {
-          params.set("from", startDate);
-          params.set("to", endDate);
-        }
-        const summaryResponse = await fetch(`/api/admin/analytics?${params.toString()}`);
+        const summaryResponse = await summaryRequest;
+        if (requestSequence !== dashboardRequestSequence.current) return;
+        if (!summaryResponse.ok) throw new Error("Unable to load dashboard analytics.");
         const summaryData = await summaryResponse.json();
 
         setStats({
-          customers: Number(summaryData?.customers ?? 0),
           products: Number(summaryData?.products ?? 0),
           orders: Number(summaryData?.orders ?? 0),
           pendingOrders: Number(summaryData?.pendingOrders ?? 0),
           cancelledOrders: Number(summaryData?.cancelledOrders ?? 0),
           completedOrders: Number(summaryData?.completedOrders ?? 0),
           revenue: Number(summaryData?.revenue ?? 0),
+          grossProfit: Number(summaryData?.grossProfit ?? 0),
           lowStock: Array.isArray(summaryData?.lowStock) ? summaryData.lowStock : [],
           totalCost: Number(summaryData?.totalCost ?? 0),
           totalPrice: Number(summaryData?.totalPrice ?? 0),
           topProducts: Array.isArray(summaryData?.topProducts) ? summaryData.topProducts : [],
-          revenueTrend: Array.isArray(summaryData?.revenueTrend) ? summaryData.revenueTrend : [],
           salesByCategory: Array.isArray(summaryData?.salesByCategory) ? summaryData.salesByCategory : [],
+          channelComparison: Array.isArray(summaryData?.channelComparison) ? summaryData.channelComparison : [],
         });
 
         setTodayStats({
@@ -190,30 +260,40 @@ export default function DashboardPage() {
           completedOrders: Number(summaryData?.todayStats?.completedOrders ?? 0),
         });
         setLastUpdated(new Date());
+        dashboardHasLoaded.current = true;
       } catch {
         // Retain current state if analytics fails
       } finally {
-        setIsLoading(false);
+        if (requestSequence === dashboardRequestSequence.current) {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
       }
     }
 
     void loadDashboardData();
 
-    const refreshInterval = window.setInterval(() => {
-      void loadDashboardData();
-    }, 30000);
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void loadDashboardData();
+    let liveRefreshTimeout: number | undefined;
+    const handleAdminLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "catalog-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        if (liveRefreshTimeout) window.clearTimeout(liveRefreshTimeout);
+        liveRefreshTimeout = window.setTimeout(() => {
+          if (document.visibilityState === "visible") void loadDashboardData();
+        }, 500);
       }
     };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("apc-admin-live-event", handleAdminLiveEvent);
 
     return () => {
-      window.clearInterval(refreshInterval);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (liveRefreshTimeout) window.clearTimeout(liveRefreshTimeout);
+      window.removeEventListener("apc-admin-live-event", handleAdminLiveEvent);
     };
   }, [range, startDate, endDate]);
 
@@ -223,12 +303,26 @@ export default function DashboardPage() {
   };
 
   function printDashboardReport() {
-    const reportWindow = window.open(
-      "",
-      "_blank",
-      `popup=yes,width=${window.screen.availWidth},height=${window.screen.availHeight},left=0,top=0`,
-    );
-    if (!reportWindow) return;
+    const printFrame = document.createElement("iframe");
+    printFrame.setAttribute("aria-hidden", "true");
+    printFrame.title = "Dashboard performance report print preview";
+    printFrame.style.position = "fixed";
+    printFrame.style.left = "0";
+    printFrame.style.top = "0";
+    printFrame.style.width = "100vw";
+    printFrame.style.height = "100vh";
+    printFrame.style.border = "0";
+    printFrame.style.opacity = "0";
+    printFrame.style.pointerEvents = "none";
+    printFrame.style.zIndex = "-1";
+    document.body.appendChild(printFrame);
+
+    const printDocument = printFrame.contentDocument;
+    const printWindow = printFrame.contentWindow;
+    if (!printDocument || !printWindow) {
+      printFrame.remove();
+      return;
+    }
 
     const escapeHtml = (value: unknown) =>
       String(value ?? "")
@@ -249,17 +343,17 @@ export default function DashboardPage() {
       hour: "2-digit",
       minute: "2-digit",
     });
-    const logoUrl = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+    const logoUrl = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png";
 
-    const categoryRows =
-      stats.salesByCategory.length > 0
-        ? stats.salesByCategory
+    const channelRows =
+      stats.channelComparison.length > 0
+        ? stats.channelComparison
             .map(
-              (category) =>
-                `<tr><td>${escapeHtml(category.name)}</td><td>${escapeHtml(category.quantity)}</td><td>${formatReportCurrency(category.revenue)}</td></tr>`
+              (channel) =>
+                `<tr><td>${escapeHtml(channel.name)}</td><td>${escapeHtml(channel.orders)}</td><td>${formatReportCurrency(channel.revenue)}</td></tr>`
             )
             .join("")
-        : `<tr><td colspan="3">No category sales in this period.</td></tr>`;
+        : `<tr><td colspan="3">No completed channel sales in this period.</td></tr>`;
 
     const productRows =
       stats.topProducts.length > 0
@@ -285,7 +379,7 @@ export default function DashboardPage() {
             .join("")
         : `<tr><td colspan="3">No low-stock items.</td></tr>`;
 
-    reportWindow.document.write(`
+    printDocument.write(`
       <!doctype html>
       <html><head><title>Dashboard Performance Report - Apayao Pasalubong Center</title>
       <style>
@@ -312,7 +406,11 @@ export default function DashboardPage() {
         th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
         th { background: #f1f5f9; font-size: 11px; text-transform: uppercase; font-weight: 600; color: #475569; }
         td:nth-child(n+2), th:nth-child(n+2) { text-align: right; }
-        @media print { .report-header, .summary, thead, tr { break-inside: avoid; } }
+        @media screen { body { visibility: hidden; } }
+        @media print {
+          body { visibility: visible; }
+          .report-header, .summary, thead, tr { break-inside: avoid; }
+        }
       </style></head><body>
         <header class="report-header">
           <div class="brand-lockup">
@@ -335,14 +433,15 @@ export default function DashboardPage() {
         </div>
         <div class="summary">
           <div class="metric"><div class="metric-label">Revenue</div><div class="metric-value">${formatReportCurrency(stats.revenue)}</div></div>
+          <div class="metric"><div class="metric-label">Gross Profit (current costs)</div><div class="metric-value">${formatReportCurrency(stats.grossProfit)}</div></div>
           <div class="metric"><div class="metric-label">Orders</div><div class="metric-value">${escapeHtml(stats.orders)}</div></div>
           <div class="metric"><div class="metric-label">Completed Orders</div><div class="metric-value">${escapeHtml(stats.completedOrders)}</div></div>
           <div class="metric"><div class="metric-label">Active Products</div><div class="metric-value">${escapeHtml(stats.products)}</div></div>
           <div class="metric"><div class="metric-label">Inventory Cost</div><div class="metric-value">${formatReportCurrency(stats.totalCost)}</div></div>
           <div class="metric"><div class="metric-label">Inventory Price</div><div class="metric-value">${formatReportCurrency(stats.totalPrice)}</div></div>
         </div>
-        <h2>Sales by Category</h2>
-        <table><thead><tr><th>Category</th><th>Units Sold</th><th>Revenue</th></tr></thead><tbody>${categoryRows}</tbody></table>
+        <h2>Sales Channels</h2>
+        <table><thead><tr><th>Channel</th><th>Completed Orders</th><th>Revenue</th></tr></thead><tbody>${channelRows}</tbody></table>
         <h2>Top Selling Products</h2>
         <table><thead><tr><th>#</th><th>Product</th><th>Category</th><th>Sold</th><th>Revenue</th></tr></thead><tbody>${productRows}</tbody></table>
         <h2>Low Stock Alerts</h2>
@@ -355,17 +454,31 @@ export default function DashboardPage() {
         </tbody></table>
       </body></html>
     `);
-    reportWindow.document.close();
-    reportWindow.focus();
-    reportWindow.setTimeout(() => reportWindow.print(), 250);
+    printDocument.close();
+
+    let cleanupTimer: number | null = null;
+    const cleanupPrint = () => {
+      if (cleanupTimer !== null) window.clearTimeout(cleanupTimer);
+      printWindow.removeEventListener("afterprint", cleanupPrint);
+      printFrame.remove();
+    };
+
+    printWindow.addEventListener("afterprint", cleanupPrint, { once: true });
+    cleanupTimer = window.setTimeout(cleanupPrint, 120_000);
+    window.setTimeout(() => {
+      try {
+        printWindow.focus();
+        printWindow.print();
+      } catch {
+        cleanupPrint();
+      }
+    }, 250);
   }
 
   const outOfStockCount = stats.lowStock.filter((item) => item.stock <= 0).length;
   const criticalStockCount = stats.lowStock.filter(
     (item) => item.stock > 0 && (item.minStock <= 0 || item.stock / item.minStock <= 0.4)
   ).length;
-
-  const maxCategoryRevenue = Math.max(...stats.salesByCategory.map((item) => Number(item.revenue ?? 0)), 1);
 
   const presets = [
     { label: "Daily", value: "DAILY" as const, range: getRecentDateRange(1) },
@@ -376,6 +489,19 @@ export default function DashboardPage() {
 
   const totalPeriodRevenue = stats.revenue;
   const totalUnitsSold = stats.salesByCategory.reduce((sum, item) => sum + item.quantity, 0);
+  const posChannel = stats.channelComparison.find((channel) => channel.name.includes("POS")) ?? {
+    name: "POS (Walk-in)",
+    orders: 0,
+    revenue: 0,
+  };
+  const ecommerceChannel = stats.channelComparison.find((channel) => !channel.name.includes("POS")) ?? {
+    name: "Ecommerce",
+    orders: 0,
+    revenue: 0,
+  };
+  const totalChannelOrders = posChannel.orders + ecommerceChannel.orders;
+  const posOrderPercent = totalChannelOrders > 0 ? Math.round((posChannel.orders / totalChannelOrders) * 100) : 0;
+  const ecommerceOrderPercent = totalChannelOrders > 0 ? 100 - posOrderPercent : 0;
 
   function handleCustomDateChange(nextStartDate: string, nextEndDate: string) {
     const safeStart = nextStartDate || formatDateInput(new Date());
@@ -396,27 +522,24 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="w-full min-w-0 space-y-6 text-slate-800 dark:text-slate-100">
+    <div className="mx-auto w-full max-w-[1600px] min-w-0 space-y-7 px-1 py-3 text-slate-800 dark:text-slate-100">
       {/* 1. Page Header & Date Range Controls */}
-      <section className="flex flex-col gap-4 border-b border-slate-200/80 pb-5 dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
+      <section className="flex flex-col gap-5 border-b-2 border-slate-200 pb-5 dark:border-slate-800 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Dashboard
-            </h1>
-            <div className="hidden h-5 w-px bg-slate-200 dark:bg-slate-700 sm:block" />
-            <span className="text-base font-semibold text-slate-600 dark:text-slate-300 sm:text-lg md:text-xl">
-              Welcome back, {userName}
-            </span>
-          </div>
+          <h1 className="text-3xl font-semibold tracking-tight text-slate-950 dark:text-white">
+            Dashboard
+          </h1>
+          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+            Welcome back, <span className="font-semibold text-slate-800 dark:text-slate-200">{userName}</span>
+          </p>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            Overview of store sales, stock levels, and order fulfillment.
+            A quick look at store performance
           </p>
         </div>
 
         <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end lg:w-auto">
           {/* Presets Segmented Bar */}
-          <div className="inline-flex max-w-full shrink-0 overflow-x-auto rounded-lg border border-slate-200 bg-slate-50 p-1 shadow-xs dark:border-slate-700 dark:bg-slate-900">
+          <div className="inline-flex max-w-full shrink-0 overflow-x-auto rounded-md border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
             {presets.map((preset) => {
               const isActive = range === preset.value;
               return (
@@ -428,9 +551,9 @@ export default function DashboardPage() {
                     setEndDate(preset.range.end);
                     setRange(preset.value);
                   }}
-                  className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                  className={`rounded px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 ${
                     isActive
-                      ? "bg-white text-slate-950 shadow-xs dark:bg-slate-800 dark:text-white"
+                      ? "bg-emerald-700 text-white dark:bg-emerald-500 dark:text-slate-950"
                       : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200"
                   }`}
                 >
@@ -441,10 +564,10 @@ export default function DashboardPage() {
           </div>
 
           {/* Custom Date Inputs */}
-          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 shadow-xs dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 sm:w-auto sm:flex-nowrap sm:gap-1.5 sm:py-1">
+          <div className="flex w-full min-w-0 flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs font-medium text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 sm:w-auto sm:flex-nowrap sm:gap-1.5 sm:py-1.5">
             <Calendar className="hidden h-3.5 w-3.5 shrink-0 text-slate-500 sm:block" />
             <label className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-1">
-              <span className="text-[10px] uppercase text-slate-500">From</span>
+              <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">From</span>
               <input
                 ref={startDateInputRef}
                 type="date"
@@ -453,12 +576,12 @@ export default function DashboardPage() {
                 onChange={(e) => {
                   handleCustomDateChange(e.target.value, endDate);
                 }}
-                className="w-full min-w-0 bg-transparent text-xs font-semibold outline-hidden sm:w-auto"
+                className="w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold outline-none ring-0 transition focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-900 sm:w-auto"
               />
             </label>
             <span className="hidden text-slate-400 dark:text-slate-500 sm:block">-</span>
             <label className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:gap-1">
-              <span className="text-[10px] uppercase text-slate-500">To</span>
+              <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">To</span>
               <input
                 ref={endDateInputRef}
                 type="date"
@@ -468,7 +591,7 @@ export default function DashboardPage() {
                 onChange={(e) => {
                   handleCustomDateChange(startDate, e.target.value);
                 }}
-                className="w-full min-w-0 bg-transparent text-xs font-semibold outline-hidden sm:w-auto"
+                className="w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold outline-none transition focus:border-emerald-500 dark:border-slate-700 dark:bg-slate-900 sm:w-auto"
               />
             </label>
           </div>
@@ -477,7 +600,7 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={printDashboardReport}
-            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-xs transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
+            className="inline-flex min-h-10 shrink-0 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 dark:hover:bg-slate-800"
             title="Print printable dashboard report"
           >
             <Printer className="h-3.5 w-3.5 text-slate-500" />
@@ -485,13 +608,22 @@ export default function DashboardPage() {
           </button>
 
           {/* Live Status Indicator */}
-          <div className="flex min-h-10 min-w-32 shrink-0 items-center justify-end gap-1.5 px-1 text-right text-xs text-slate-600 dark:text-slate-300">
+          <div
+            className="flex min-h-10 min-w-32 shrink-0 items-center justify-end gap-2 px-1 text-right text-xs text-slate-600 dark:text-slate-300"
+            role="status"
+            aria-live="polite"
+          >
+            {isRefreshing && (
+              <RefreshCw className="h-3.5 w-3.5 shrink-0 animate-spin text-amber-500" />
+            )}
             <span
-              className={`h-2 w-2 shrink-0 rounded-full ${isLoading ? "animate-pulse bg-amber-500" : "bg-emerald-500"}`}
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${isLoading || isRefreshing ? "animate-pulse bg-amber-500" : "bg-emerald-500"}`}
             />
             <span className="whitespace-nowrap">
               {isLoading
-                ? "Syncing..."
+                ? "Loading dashboard..."
+                : isRefreshing
+                ? "Updating dashboard..."
                 : lastUpdated
                 ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
                 : "Live"}
@@ -500,59 +632,76 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {/* 2. Primary KPI Metric Cards (Standard 4-Card Grid) */}
+      {/* 2. Dashboard KPI Metrics */}
       {isLoading ? (
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div key={`dashboard-kpi-skeleton-${index}`} className="animate-pulse rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <section
+          aria-label="Loading dashboard metrics"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:auto-rows-[minmax(7.5rem,1fr)] lg:grid-cols-4 xl:gap-5"
+        >
+          {Array.from({ length: 5 }).map((_, index) => (
+            <div
+              key={`dashboard-kpi-skeleton-${index}`}
+              className={`animate-pulse flex flex-col rounded-md border border-slate-200 border-t-4 border-t-slate-300 bg-white dark:border-slate-800 dark:border-t-slate-700 dark:bg-slate-900 ${
+                index === 0
+                  ? "min-h-68 p-6 sm:col-span-2 lg:col-span-2 lg:row-span-2"
+                  : "min-h-40 p-3 lg:min-h-0"
+              }`}
+            >
               <div className="flex items-center justify-between">
-                <div className="h-3 w-20 rounded bg-slate-200 dark:bg-slate-700" />
-                <div className="h-8 w-8 rounded-md bg-slate-200 dark:bg-slate-700" />
+                <div className="h-4 w-28 rounded bg-slate-200 dark:bg-slate-700" />
+                <div className="h-10 w-10 rounded-md bg-slate-200 dark:bg-slate-700" />
               </div>
               <div className="mt-3 space-y-2">
-                <div className="h-8 w-24 rounded bg-slate-200 dark:bg-slate-700" />
-                <div className="h-3 w-32 rounded bg-slate-200 dark:bg-slate-700" />
+                <div className="h-10 w-36 rounded bg-slate-200 dark:bg-slate-700" />
+                <div className="h-4 w-48 rounded bg-slate-200 dark:bg-slate-700" />
               </div>
             </div>
           ))}
         </section>
       ) : (
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:gap-4">
-          {/* Card 1: Revenue */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+        <section
+          aria-label="Dashboard metrics"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:auto-rows-[minmax(7.5rem,1fr)] lg:grid-cols-4 xl:gap-5"
+        >
+          <div className="flex min-h-68 flex-col rounded-md border border-emerald-200 border-t-4 border-t-emerald-600 bg-emerald-50/50 p-6 dark:border-emerald-900 dark:border-t-emerald-500 dark:bg-slate-900 sm:col-span-2 lg:col-span-2 lg:row-span-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span className="text-lg font-semibold text-slate-700 dark:text-slate-200">
                 {range === "DAILY" ? "Today's Revenue" : "Total Revenue"}
               </span>
-              <div className="rounded-md bg-emerald-50 p-2 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400">
-                <TrendingUp className="h-4 w-4" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-md bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+                <TrendingUp className="h-6 w-6" />
               </div>
             </div>
-            <div className="mt-3">
-              <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <div className="mt-8">
+              <p className="text-5xl font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {formatCurrency(totalPeriodRevenue)}
               </p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
                 {stats.completedOrders} completed sales in selected period
+              </p>
+              <p className={`mt-4 text-sm font-medium ${stats.grossProfit < 0 ? "text-rose-700 dark:text-rose-300" : "text-emerald-800 dark:text-emerald-300"}`}>
+                Gross profit: {formatCurrency(stats.grossProfit)}
+              </p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                Completed orders, using current item costs
               </p>
             </div>
           </div>
 
-          {/* Card 2: Orders */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-sky-500 bg-white p-3 dark:border-slate-800 dark:border-t-sky-400 dark:bg-slate-900 lg:min-h-0">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">
                 Orders
               </span>
-              <div className="rounded-md bg-blue-50 p-2 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
-                <Receipt className="h-4 w-4" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300">
+                <Receipt className="h-5 w-5" />
               </div>
             </div>
-            <div className="mt-3">
-              <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <div className="mt-auto pt-3">
+              <p className="text-3xl leading-8 font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.orders}
               </p>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
                 <span className="font-semibold text-amber-600 dark:text-amber-400">{todayStats.pendingOrders} pending</span>
                 <span>·</span>
                 <span>{todayStats.completedOrders} completed today</span>
@@ -560,25 +709,24 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card 3: Low Stock Alerts */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className={`flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 bg-white p-3 dark:border-slate-800 dark:bg-slate-900 lg:min-h-0 ${stats.lowStock.length > 0 ? "border-t-rose-500 dark:border-t-rose-400" : "border-t-slate-300 dark:border-t-slate-700"}`}>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">
                 Low Stock Alerts
               </span>
-              <div className={`rounded-md p-2 ${
+              <div className={`flex h-10 w-10 items-center justify-center rounded-md ${
                 stats.lowStock.length > 0
-                  ? "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400"
+                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
                   : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
               }`}>
-                <AlertTriangle className="h-4 w-4" />
+                <AlertTriangle className="h-5 w-5" />
               </div>
             </div>
-            <div className="mt-3">
-              <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <div className="mt-auto pt-3">
+              <p className="text-3xl leading-8 font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.lowStock.length}
               </p>
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
                 <span className="font-semibold text-rose-600 dark:text-rose-400">{outOfStockCount} out of stock</span>
                 <span>·</span>
                 <span>{criticalStockCount} critical</span>
@@ -586,150 +734,56 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Card 4: Total Products */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-amber-500 bg-white p-3 dark:border-slate-800 dark:border-t-amber-400 dark:bg-slate-900 lg:min-h-0">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+              <span className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">
                 Total Products
               </span>
-              <div className="rounded-md bg-sky-50 p-2 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
-                <Package className="h-4 w-4" />
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                <Package className="h-5 w-5" />
               </div>
             </div>
-            <div className="mt-3">
-              <p className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+            <div className="mt-auto pt-3">
+              <p className="text-3xl leading-8 font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
                 {stats.products}
               </p>
-              <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
-                Valuation: <span className="font-semibold text-slate-700 dark:text-slate-300">{formatCurrency(stats.totalCost)}</span> cost
+              <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">
+                Products in catalog
               </p>
             </div>
+          </div>
+
+          <div className="flex min-h-40 flex-col rounded-md border border-slate-200 border-t-4 border-t-indigo-500 bg-white p-3 dark:border-slate-800 dark:border-t-indigo-400 dark:bg-slate-900 lg:min-h-0">
+            <div className="flex items-center justify-between">
+              <span className="text-[13px] font-semibold text-slate-600 dark:text-slate-300">Total Units Sold</span>
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+                <Receipt className="h-5 w-5" />
+              </div>
+            </div>
+            <p className="mt-auto pt-1.5 text-3xl leading-8 font-semibold tabular-nums tracking-tight text-slate-950 dark:text-white">
+              {totalUnitsSold.toLocaleString()}
+            </p>
           </div>
         </section>
       )}
 
-      {/* Supporting Inventory Valuation & Customer Overview Bar */}
-      <section className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg border border-slate-200 bg-white p-4 sm:grid-cols-4 dark:border-slate-800 dark:bg-slate-900">
-        <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Total Inventory Cost
-          </span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-            {formatCurrency(stats.totalCost)}
-          </p>
-        </div>
-        <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Total Retail Value
-          </span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-            {formatCurrency(stats.totalPrice)}
-          </p>
-        </div>
-        <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Active Customers
-          </span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-            {stats.customers}
-          </p>
-        </div>
-        <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-            Total Units Sold
-          </span>
-          <p className="mt-0.5 text-sm font-bold text-slate-900 dark:text-white">
-            {totalUnitsSold.toLocaleString()}
-          </p>
-        </div>
-      </section>
-
       {/* 3. Analytics & Operations Section (Main Balanced Multi-Column Layout) */}
-      <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-12 xl:gap-6">
-        {/* Left Column (8 cols): Primary Revenue Trend Chart & Top Products Table */}
-        <div className="min-w-0 space-y-4 xl:col-span-8 xl:space-y-6">
-          {/* Main Visual Element: Sales & Revenue Trend */}
-          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-4 flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                  Revenue Overview
-                </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Daily revenue trend across {formatDateDisplay(startDate)} to {formatDateDisplay(endDate)}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500 dark:text-slate-400">Period Total:</span>
-                <span className="rounded-md bg-emerald-50 px-2.5 py-1 text-xs font-bold text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-                  {formatCurrency(stats.revenue)}
-                </span>
-              </div>
-            </div>
-
-            <div className="h-60 w-full sm:h-72">
-              {isMounted && stats.revenueTrend.length > 0 && stats.revenue > 0 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart
-                    data={stats.revenueTrend}
-                    margin={{ top: 10, right: 10, left: -10, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#059669" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="#059669" stopOpacity={0.0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#94a3b8" strokeOpacity={0.28} />
-                    <XAxis
-                      dataKey="label"
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 11, fill: "#64748b" }}
-                      interval="preserveStartEnd"
-                    />
-                    <YAxis
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fontSize: 11, fill: "#64748b" }}
-                      tickFormatter={(val: number) =>
-                        val >= 1000 ? `₱${(val / 1000).toFixed(0)}k` : `₱${val}`
-                      }
-                    />
-                    <Tooltip content={<ChartTooltip />} />
-                    <Area
-                      type="monotone"
-                      dataKey="revenue"
-                      stroke="#059669"
-                      strokeWidth={2}
-                      fillOpacity={1}
-                      fill="url(#revenueGradient)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex h-full flex-col items-center justify-center rounded-md border border-dashed border-slate-200 text-center text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-                  <TrendingUp className="mb-2 h-7 w-7 text-slate-300 dark:text-slate-600" />
-                  <span>No completed sales transactions recorded for this period.</span>
-                </div>
-              )}
-            </div>
-          </div>
-
+      <div className="space-y-4 xl:space-y-5">
+        <div className="grid min-w-0 grid-cols-1 items-stretch gap-4 xl:grid-cols-12 xl:gap-5">
           {/* Top Selling Products Table */}
-          <div className="min-w-0 rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+          <div className="min-w-0 rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900 xl:col-span-8">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                   Top Selling Products
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   Leading products ranked by sales volume and revenue
                 </p>
               </div>
               <Link
                 href="/reports"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 <span>Full report</span>
                 <ArrowRight className="h-3 w-3" />
@@ -739,64 +793,69 @@ export default function DashboardPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-152 text-left text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-[10px] font-semibold uppercase tracking-wider text-slate-400 dark:border-slate-800 dark:text-slate-500">
-                    <th className="py-2.5 pl-1 pr-3 w-8">#</th>
+                  <tr className="border-b-2 border-slate-200 text-[11px] font-semibold text-slate-500 dark:border-slate-800 dark:text-slate-400">
+                    <th className="w-10 py-2.5 pl-1 pr-3">#</th>
                     <th className="py-2.5 px-3">Product</th>
-                    <th className="py-2.5 px-3">Category</th>
-                    <th className="py-2.5 px-3 text-right">Units Sold</th>
-                    <th className="py-2.5 pl-3 pr-1 text-right">Revenue</th>
+                    <th className="w-36 py-2.5 px-3">Category</th>
+                    <th className="w-28 py-2.5 px-3 text-right">Units Sold</th>
+                    <th className="w-32 py-2.5 pl-3 pr-1 text-right">Revenue</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                   {stats.topProducts.length > 0 ? (
                     stats.topProducts.map((product, index) => (
-                      <tr key={product.productId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
-                        <td className="py-3 pl-1 pr-3 text-slate-400 font-semibold">{index + 1}</td>
-                        <td className="py-3 px-3">
+                      <tr key={product.productId} className="h-14 transition-colors hover:bg-emerald-50/60 dark:hover:bg-emerald-950/20">
+                        <td className="py-2.5 pl-1 pr-3 font-semibold text-slate-400">{index + 1}</td>
+                        <td className="py-2.5 px-3">
                           <div className="flex items-center gap-2.5">
-                            <div className="h-8 w-8 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
+                            <div className="h-9 w-9 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800">
                               {product.imageUrl ? (
                                 <Image
                                   src={getPrimaryImageUrl(product.imageUrl) ?? "/logo/apc-logo.png"}
                                   alt={product.name}
-                                  width={32}
-                                  height={32}
+                                  width={36}
+                                  height={36}
                                   className="h-full w-full object-cover"
                                   unoptimized
                                 />
                               ) : (
                                 <div className="flex h-full w-full items-center justify-center text-slate-400">
-                                  <Package className="h-3.5 w-3.5" />
+                                  <Package className="h-4 w-4" />
                                 </div>
                               )}
                             </div>
-                            <div className="min-w-0">
-                              <span className="block truncate font-semibold text-slate-900 dark:text-slate-100">
-                                {product.name}
-                              </span>
-                              <span className="block text-[11px] text-slate-400">
-                                {product.categoryName ?? "Uncategorized"}
-                              </span>
-                            </div>
+                            <span className="block min-w-0 truncate font-semibold text-slate-900 dark:text-slate-100">
+                              {product.name}
+                            </span>
                           </div>
                         </td>
-                        <td className="py-3 px-3 text-slate-600 dark:text-slate-400">
-                          <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                        <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">
+                          <span className="inline-flex max-w-full truncate rounded-md bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                             {product.categoryName ?? "Uncategorized"}
                           </span>
                         </td>
-                        <td className="py-3 px-3 text-right font-medium text-slate-700 dark:text-slate-300">
+                        <td className="py-2.5 px-3 text-right font-medium tabular-nums text-slate-700 dark:text-slate-300">
                           {product.quantity.toLocaleString()}
                         </td>
-                        <td className="py-3 pl-3 pr-1 text-right font-bold text-slate-900 dark:text-slate-100">
+                        <td className="py-2.5 pl-3 pr-1 text-right font-semibold tabular-nums text-slate-900 dark:text-slate-100">
                           ₱{Number(product.revenue ?? 0).toLocaleString()}
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-slate-400">
-                        No product sales recorded in this period.
+                      <td colSpan={5} className="py-8">
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-md bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
+                            <Package className="h-5 w-5" />
+                          </div>
+                          <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                            No product sales recorded
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Try a different date range to view product performance.
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -805,92 +864,99 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Sales by Category Contribution */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-4 flex items-center justify-between">
+          {/* Sales Channels */}
+          <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900 xl:col-span-4">
+            <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
-                  Sales by Category
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
+                  Sales Channels
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Revenue distribution across product categories
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Completed orders by sales channel
                 </p>
               </div>
               <Link
                 href="/analytics"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
               >
                 <span>Analytics</span>
                 <ArrowRight className="h-3 w-3" />
               </Link>
             </div>
 
-            <div className="space-y-3.5">
-              {stats.salesByCategory.length > 0 ? (
-                stats.salesByCategory.slice(0, 5).map((category) => {
-                  const percentOfTotal = totalPeriodRevenue > 0
-                    ? ((category.revenue / totalPeriodRevenue) * 100).toFixed(1)
-                    : "0";
-                  const barWidth = Math.max((category.revenue / maxCategoryRevenue) * 100, 2);
+            <div
+              className="mb-4 flex h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800"
+              aria-label={`${posOrderPercent}% POS, ${ecommerceOrderPercent}% Ecommerce`}
+              role="img"
+            >
+              <div className="bg-emerald-600 transition-[width] dark:bg-emerald-400" style={{ width: `${posOrderPercent}%` }} />
+              <div className="bg-indigo-500 transition-[width] dark:bg-indigo-400" style={{ width: `${ecommerceOrderPercent}%` }} />
+            </div>
 
-                  return (
-                    <div key={category.name} className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          {category.name}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                            {category.quantity} units ({percentOfTotal}%)
-                          </span>
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            {formatCurrency(category.revenue)}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                        <div
-                          className="h-full rounded-full bg-slate-900 transition-all dark:bg-emerald-500"
-                          style={{ width: `${barWidth}%` }}
-                        />
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="py-6 text-center text-xs text-slate-400">
-                  No category sales recorded yet.
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              <div className="rounded-md border border-emerald-200/80 bg-emerald-50/60 p-3.5 dark:border-emerald-900/70 dark:bg-emerald-950/20">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    <Store className="h-4 w-4 text-emerald-700 dark:text-emerald-400" />
+                    POS Walk-in
+                  </span>
+                  <span className="text-xs font-bold tabular-nums text-emerald-800 dark:text-emerald-300">
+                    {posOrderPercent}%
+                  </span>
                 </div>
-              )}
+                <p className="mt-2 text-lg font-semibold tabular-nums text-slate-950 dark:text-white">
+                  {formatCurrency(posChannel.revenue)}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {posChannel.orders.toLocaleString()} completed orders
+                </p>
+              </div>
+
+              <div className="rounded-md border border-indigo-200/80 bg-indigo-50/60 p-3.5 dark:border-indigo-900/70 dark:bg-indigo-950/20">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                    <Globe className="h-4 w-4 text-indigo-700 dark:text-indigo-400" />
+                    Ecommerce
+                  </span>
+                  <span className="text-xs font-bold tabular-nums text-indigo-800 dark:text-indigo-300">
+                    {ecommerceOrderPercent}%
+                  </span>
+                </div>
+                <p className="mt-2 text-lg font-semibold tabular-nums text-slate-950 dark:text-white">
+                  {formatCurrency(ecommerceChannel.revenue)}
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {ecommerceChannel.orders.toLocaleString()} completed orders
+                </p>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Right Column (4 cols): Operations & Actions */}
-        <div className="min-w-0 space-y-4 xl:col-span-4 xl:space-y-6">
+        <div className="grid min-w-0 grid-cols-1 items-stretch gap-4 md:grid-cols-2 xl:grid-cols-3 xl:gap-5">
           {/* Today's Operational Pulse */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex h-full flex-col rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
             <div className="mb-4">
-              <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+              <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                 Today&apos;s Overview
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 Order fulfillment status for today
               </p>
             </div>
 
-            <div className="space-y-2.5">
+            <div className="space-y-2">
               <Link
                 href="/admin-orders?status=PENDING"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 p-3 transition hover:border-amber-300 hover:bg-amber-50/40 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-amber-700/50"
+                className="group flex min-h-17 items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-amber-300 hover:bg-amber-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-amber-700/60 dark:hover:bg-amber-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400">
                     <Clock className="h-3.5 w-3.5" />
                   </div>
                   <div>
-                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Pending Orders</span>
-                    <p className="text-[11px] text-slate-500">Requires processing</p>
+                    <span className="text-xs font-semibold text-slate-800 transition-colors group-hover:text-amber-900 dark:text-slate-200 dark:group-hover:text-amber-100">Pending Orders</span>
+                    <p className="text-[11px] text-slate-500 transition-colors group-hover:text-amber-800 dark:text-slate-400 dark:group-hover:text-amber-200">Requires processing</p>
                   </div>
                 </div>
                 <span className="text-lg font-bold text-amber-600 dark:text-amber-400">
@@ -900,15 +966,15 @@ export default function DashboardPage() {
 
               <Link
                 href="/admin-orders?status=COMPLETED"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 p-3 transition hover:border-emerald-300 hover:bg-emerald-50/40 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-emerald-700/50"
+                className="group flex min-h-17 items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-emerald-300 hover:bg-emerald-50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-emerald-700/60 dark:hover:bg-emerald-950/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                   </div>
                   <div>
-                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Completed Orders</span>
-                    <p className="text-[11px] text-slate-500">Fulfilled today</p>
+                    <span className="text-xs font-semibold text-slate-800 transition-colors group-hover:text-emerald-900 dark:text-slate-200 dark:group-hover:text-emerald-100">Completed Orders</span>
+                    <p className="text-[11px] text-slate-500 transition-colors group-hover:text-emerald-800 dark:text-slate-400 dark:group-hover:text-emerald-200">Fulfilled today</p>
                   </div>
                 </div>
                 <span className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
@@ -918,15 +984,15 @@ export default function DashboardPage() {
 
               <Link
                 href="/admin-orders?status=CANCELLED"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 p-3 transition hover:border-slate-300 hover:bg-slate-100/50 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-slate-700"
+                className="group flex min-h-17 items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 p-3 transition-colors hover:border-slate-300 hover:bg-slate-100 dark:border-slate-800 dark:bg-slate-800/40 dark:hover:border-slate-600 dark:hover:bg-slate-700/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-500"
               >
                 <div className="flex items-center gap-2.5">
                   <div className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-200 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                     <XCircle className="h-3.5 w-3.5" />
                   </div>
                   <div>
-                    <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">Cancelled Orders</span>
-                    <p className="text-[11px] text-slate-500">Voided today</p>
+                    <span className="text-xs font-semibold text-slate-800 transition-colors group-hover:text-slate-950 dark:text-slate-200 dark:group-hover:text-white">Cancelled Orders</span>
+                    <p className="text-[11px] text-slate-500 transition-colors group-hover:text-slate-700 dark:text-slate-400 dark:group-hover:text-slate-200">Voided today</p>
                   </div>
                 </div>
                 <span className="text-lg font-bold text-slate-600 dark:text-slate-400">
@@ -937,13 +1003,13 @@ export default function DashboardPage() {
           </div>
 
           {/* Low Stock Attention List */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-3 flex items-center justify-between">
+          <div className="flex h-full flex-col rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-4 flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+                <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                   Low Stock Items
                 </h2>
-                <p className="text-xs text-slate-500 dark:text-slate-400">
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                   Items currently at or below minimum threshold
                 </p>
               </div>
@@ -957,7 +1023,7 @@ export default function DashboardPage() {
             </div>
 
             {/* Scrollable Low Stock List */}
-            <div className="divide-y divide-slate-100 overflow-hidden border-t border-slate-100 dark:divide-slate-800 dark:border-slate-800">
+            <div className="flex-1 divide-y divide-slate-100 overflow-hidden border-t border-slate-100 dark:divide-slate-800 dark:border-slate-800">
               {stats.lowStock.length > 0 ? (
                 stats.lowStock.slice(0, 7).map((item) => {
                   const ratio = item.minStock > 0 ? item.stock / item.minStock : 0;
@@ -967,7 +1033,7 @@ export default function DashboardPage() {
                   return (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between py-2.5 text-xs"
+                      className="flex items-center justify-between py-3 text-xs"
                     >
                       <div className="min-w-0 pr-2">
                         <span className="block truncate font-semibold text-slate-800 dark:text-slate-200">
@@ -1002,12 +1068,12 @@ export default function DashboardPage() {
           </div>
 
           {/* Quick Store Actions */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
-            <div className="mb-3">
-              <h2 className="text-base font-semibold text-slate-900 dark:text-white">
+          <div className="flex h-full flex-col rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900">
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-slate-950 dark:text-white">
                 Quick Actions
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
                 Common management shortcuts
               </p>
             </div>
@@ -1015,7 +1081,7 @@ export default function DashboardPage() {
             <div className="space-y-2">
               <Link
                 href="/inventory?view=add"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
+                className="flex min-h-11 items-center justify-between rounded-md border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <div className="flex items-center gap-2">
                   <Plus className="h-3.5 w-3.5 text-slate-500" />
@@ -1026,7 +1092,7 @@ export default function DashboardPage() {
 
               <Link
                 href="/admin-orders"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
+                className="flex min-h-11 items-center justify-between rounded-md border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <div className="flex items-center gap-2">
                   <Receipt className="h-3.5 w-3.5 text-slate-500" />
@@ -1037,7 +1103,7 @@ export default function DashboardPage() {
 
               <Link
                 href="/reports"
-                className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
+                className="flex min-h-11 items-center justify-between rounded-md border border-slate-200/80 bg-slate-50/50 px-3.5 py-2.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-200 dark:hover:bg-slate-800 dark:hover:text-white"
               >
                 <div className="flex items-center gap-2">
                   <Warehouse className="h-3.5 w-3.5 text-slate-500" />
@@ -1048,6 +1114,93 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        <section
+          aria-labelledby="system-status-heading"
+          className="rounded-md border border-slate-200 bg-white p-4 sm:p-5 dark:border-slate-800 dark:bg-slate-900"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <Activity className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 id="system-status-heading" className="text-lg font-semibold text-slate-950 dark:text-white">
+                  System Status
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Checks for services used by the store and admin portal
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-3 sm:justify-end">
+              <span className="text-xs text-slate-500 dark:text-slate-400">
+                {systemStatus?.checkedAt
+                  ? `Last checked ${new Date(systemStatus.checkedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  : isSystemStatusLoading
+                    ? "Checking services…"
+                    : "Status not available"}
+              </span>
+              <button
+                type="button"
+                onClick={() => void refreshSystemStatus()}
+                disabled={isSystemStatusLoading}
+                aria-label="Refresh system status"
+                title="Refresh system status"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 text-slate-600 transition hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+              >
+                <RefreshCw className={`h-4 w-4 ${isSystemStatusLoading ? "animate-spin" : ""}`} />
+              </button>
+            </div>
+          </div>
+
+          {systemStatusLoadError && systemStatus ? (
+            <p role="status" className="mt-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              Refresh failed. Showing the last successful check.
+            </p>
+          ) : null}
+
+          {systemStatus ? (
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {SYSTEM_STATUS_ITEMS.map(({ key, label, icon: Icon }) => {
+                const check = systemStatus.checks[key];
+
+                return (
+                  <div key={key} className="rounded-md border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-800/40">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Icon className="h-4 w-4 shrink-0 text-slate-500 dark:text-slate-400" />
+                        <h3 className="truncate text-sm font-semibold text-slate-800 dark:text-slate-200">{label}</h3>
+                      </div>
+                      <span className={`shrink-0 rounded px-2 py-1 text-[10px] font-bold ${SYSTEM_STATUS_CLASSES[check.status]}`}>
+                        {check.label}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-xs leading-5 text-slate-600 dark:text-slate-300">{check.detail}</p>
+                    <p className="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                      <span className="font-semibold text-slate-700 dark:text-slate-200">Next step: </span>
+                      {check.action}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p
+              role={systemStatusLoadError ? "alert" : "status"}
+              className={`mt-4 rounded-md px-3 py-3 text-sm ${
+                systemStatusLoadError
+                  ? "bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300"
+                  : "bg-slate-50 text-slate-600 dark:bg-slate-800/50 dark:text-slate-300"
+              }`}
+            >
+              {systemStatusLoadError
+                ? "Could not load system status. Refresh and check that your admin session is active."
+                : "Checking database, storage, Redis, and email setup…"}
+            </p>
+          )}
+        </section>
       </div>
     </div>
   );

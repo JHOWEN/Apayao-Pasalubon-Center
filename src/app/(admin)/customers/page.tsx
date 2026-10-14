@@ -1,4 +1,5 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 import { AdminToast } from "@/components/admin/admin-toast";
 
 import {
@@ -8,8 +9,6 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  Clock,
-  CreditCard,
   Eye,
   Mail,
   MapPin,
@@ -29,8 +28,8 @@ import {
   ADMIN_MODAL_BACKDROP_CLASS,
   ADMIN_MODAL_PANEL_CLASS,
 } from "@/utils/admin-modal";
-import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import Image from "@/components/safe-image";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 export type CustomerRow = {
   id: string;
@@ -51,11 +50,12 @@ export type CustomerRow = {
   hasOrders: boolean;
 };
 
-type FilterKey = "all" | "verified" | "blocked" | "withOrders";
+type FilterKey = "all" | "registered" | "blocked" | "withOrders";
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
@@ -64,6 +64,10 @@ export default function CustomersPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(15);
   const [jumpInput, setJumpInput] = useState("");
+  const [pagination, setPagination] = useState({ page: 1, limit: 15, totalCount: 0, totalPages: 1 });
+  const [summary, setSummary] = useState({ total: 0, registered: 0, blocked: 0, withOrders: 0 });
+  const customerRequestSequence = useRef(0);
+  const hasLoadedCustomers = useRef(false);
 
   // Modal states
   const [viewingCustomer, setViewingCustomer] = useState<CustomerRow | null>(null);
@@ -109,117 +113,102 @@ export default function CustomersPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [viewingCustomer, editingCustomer, blockingCustomer]);
 
-  async function loadCustomers() {
-    setLoading(true);
+  const loadCustomers = useCallback(async () => {
+    const requestSequence = ++customerRequestSequence.current;
+    const params = new URLSearchParams({ page: String(currentPage), limit: String(pageSize), filter });
+    if (debouncedSearchQuery) params.set("search", debouncedSearchQuery);
+
+    if (!hasLoadedCustomers.current) setLoading(true);
     try {
-      const response = await fetch("/api/admin/customers");
+      const response = await adminFetch(`/api/admin/customers?${params.toString()}`, { cache: "no-store" });
       const text = await response.text();
+      let data: {
+        customers?: unknown;
+        pagination?: { page: number; limit: number; totalCount: number; totalPages: number };
+        summary?: { total: number; registered: number; blocked: number; withOrders: number };
+        message?: string;
+      } = {};
+
+      try {
+        data = text ? JSON.parse(text) as typeof data : {};
+      } catch {
+        data = {};
+      }
 
       if (!response.ok) {
-        throw new Error(text || "Unable to load customers.");
+        throw new Error(data.message || text || "Unable to load customers.");
       }
 
-      let data: unknown = [];
-      try {
-        data = text ? JSON.parse(text) : [];
-      } catch {
-        data = [];
+      if (requestSequence !== customerRequestSequence.current) return;
+
+      const nextPagination = data.pagination ?? { page: 1, limit: pageSize, totalCount: 0, totalPages: 1 };
+      if (currentPage > nextPagination.totalPages) {
+        setCurrentPage(Math.max(1, nextPagination.totalPages));
+        return;
       }
 
-      const nextCustomers = Array.isArray(data) ? (data as CustomerRow[]) : [];
+      const nextCustomers = Array.isArray(data.customers) ? data.customers as CustomerRow[] : [];
       setCustomers(nextCustomers);
+      setPagination(nextPagination);
+      setSummary(data.summary ?? { total: 0, registered: 0, blocked: 0, withOrders: 0 });
       setApiError(null);
+      hasLoadedCustomers.current = true;
     } catch (error) {
-      console.error("Failed to load customers", error);
-      setCustomers([]);
-      setApiError(error instanceof Error ? error.message : "Unable to load customers.");
+      if (requestSequence === customerRequestSequence.current) {
+        console.error("Failed to load customers", error);
+        if (!hasLoadedCustomers.current) setCustomers([]);
+        setApiError(error instanceof Error ? error.message : "Unable to load customers.");
+      }
     } finally {
-      setLoading(false);
+      if (requestSequence === customerRequestSequence.current) setLoading(false);
     }
-  }
+  }, [currentPage, debouncedSearchQuery, filter, pageSize]);
 
   useEffect(() => {
-    let isMounted = true;
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+      setCurrentPage(1);
+    }, 250);
 
-    async function fetchInitial() {
-      try {
-        const response = await fetch("/api/admin/customers");
-        const text = await response.text();
+    return () => window.clearTimeout(timeoutId);
+  }, [searchQuery]);
 
-        if (!response.ok) {
-          throw new Error(text || "Unable to load customers.");
-        }
-
-        let data: unknown = [];
-        try {
-          data = text ? JSON.parse(text) : [];
-        } catch {
-          data = [];
-        }
-
-        if (isMounted) {
-          const nextCustomers = Array.isArray(data) ? (data as CustomerRow[]) : [];
-          setCustomers(nextCustomers);
-          setApiError(null);
-        }
-      } catch (error) {
-        if (isMounted) {
-          console.error("Failed to load customers", error);
-          setCustomers([]);
-          setApiError(error instanceof Error ? error.message : "Unable to load customers.");
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+  useEffect(() => {
+    const initialLoad = window.setTimeout(() => {
+      void loadCustomers();
+    }, 0);
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "customer-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        void loadCustomers();
       }
-    }
-
-    void fetchInitial();
-
-    return () => {
-      isMounted = false;
     };
-  }, []);
-
-  // Filtered dataset
-  const filteredCustomers = useMemo(() => {
-    return customers.filter((customer) => {
-      const safeQuery = searchQuery.trim().toLowerCase();
-      const queryMatch =
-        !safeQuery ||
-        [customer.name, customer.email, customer.phone ?? "", customer.address ?? ""]
-          .join(" ")
-          .toLowerCase()
-          .includes(safeQuery);
-
-      if (!queryMatch) return false;
-
-      if (filter === "verified") return customer.emailVerified && !customer.isBlocked;
-      if (filter === "blocked") return Boolean(customer.isBlocked);
-      if (filter === "withOrders") return customer.hasOrders;
-
-      return true;
-    });
-  }, [customers, searchQuery, filter]);
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.removeEventListener("apc-admin-live-event", handleLiveEvent);
+    };
+  }, [loadCustomers]);
 
   // Metric counts
-  const totalCount = customers.length;
-  const verifiedCount = useMemo(() => customers.filter((c) => c.emailVerified && !c.isBlocked).length, [customers]);
-  const blockedCount = useMemo(() => customers.filter((c) => c.isBlocked).length, [customers]);
-  const withOrdersCount = useMemo(() => customers.filter((c) => c.hasOrders).length, [customers]);
-  const totalRevenue = useMemo(() => customers.reduce((sum, c) => sum + (c.totalSpent || 0), 0), [customers]);
+  const totalCount = summary.total;
+  const registeredCount = summary.registered;
+  const blockedCount = summary.blocked;
+  const withOrdersCount = summary.withOrders;
 
   // Pagination calculations
-  const totalPages = Math.max(1, Math.ceil(filteredCustomers.length / pageSize));
+  const totalPages = Math.max(1, pagination.totalPages);
   const safeCurrentPage = Math.min(currentPage, totalPages);
   const startIndex = (safeCurrentPage - 1) * pageSize;
-  const paginatedCustomers = useMemo(() => {
-    return filteredCustomers.slice(startIndex, startIndex + pageSize);
-  }, [filteredCustomers, startIndex, pageSize]);
+  const paginatedCustomers = customers;
 
-  const startRecord = filteredCustomers.length === 0 ? 0 : startIndex + 1;
-  const endRecord = Math.min(startIndex + pageSize, filteredCustomers.length);
+  const startRecord = pagination.totalCount === 0 ? 0 : startIndex + 1;
+  const endRecord = Math.min(startIndex + customers.length, pagination.totalCount);
 
   function getPageNumbers() {
     if (totalPages <= 7) {
@@ -247,7 +236,6 @@ export default function CustomersPage() {
 
   function handleSearchChange(val: string) {
     setSearchQuery(val);
-    setCurrentPage(1);
   }
 
   function handleFilterChange(val: FilterKey) {
@@ -278,7 +266,7 @@ export default function CustomersPage() {
 
     setSaving(true);
     try {
-      const response = await fetch("/api/admin/customers", {
+      const response = await adminFetch("/api/admin/customers", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: editingCustomer.id, ...formData }),
@@ -303,6 +291,7 @@ export default function CustomersPage() {
       }
       setEditingCustomer(null);
       setToast({ type: "success", message: "Customer profile updated successfully." });
+      void loadCustomers();
     } catch {
       setToast({ type: "error", message: "Network error updating customer profile." });
     } finally {
@@ -316,7 +305,7 @@ export default function CustomersPage() {
 
     setActionLoading(true);
     try {
-      const response = await fetch("/api/admin/customers", {
+      const response = await adminFetch("/api/admin/customers", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: blockingCustomer.id, isBlocked: nextBlocked }),
@@ -340,6 +329,7 @@ export default function CustomersPage() {
         type: "success",
         message: `${blockingCustomer.name} has been ${nextBlocked ? "blocked" : "unblocked"}.`,
       });
+      void loadCustomers();
     } catch {
       setToast({ type: "error", message: "Network error updating customer status." });
     } finally {
@@ -357,19 +347,10 @@ export default function CustomersPage() {
       );
     }
 
-    if (customer.emailVerified) {
-      return (
-        <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200/80 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
-          <ShieldCheck className="h-3 w-3" />
-          <span>Verified</span>
-        </span>
-      );
-    }
-
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-amber-200/80 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
-        <Clock className="h-3 w-3" />
-        <span>Unverified</span>
+      <span className="inline-flex items-center gap-1 rounded-md border border-emerald-200/80 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300">
+        <ShieldCheck className="h-3 w-3" />
+        <span>Registered</span>
       </span>
     );
   }
@@ -420,8 +401,8 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {/* 4-Card KPI Metric Summary Grid */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {/* 3-Card KPI Metric Summary Grid */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Customers</span>
@@ -452,49 +433,39 @@ export default function CustomersPage() {
 
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Verified Accounts</span>
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Registered Accounts</span>
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
               <ShieldCheck className="h-4 w-4" />
             </div>
           </div>
           <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-            {verifiedCount.toLocaleString()}
+            {registeredCount.toLocaleString()}
           </div>
           <p className="mt-1 text-[11px] text-indigo-600 dark:text-indigo-400">
-            {blockedCount > 0 ? `${blockedCount} currently blocked` : "Confirmed emails"}
+            {blockedCount > 0 ? `${blockedCount} currently blocked` : "Customer accounts"}
           </p>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Customer Spend</span>
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
-              <CreditCard className="h-4 w-4" />
-            </div>
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
-            ₱{totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">Cumulative order value</p>
-        </div>
       </div>
 
-      {/* Filter Toolbar Card */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex gap-3 flex-row items-center justify-between">
-          <div className="relative flex-1 max-w-lg">
+      {/* High-Density Customer Ledger Table Card */}
+      <div className="rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
+        <div className="space-y-3 border-b border-slate-200 p-4 dark:border-slate-800">
+          <div className="relative w-full">
             <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => handleSearchChange(e.target.value)}
               placeholder="Search by name, email, phone, or address..."
+              aria-label="Search customers"
               className="w-full rounded-lg border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-8 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:bg-slate-800"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => handleSearchChange("")}
+                aria-label="Clear customer search"
                 className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
                 <X className="h-4 w-4" />
@@ -502,12 +473,11 @@ export default function CustomersPage() {
             )}
           </div>
 
-          {/* Filter Pills */}
           <div className="flex flex-wrap items-center gap-1.5" aria-label="Customer status filters">
             {(
               [
                 ["all", "All", totalCount],
-                ["verified", "Verified", verifiedCount],
+                ["registered", "Registered", registeredCount],
                 ["withOrders", "With Orders", withOrdersCount],
                 ["blocked", "Blocked", blockedCount],
               ] as const
@@ -542,10 +512,6 @@ export default function CustomersPage() {
             )}
           </div>
         </div>
-      </div>
-
-      {/* High-Density Customer Ledger Table Card */}
-      <div className="rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="border-b border-slate-200/80 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
@@ -568,7 +534,7 @@ export default function CustomersPage() {
                     </div>
                   </td>
                 </tr>
-              ) : filteredCustomers.length === 0 ? (
+              ) : customers.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-14 text-center text-slate-500 dark:text-slate-400">
                     <div className="flex flex-col items-center justify-center">
@@ -740,7 +706,7 @@ export default function CustomersPage() {
             <span>
               Showing <strong className="font-semibold text-slate-800 dark:text-slate-200">{startRecord.toLocaleString()}</strong> to{" "}
               <strong className="font-semibold text-slate-800 dark:text-slate-200">{endRecord.toLocaleString()}</strong> of{" "}
-              <strong className="font-semibold text-slate-800 dark:text-slate-200">{filteredCustomers.length.toLocaleString()}</strong> customers
+              <strong className="font-semibold text-slate-800 dark:text-slate-200">{pagination.totalCount.toLocaleString()}</strong> customers
             </span>
 
             <div className="flex items-center gap-1.5 pl-3 border-l border-slate-200 dark:border-slate-700">

@@ -1,6 +1,7 @@
 "use client";
+import { adminFetch, invalidateCurrentAdminApiPaths } from "@/lib/admin-data-cache";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
@@ -31,6 +32,11 @@ import {
   ADMIN_MODAL_BACKDROP_CLASS,
   ADMIN_MODAL_PANEL_CLASS,
 } from "@/utils/admin-modal";
+import {
+  compressUploadImage,
+  compressUploadImages,
+  PRODUCT_IMAGE_COMPRESSION,
+} from "@/utils/compress-upload-image";
 
 interface ProductRecord {
   id: string;
@@ -137,9 +143,10 @@ export default function InventoryPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [pagination, setPagination] = useState({ page: 1, limit: 10, totalCount: 0, totalPages: 1 });
   const [typeCounts, setTypeCounts] = useState({ ALL: 0, SIMPLE: 0, VARIANT: 0 });
-  const [inventorySummary, setInventorySummary] = useState({ totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, lowStockCount: 0 });
+  const [inventorySummary, setInventorySummary] = useState({ totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, totalCostValue: 0, totalRetailValue: 0, lowStockCount: 0 });
   const [refreshKey, setRefreshKey] = useState(0);
   const inventoryRequestSequence = useRef(0);
+  const hasLoadedInventoryData = useRef(false);
   const [movementProductId, setMovementProductId] = useState("");
   const [isLoadingMovementProducts, setIsLoadingMovementProducts] = useState(false);
   const [movementVariantId, setMovementVariantId] = useState("");
@@ -153,9 +160,9 @@ export default function InventoryPage() {
 
   const isAdmin = userRole === "ADMIN";
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (forceRefresh = false) => {
     const requestSequence = ++inventoryRequestSequence.current;
-    setIsLoading(true);
+    if (!hasLoadedInventoryData.current) setIsLoading(true);
     try {
       const params = new URLSearchParams({
         page: String(currentPage),
@@ -165,8 +172,8 @@ export default function InventoryPage() {
         type: productTypeFilter,
       });
       const [productsResponse, categoriesResponse] = await Promise.all([
-        fetch(`/api/admin/products?${params.toString()}`, { cache: "no-store" }),
-        fetch("/api/admin/categories", { cache: "no-store" }),
+        adminFetch(`/api/admin/products?${params.toString()}`, { cache: forceRefresh ? "reload" : "no-store" }),
+        adminFetch("/api/admin/categories", { cache: forceRefresh ? "reload" : "no-store" }),
       ]);
       const productData = await productsResponse.json();
       const categoriesData = await categoriesResponse.json();
@@ -179,8 +186,9 @@ export default function InventoryPage() {
       setProducts(Array.isArray(productData?.products) ? productData.products : []);
       setPagination(nextPagination);
       setTypeCounts(productData?.typeCounts ?? { ALL: 0, SIMPLE: 0, VARIANT: 0 });
-      setInventorySummary(productData?.summary ?? { totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, lowStockCount: 0 });
+      setInventorySummary(productData?.summary ?? { totalProducts: 0, totalStockUnits: 0, totalStockValue: 0, totalCostValue: 0, totalRetailValue: 0, lowStockCount: 0 });
       setCategories(Array.isArray(categoriesData) ? categoriesData : []);
+      hasLoadedInventoryData.current = true;
     } catch {
       // Kept silent
     } finally {
@@ -191,7 +199,7 @@ export default function InventoryPage() {
   async function loadMovementProducts() {
     setIsLoadingMovementProducts(true);
     try {
-      const response = await fetch("/api/admin/products", { cache: "no-store" });
+      const response = await adminFetch("/api/admin/products", { cache: "no-store" });
       const data = await response.json();
       setMovementProducts(Array.isArray(data) ? data : []);
       setHasLoadedMovementProducts(true);
@@ -207,7 +215,7 @@ export default function InventoryPage() {
 
     async function loadUserRole() {
       try {
-        const response = await fetch("/api/auth/profile");
+        const response = await adminFetch("/api/auth/profile");
         const data = await response.json();
         if (isMounted && (data?.user?.role === "ADMIN" || data?.user?.role === "STAFF")) {
           setUserRole(data.user.role);
@@ -222,30 +230,28 @@ export default function InventoryPage() {
       setActiveInventorySection(window.location.hash.replace("#", ""));
     };
 
-    const handleSseEvent = (event: MessageEvent) => {
-      try {
-        const message = JSON.parse(event.data) as { type?: string };
-        if (message?.type === "inventory-updated" || message?.type === "order-created" || message?.type === "order-updated") {
-          setRefreshKey((value) => value + 1);
-        }
-      } catch {
-        // Ignore invalid SSE payloads.
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "order-created" ||
+        message?.type === "order-updated" ||
+        message?.type === "catalog-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        setRefreshKey((value) => value + 1);
       }
     };
-
-    const eventSource = new EventSource("/api/admin/live");
-    eventSource.addEventListener("inventory-updated", handleSseEvent);
-    eventSource.addEventListener("order-created", handleSseEvent);
-    eventSource.addEventListener("order-updated", handleSseEvent);
 
     void loadUserRole();
     syncActiveInventorySection();
     window.addEventListener("hashchange", syncActiveInventorySection);
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
 
     return () => {
       isMounted = false;
       window.removeEventListener("hashchange", syncActiveInventorySection);
-      eventSource.close();
+      window.removeEventListener("apc-admin-live-event", handleLiveEvent);
     };
   }, []);
 
@@ -345,7 +351,7 @@ export default function InventoryPage() {
             quantity,
             remarks: movementRemarks.trim() || (action === "stock-out" ? "Stock out entry" : "Stock in entry"),
           };
-      const response = await fetch("/api/admin/inventory", {
+      const response = await adminFetch("/api/admin/inventory", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -457,9 +463,10 @@ export default function InventoryPage() {
   async function uploadVariantGallery(variantId: string, files: FileList | null) {
     const selectedFiles = Array.from(files ?? []).filter((file) => file.type.startsWith("image/"));
     if (!selectedFiles.length) return;
+    const compressedFiles = await compressUploadImages(selectedFiles, PRODUCT_IMAGE_COMPRESSION);
     const uploadFormData = new FormData();
-    selectedFiles.forEach((file) => uploadFormData.append("files", file));
-    const response = await fetch("/api/admin/products/upload", { method: "POST", body: uploadFormData, credentials: "same-origin" });
+    compressedFiles.forEach((file) => uploadFormData.append("files", file));
+    const response = await adminFetch("/api/admin/products/upload", { method: "POST", body: uploadFormData, credentials: "same-origin" });
     const data = await response.json();
     if (!response.ok || !Array.isArray(data?.urls)) {
       setProductFormMessage(data?.message ?? "Unable to upload variant images.");
@@ -478,7 +485,7 @@ export default function InventoryPage() {
       return;
     }
     try {
-      const response = await fetch("/api/admin/variants", {
+      const response = await adminFetch("/api/admin/variants", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -517,10 +524,11 @@ export default function InventoryPage() {
     setProductFormMessage("Uploading image...");
 
     try {
+      const compressedFile = await compressUploadImage(file, PRODUCT_IMAGE_COMPRESSION);
       const uploadFormData = new FormData();
-      uploadFormData.append("file", file);
+      uploadFormData.append("file", compressedFile);
 
-      const uploadResponse = await fetch("/api/admin/products/upload", {
+      const uploadResponse = await adminFetch("/api/admin/products/upload", {
         method: "POST",
         credentials: "same-origin",
         body: uploadFormData,
@@ -628,7 +636,7 @@ export default function InventoryPage() {
       ...(formImageUrl && { imageUrls: [formImageUrl] }),
     };
 
-    const response = await fetch("/api/admin/products", {
+    const response = await adminFetch("/api/admin/products", {
       method: productForm.id ? "PUT" : "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -657,7 +665,7 @@ export default function InventoryPage() {
 
     try {
       setIsDeletingProductId(productToDelete.id);
-      const res = await fetch(`/api/admin/products?id=${encodeURIComponent(productToDelete.id)}`, { method: "DELETE" });
+      const res = await adminFetch(`/api/admin/products?id=${encodeURIComponent(productToDelete.id)}`, { method: "DELETE" });
       const data = await res.json();
       setIsDeletingProductId(null);
       if (!res.ok) {
@@ -676,7 +684,7 @@ export default function InventoryPage() {
   async function confirmDeleteVariant() {
     if (!variantToDelete) return;
     try {
-      const response = await fetch(`/api/admin/variants/${variantToDelete.id}`, { method: "DELETE" });
+      const response = await adminFetch(`/api/admin/variants/${variantToDelete.id}`, { method: "DELETE" });
       const data = await response.json();
       if (!response.ok) throw new Error(data?.message ?? "Unable to remove variant.");
       setVariantToDelete(null);
@@ -687,7 +695,8 @@ export default function InventoryPage() {
     }
   }
 
-  const totalStockValue = inventorySummary.totalStockValue;
+  const totalCostValue = inventorySummary.totalCostValue;
+  const totalRetailValue = inventorySummary.totalRetailValue;
   const totalStockUnits = inventorySummary.totalStockUnits;
   const lowStockCount = inventorySummary.lowStockCount;
 
@@ -762,7 +771,7 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col space-y-6">
+    <div className="flex flex-1 flex-col space-y-4">
       {/* Toast Notification */}
       {showSuccessToast && (
         <AdminToast type="success" message={successMessage} onDismiss={() => setShowSuccessToast(false)} />
@@ -882,23 +891,23 @@ export default function InventoryPage() {
       )}
 
       {/* Page Header */}
-      <div className="flex flex-row items-center justify-between gap-4 border-b border-slate-200/80 pb-5 dark:border-slate-800">
+      <header className="flex flex-col justify-between gap-4 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-end dark:border-slate-800">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-white">
+            <h1 className="text-[1.75rem] font-bold leading-tight text-slate-950 dark:text-white">
               Inventory
             </h1>
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            <span className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold tabular-nums text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
               {inventorySummary.totalProducts} {inventorySummary.totalProducts === 1 ? "item" : "items"}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+          <p className="mt-1 max-w-2xl text-[13px] leading-5 text-slate-500 dark:text-slate-400">
             Monitor stock health, record movements, and adjust low-stock warning thresholds.
           </p>
         </div>
 
         {/* View Switcher Tabs */}
-        <div className="flex flex-wrap items-center gap-1.5 self-center">
+        <nav aria-label="Inventory views" className="flex flex-wrap items-center gap-1 self-start sm:self-auto">
           <button
             type="button"
             onClick={() => {
@@ -956,73 +965,86 @@ export default function InventoryPage() {
             <SlidersHorizontal className="h-3.5 w-3.5" />
             <span>Thresholds</span>
           </button>
-        </div>
-      </div>
+        </nav>
+      </header>
 
       {!isInventorySubSectionView ? (
         <>
           {/* KPI Metrics Grid */}
-          <div id="inventory-summary" className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <section id="inventory-summary" aria-label="Inventory summary" className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-slate-200 bg-slate-200 shadow-xs sm:grid-cols-3 xl:grid-cols-5 dark:border-slate-800 dark:bg-slate-800">
+            <div className="min-w-0 bg-white p-4 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Products</span>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                   <Package className="h-4 w-4" />
                 </div>
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+              <div className="mt-2 text-2xl font-bold tabular-nums text-slate-950 dark:text-white">
                 {inventorySummary.totalProducts}
               </div>
               <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Active catalog items</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            <div className="min-w-0 bg-white p-4 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Stock Units</span>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
                   <Warehouse className="h-4 w-4" />
                 </div>
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white">
+              <div className="mt-2 text-2xl font-bold tabular-nums text-slate-950 dark:text-white">
                 {totalStockUnits.toLocaleString()}
               </div>
               <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">In-store physical units</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            <div className="min-w-0 bg-white p-4 dark:bg-slate-900">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Inventory Valuation</span>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Total Cost</span>
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
                   <TrendingDown className="h-4 w-4" />
                 </div>
               </div>
-              <div className="mt-2 text-2xl font-bold text-slate-900 dark:text-white truncate">
-                ₱{totalStockValue.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <div className="mt-2 truncate text-base font-bold tabular-nums text-slate-950 sm:text-xl dark:text-white">
+                ₱{totalCostValue.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
-              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Based on unit cost value</p>
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Current cost basis</p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-slate-800 dark:bg-slate-900">
+            <div className="min-w-0 bg-white p-4 dark:bg-slate-900">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Retail Value</span>
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400">
+                  <TrendingDown className="h-4 w-4" />
+                </div>
+              </div>
+              <div className="mt-2 truncate text-base font-bold tabular-nums text-slate-950 sm:text-xl dark:text-white">
+                ₱{totalRetailValue.toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">Based on selling price × stock</p>
+            </div>
+
+            <div className="col-span-2 min-w-0 bg-white p-4 sm:col-span-1 dark:bg-slate-900">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Low Stock Alerts</span>
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
+                <div className="flex h-8 w-8 items-center justify-center rounded-md bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400">
                   <AlertTriangle className="h-4 w-4" />
                 </div>
               </div>
-              <div className="mt-2 text-2xl font-bold text-rose-600 dark:text-rose-400">
+              <div className="mt-2 text-2xl font-bold tabular-nums text-rose-600 dark:text-rose-400">
                 {lowStockCount}
               </div>
               <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">At or below reorder threshold</p>
             </div>
-          </div>
+          </section>
 
           {/* Stock Overview Table Card */}
-          <div id="stock-overview" className="rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
+          <section id="stock-overview" className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
             {/* Table Header & Controls */}
-            <div className="p-5 border-b border-slate-100 dark:border-slate-800 space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row items-center justify-between">
+            <div className="space-y-4 border-b border-slate-100 p-4 sm:p-5 dark:border-slate-800">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                 <div>
-                  <h2 className="text-base font-semibold text-slate-900 dark:text-white">Stock Overview</h2>
+                  <h2 className="text-lg font-semibold text-slate-950 dark:text-white">Stock Overview</h2>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     Live balance across single products and variants.
                   </p>
@@ -1030,8 +1052,11 @@ export default function InventoryPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => void loadData()}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+                    onClick={() => {
+                      invalidateCurrentAdminApiPaths(["/api/admin/products", "/api/admin/categories"]);
+                      void loadData(true);
+                    }}
+                    className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 active:translate-y-px dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
                     title="Refresh data"
                   >
                     <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
@@ -1040,7 +1065,7 @@ export default function InventoryPage() {
                   <button
                     type="button"
                     onClick={openCreateProductModal}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3.5 text-xs font-semibold text-white transition hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+                    className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-emerald-700 px-3.5 text-xs font-semibold text-white transition hover:bg-emerald-800 active:translate-y-px dark:bg-emerald-600 dark:hover:bg-emerald-500"
                   >
                     <Plus className="h-4 w-4" strokeWidth={2.5} />
                     <span>Add Product</span>
@@ -1049,7 +1074,7 @@ export default function InventoryPage() {
               </div>
 
               {/* Filters Bar */}
-              <div className="grid items-center gap-3 grid-cols-[1.5fr_1fr_auto]">
+              <div className="grid grid-cols-1 items-center gap-3 lg:grid-cols-[minmax(16rem,1.3fr)_minmax(12rem,0.8fr)_auto]">
                 <div className="relative">
                   <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                   <input
@@ -1059,7 +1084,7 @@ export default function InventoryPage() {
                       setCurrentPage(1);
                     }}
                     placeholder="Search by product name, SKU, or category..."
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50/50 py-2 pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:bg-slate-800"
+                    className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 py-2 pl-9 pr-9 text-[13px] text-slate-900 outline-none transition focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-600/15 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:border-emerald-500 dark:focus:bg-slate-800"
                   />
                   {searchQuery && (
                     <button
@@ -1068,7 +1093,7 @@ export default function InventoryPage() {
                         setSearchQuery("");
                         setCurrentPage(1);
                       }}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-100"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -1082,7 +1107,7 @@ export default function InventoryPage() {
                       setCategoryFilter(e.target.value);
                       setCurrentPage(1);
                     }}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50/50 px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:bg-white focus:ring-1 focus:ring-slate-400 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:bg-slate-800"
+                    className="h-10 w-full rounded-md border border-slate-200 bg-slate-50 px-3 text-[13px] text-slate-900 outline-none transition focus:border-emerald-600 focus:bg-white focus:ring-2 focus:ring-emerald-600/15 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-100 dark:focus:border-emerald-500 dark:focus:bg-slate-800"
                   >
                     <option value="">All Categories</option>
                     {categories.map((cat) => (
@@ -1109,10 +1134,11 @@ export default function InventoryPage() {
                         setProductTypeFilter(value);
                         setCurrentPage(1);
                       }}
-                      className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${
+                      aria-pressed={productTypeFilter === value}
+                      className={`rounded-md px-2.5 py-2 text-xs font-semibold transition-colors ${
                         productTypeFilter === value
-                          ? "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+                          ? "bg-emerald-700 text-white dark:bg-emerald-600"
+                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
                       }`}
                     >
                       {label} ({count})
@@ -1124,8 +1150,8 @@ export default function InventoryPage() {
 
             {/* Table Content */}
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200/80 bg-slate-50 text-slate-600 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
+              <table className="w-full min-w-245 text-left text-[13px]">
+                <thead className="border-b border-slate-200/80 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/50 dark:text-slate-400">
                   <tr>
                     <th className="w-16 px-4 py-3 font-semibold whitespace-nowrap">Photo</th>
                     <th className="min-w-52 px-4 py-3 font-semibold">Product</th>
@@ -1134,7 +1160,7 @@ export default function InventoryPage() {
                     <th className="w-24 px-3 py-3 text-right font-semibold whitespace-nowrap">Cost</th>
                     <th className="w-24 px-3 py-3 text-right font-semibold whitespace-nowrap">Price</th>
                     <th className="w-28 px-3 py-3 text-center font-semibold whitespace-nowrap">Status</th>
-                    <th className="w-20 px-4 py-3 text-center font-semibold whitespace-nowrap">Action</th>
+                    <th className="w-40 px-4 py-3 text-center font-semibold whitespace-nowrap">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1180,7 +1206,13 @@ export default function InventoryPage() {
 
                       return (
                         <Fragment key={product.id}>
-                          <tr className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
+                          <tr
+                            className={`transition-colors hover:bg-emerald-50/40 dark:hover:bg-emerald-950/15 ${
+                              product.variants?.length
+                                ? "[&>td]:border-t [&>td]:border-slate-200 [&>td:first-child]:border-l [&>td:last-child]:border-r dark:[&>td]:border-slate-700"
+                                : ""
+                            }`}
+                          >
                             <td className="w-16 px-4 py-3 whitespace-nowrap">
                               {primaryImage ? (
                                 <Image
@@ -1188,61 +1220,56 @@ export default function InventoryPage() {
                                   alt={product.name}
                                   width={48}
                                   height={48}
-                                  className="h-10 w-10 rounded-lg border border-slate-200 object-cover dark:border-slate-700"
+                                  className="h-10 w-10 rounded-md border border-slate-200 object-cover dark:border-slate-700"
                                 />
                               ) : (
-                                <div className="h-10 w-10 rounded-lg border border-dashed border-slate-300 flex items-center justify-center bg-slate-50 text-slate-400 dark:border-slate-700 dark:bg-slate-800">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-slate-400 dark:border-slate-700 dark:bg-slate-800">
                                   <Package className="h-4 w-4" />
                                 </div>
                               )}
                             </td>
 
                             <td className="min-w-52 px-4 py-3">
-                              <div className="font-semibold text-slate-900 dark:text-white truncate">
+                              <div className="truncate font-semibold text-slate-900 dark:text-white">
                                 {product.name}
                               </div>
-                              <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                              <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
                                 <span className="truncate">{product.category?.name ?? "Uncategorized"}</span>
-                                <span>•</span>
-                                {product.variants?.length ? (
-                                  <span className="inline-flex items-center gap-1 font-medium text-indigo-600 dark:text-indigo-400">
-                                    <Layers3 className="h-3 w-3" />
-                                    {product.variants.length} options
-                                  </span>
-                                ) : (
-                                  <span className="font-mono text-[11px] text-slate-400 dark:text-slate-500">
-                                    SKU: {product.sku}
-                                  </span>
+                                {!product.variants?.length && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="font-mono text-[11px] text-slate-500 dark:text-slate-400">
+                                      SKU: {product.sku}
+                                    </span>
+                                  </>
                                 )}
                               </div>
-                            </td>
-
-                            <td className="w-20 px-3 py-3 text-center whitespace-nowrap font-medium text-slate-900 dark:text-slate-100">
-                              {product.variants?.length ? (
-                                <span className="text-xs text-slate-400 dark:text-slate-500">—</span>
-                              ) : (
-                                stock
+                              {Boolean(product.variants?.length) && (
+                                <span className="mt-1 inline-flex items-center gap-1 rounded border border-indigo-200 bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-800 dark:border-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-200">
+                                  <Layers3 className="h-3.5 w-3.5" />
+                                  Has variants
+                                </span>
                               )}
                             </td>
 
+                            <td className="w-20 px-3 py-3 text-center whitespace-nowrap font-medium text-slate-900 dark:text-slate-100">
+                              {!product.variants?.length && stock}
+                            </td>
+
                             <td className="w-20 px-3 py-3 text-center whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">
-                              {product.variants?.length ? "—" : minStock}
+                              {!product.variants?.length && minStock}
                             </td>
 
                             <td className="w-24 px-3 py-3 text-right whitespace-nowrap text-xs text-slate-600 dark:text-slate-300">
-                              {product.variants?.length ? "Per option" : `₱${Number(product.cost ?? 0).toLocaleString("en-PH")}`}
+                              {!product.variants?.length && `₱${Number(product.cost ?? 0).toLocaleString("en-PH")}`}
                             </td>
 
                             <td className="w-24 px-3 py-3 text-right whitespace-nowrap text-xs font-semibold text-slate-900 dark:text-slate-100">
-                              {product.variants?.length ? "Per option" : `₱${Number(product.price ?? 0).toLocaleString("en-PH")}`}
+                              {!product.variants?.length && `₱${Number(product.price ?? 0).toLocaleString("en-PH")}`}
                             </td>
 
                             <td className="w-28 px-3 py-3 text-center whitespace-nowrap">
-                              {product.variants?.length ? (
-                                <span className="inline-flex items-center rounded-md border border-indigo-200/80 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-300">
-                                  See options
-                                </span>
-                              ) : (
+                              {!product.variants?.length && (
                                 <span
                                   className={`inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold ${
                                     status === "Low stock"
@@ -1257,34 +1284,34 @@ export default function InventoryPage() {
                               )}
                             </td>
 
-                            <td className="w-20 px-4 py-3 whitespace-nowrap text-center">
-                              <div className="flex items-center justify-center gap-1">
+                            <td className="w-40 px-4 py-3 whitespace-nowrap text-center">
+                              <div className="flex items-center justify-center gap-0.5">
                                 <button
                                   type="button"
                                   onClick={() => openMovementSection("stock-in", { productId: product.id })}
                                   title="Quick Stock In"
                                   aria-label={`Quick stock in for ${product.name}`}
-                                  className="rounded p-1 text-emerald-600 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-emerald-700 transition hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
                                 >
-                                  <ArrowDownRight className="h-3.5 w-3.5" />
+                                  <ArrowDownRight className="h-4 w-4" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => openMovementSection("stock-out", { productId: product.id })}
                                   title="Quick Stock Out"
                                   aria-label={`Quick stock out for ${product.name}`}
-                                  className="rounded p-1 text-rose-600 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-rose-700 transition hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
                                 >
-                                  <ArrowUpRight className="h-3.5 w-3.5" />
+                                  <ArrowUpRight className="h-4 w-4" />
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => openMovementSection("threshold-adjustment", { productId: product.id })}
                                   title="Quick Threshold Adjustment"
                                   aria-label={`Quick threshold adjustment for ${product.name}`}
-                                  className="rounded p-1 text-amber-600 transition hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
+                                  className="flex h-7 w-7 items-center justify-center rounded text-amber-700 transition hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40"
                                 >
-                                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                                  <SlidersHorizontal className="h-4 w-4" />
                                 </button>
                                 {isAdmin && (
                                   <button
@@ -1292,9 +1319,9 @@ export default function InventoryPage() {
                                     onClick={() => openEditProductModal(product)}
                                     title="Edit product"
                                     aria-label={`Edit product ${product.name}`}
-                                    className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition"
+                                    className="flex h-7 w-7 items-center justify-center rounded-md text-slate-600 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white transition"
                                   >
-                                    <Pencil className="h-3.5 w-3.5" />
+                                    <Pencil className="h-4 w-4" />
                                   </button>
                                 )}
                                 <button
@@ -1303,20 +1330,20 @@ export default function InventoryPage() {
                                   disabled={isDeletingProductId === product.id}
                                   title="Delete product"
                                   aria-label={`Delete product ${product.name}`}
-                                  className="rounded-md p-1.5 text-rose-600 hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-950/40 transition"
+                                  className="flex h-7 w-7 items-center justify-center rounded-md text-rose-700 hover:bg-rose-50 hover:text-rose-800 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-950/40 transition"
                                 >
-                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <Trash2 className="h-4 w-4" />
                                 </button>
                               </div>
                             </td>
                           </tr>
 
-                          {/* Nested Variant Rows */}
+                          {/* Product option section continues within the parent product outline. */}
                           {Boolean(product.variants?.length) && (
-                            <tr className="bg-slate-50/70 dark:bg-slate-950/40">
-                              <td colSpan={8} className="px-4 py-3 border-y border-slate-100 dark:border-slate-800">
-                                <div className="ml-6 rounded-lg border border-slate-200/80 bg-white shadow-2xs dark:border-slate-800 dark:bg-slate-900 overflow-hidden">
-                                  <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/80 px-3.5 py-2 text-xs font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-200">
+                            <tr>
+                              <td colSpan={8} className="border-x border-b border-slate-200 p-0 dark:border-slate-700">
+                                <div className="overflow-hidden">
+                                  <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50/80 px-4 py-2 text-xs font-semibold text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
                                     <div className="flex items-center gap-1.5">
                                       <Layers3 className="h-3.5 w-3.5 text-indigo-500" />
                                       <span>Product Options ({product.variants?.length})</span>
@@ -1390,9 +1417,9 @@ export default function InventoryPage() {
                                                       openMovementSection("stock-in", { productId: product.id, variantId: variant.id });
                                                     }}
                                                     title="Quick Stock In"
-                                                    className="rounded p-1 text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40 transition"
+                                                    className="flex h-7 w-7 items-center justify-center rounded text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40 transition"
                                                   >
-                                                    <ArrowDownRight className="h-3.5 w-3.5" />
+                                                    <ArrowDownRight className="h-4 w-4" />
                                                   </button>
                                                   <button
                                                     type="button"
@@ -1400,9 +1427,9 @@ export default function InventoryPage() {
                                                       openMovementSection("stock-out", { productId: product.id, variantId: variant.id });
                                                     }}
                                                     title="Quick Stock Out"
-                                                    className="rounded p-1 text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40 transition"
+                                                    className="flex h-7 w-7 items-center justify-center rounded text-rose-700 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40 transition"
                                                   >
-                                                    <ArrowUpRight className="h-3.5 w-3.5" />
+                                                    <ArrowUpRight className="h-4 w-4" />
                                                   </button>
                                                   <button
                                                     type="button"
@@ -1410,17 +1437,17 @@ export default function InventoryPage() {
                                                       openMovementSection("threshold-adjustment", { productId: product.id, variantId: variant.id });
                                                     }}
                                                     title="Quick Threshold Adjustment"
-                                                    className="rounded p-1 text-amber-600 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40 transition"
+                                                    className="flex h-7 w-7 items-center justify-center rounded text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/40 transition"
                                                   >
-                                                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                                                    <SlidersHorizontal className="h-4 w-4" />
                                                   </button>
                                                   <button
                                                     type="button"
                                                     onClick={() => setVariantToDelete({ id: variant.id, sku: variant.sku, productName: product.name })}
                                                     title="Delete variant option"
-                                                    className="rounded p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition"
+                                                    className="flex h-7 w-7 items-center justify-center rounded text-slate-500 hover:bg-rose-50 hover:text-rose-700 dark:text-slate-400 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 transition"
                                                   >
-                                                    <Trash2 className="h-3 w-3" />
+                                                    <Trash2 className="h-4 w-4" />
                                                   </button>
                                                 </div>
                                               </td>
@@ -1564,7 +1591,7 @@ export default function InventoryPage() {
                 )}
               </div>
             </div>
-          </div>
+          </section>
         </>
       ) : (
         <div className="w-full rounded-xl border border-slate-200 bg-white shadow-xs dark:border-slate-800 dark:bg-slate-900">
@@ -2092,7 +2119,6 @@ export default function InventoryPage() {
                                       width={36}
                                       height={36}
                                       className="h-8 w-8 rounded object-cover"
-                                      unoptimized
                                     />
                                     <button
                                       type="button"

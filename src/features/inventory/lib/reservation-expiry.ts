@@ -1,21 +1,21 @@
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { emitOrderUpdatedEvent } from "@/lib/realtime";
-import { ONLINE_PAYMENT_RESERVATION_TTL_MS } from "@/lib/order";
 import { applyOrderInventoryMovement } from "./inventory";
+import { recordOrderEvent } from "@/lib/order-history";
 
 export async function expireWalletReservations(now = new Date(), limit = 50) {
-  const expirationCutoff = new Date(now.getTime() - ONLINE_PAYMENT_RESERVATION_TTL_MS);
   const candidates = await prisma.order.findMany({
     where: {
-      status: "PENDING_PAYMENT",
+      status: "PENDING",
       paymentStatus: "PENDING",
       paymentMethod: { in: ["GCASH", "PAYMAYA"] },
       proofOfPaymentUrl: null,
-      createdAt: { lte: expirationCutoff },
+      reservationExpiresAt: { lte: now },
     },
-    select: { id: true, userId: true, orderNumber: true },
-    orderBy: { createdAt: "asc" },
+    select: { id: true, userId: true, orderNumber: true, stateVersion: true },
+    orderBy: { reservationExpiresAt: "asc" },
     take: Math.max(1, Math.min(100, limit)),
   });
 
@@ -38,16 +38,33 @@ export async function expireWalletReservations(now = new Date(), limit = 50) {
         const claim = await tx.order.updateMany({
           where: {
             id: candidate.id,
-            status: "PENDING_PAYMENT",
+            status: "PENDING",
             paymentStatus: "PENDING",
             paymentMethod: { in: ["GCASH", "PAYMAYA"] },
             proofOfPaymentUrl: null,
-            createdAt: { lte: expirationCutoff },
+            reservationExpiresAt: { lte: now },
+            stateVersion: candidate.stateVersion,
           },
-          data: { status: "CANCELLED", paymentStatus: "CANCELLED" },
+          data: {
+            status: "CANCELLED",
+            paymentStatus: "CANCELLED",
+            reservationExpiresAt: null,
+            stateVersion: { increment: 1 },
+          },
         });
 
         if (claim.count !== 1) return false;
+
+        await recordOrderEvent(tx, {
+          orderId: candidate.id,
+          eventType: "RESERVATION_EXPIRED",
+          previousStatus: "PENDING",
+          newStatus: "CANCELLED",
+          previousPaymentStatus: "PENDING",
+          newPaymentStatus: "CANCELLED",
+          actor: { type: "SYSTEM", name: "Reservation expiry" },
+          note: "Online payment reservation expired before proof was submitted.",
+        });
 
         const stockOuts = await tx.inventoryTransaction.findMany({
           where: {
@@ -76,8 +93,9 @@ export async function expireWalletReservations(now = new Date(), limit = 50) {
             })),
             "RETURN",
             `Order ${candidate.orderNumber} expired - stock returned`,
-            null,
+            "Reservation expiry",
             {
+              orderId: candidate.id,
               performedByType: "SYSTEM",
               source: "ECOMMERCE",
               orderNumber: candidate.orderNumber,
@@ -91,6 +109,7 @@ export async function expireWalletReservations(now = new Date(), limit = 50) {
 
       if (expired) {
         expiredCount += 1;
+        revalidateTag("public-products", { expire: 0 });
         emitOrderUpdatedEvent({
           orderId: candidate.id,
           orderNumber: candidate.orderNumber,

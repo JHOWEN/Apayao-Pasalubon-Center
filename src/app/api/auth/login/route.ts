@@ -1,36 +1,19 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { signToken } from "@/lib/auth";
-import { setAuthCookie } from "@/lib/cookies";
+import { setAuthCookies } from "@/lib/cookies";
+import { createAuthSession } from "@/lib/auth-sessions";
 import { checkLoginRateLimit, getLoginRateLimitStatus, resetLoginRateLimit } from "@/lib/rate-limit";
 import { loginSchema } from "@/features/auth/validators/auth";
 import { getRequestId, logError } from "@/lib/logger";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
+import { parseJsonRequestBody } from "@/lib/api-validation";
 
 export async function POST(request: Request) {
   try {
-    let body: unknown;
-
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "Invalid JSON payload." },
-        { status: 400 }
-      );
-    }
-
-    const result = loginSchema.safeParse(body);
-
-    if (!result.success) {
-      return NextResponse.json(
-        { success: false, errors: result.error.flatten().fieldErrors },
-        { status: 400 }
-      );
-    }
-
-    const { email, password, rememberMe } = result.data;
+    const parsed = await parseJsonRequestBody(request, loginSchema, "Login details are invalid.");
+    if (!parsed.success) return parsed.response;
+    const { email, password, rememberMe } = parsed.data;
 
     const rateLimit = await getLoginRateLimitStatus(request, email);
     if (!rateLimit.allowed) {
@@ -44,7 +27,22 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        password: true,
+        sessionVersion: true,
+        role: true,
+        imageUrl: true,
+        phone: true,
+        address: true,
+        emailVerified: true,
+        isBlocked: true,
+      },
+    });
 
     if (!user) {
       const failedAttempt = await checkLoginRateLimit(request, email);
@@ -93,13 +91,20 @@ export async function POST(request: Request) {
       );
     }
 
+    // Upgrade hashes created by older code after a successful sign-in, without
+    // overwriting a concurrent password change.
+    if (bcrypt.getRounds(user.password) < 12) {
+      const upgradedHash = await bcrypt.hash(password, 12);
+      await prisma.user.updateMany({
+        where: { id: user.id, password: user.password },
+        data: { password: upgradedHash },
+      });
+    }
+
     await resetLoginRateLimit(request, email);
 
-    const token = signToken(
-      { sub: user.id, email: user.email, role: user.role },
-      rememberMe ? "30d" : "7d"
-    );
-    await setAuthCookie(token, rememberMe);
+    const session = await createAuthSession(user.id, user.sessionVersion, rememberMe, user.role);
+    await setAuthCookies(session.accessToken, session.refreshToken, session.refreshExpiresAt);
 
     return NextResponse.json(
       {

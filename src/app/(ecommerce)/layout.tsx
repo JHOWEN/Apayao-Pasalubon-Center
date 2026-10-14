@@ -1,11 +1,12 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { clearStoredUser, getCartCount, getStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
-import { AlertTriangle, Bell, LogOut, Menu, Search, ShoppingCart, User, X } from "lucide-react";
+import { useEffect, useState, useSyncExternalStore } from "react";
+import { CART_UPDATED_EVENT, clearStoredUser, getCartCount, getStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
+import { invalidatePublicDataForEvent, type StorefrontDataEvent } from "@/lib/public-data-cache";
+import { AlertTriangle, Bell, Heart, LogOut, Menu, Moon, Search, ShoppingCart, Sun, User, X } from "lucide-react";
 
 type EcommerceUser = {
   name?: string;
@@ -21,8 +22,7 @@ type OrderStatusNotification = {
 };
 
 const orderStatusLabels: Record<string, string> = {
-  PENDING_PAYMENT: "Awaiting payment",
-  PENDING: "Pending",
+  PENDING: "Order received",
   CONFIRMED: "Confirmed",
   PREPARING: "Preparing",
   READY_FOR_PICKUP: "Ready for pickup",
@@ -30,10 +30,32 @@ const orderStatusLabels: Record<string, string> = {
   CANCELLED: "Cancelled",
 };
 
+function subscribeToCartCount(onStoreChange: () => void) {
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener(CART_UPDATED_EVENT, onStoreChange);
+
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener(CART_UPDATED_EVENT, onStoreChange);
+  };
+}
+
+function getCartCountSnapshot() {
+  return getCartCount();
+}
+
+function getServerCartCountSnapshot() {
+  return 0;
+}
+
 export default function EcommerceLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [cartCount, setCartCount] = useState(0);
+  const cartCount = useSyncExternalStore(
+    subscribeToCartCount,
+    getCartCountSnapshot,
+    getServerCartCountSnapshot,
+  );
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [user, setUser] = useState<EcommerceUser | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -81,12 +103,60 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
   }, []);
 
   useEffect(() => {
+    const publishStorefrontEvent = (type: StorefrontDataEvent) => {
+      invalidatePublicDataForEvent(type);
+      window.dispatchEvent(new CustomEvent("apc-storefront-live-event", { detail: { type } }));
+    };
+
+    const eventSource = new EventSource("/api/public/live");
+    let hasConnectedOnce = false;
+    const handleStorefrontEvent = (event: MessageEvent) => {
+      try {
+        const message = JSON.parse(event.data) as { type?: StorefrontDataEvent };
+        if (
+          message.type === "storefront-products-updated" ||
+          message.type === "storefront-catalog-updated" ||
+          message.type === "storefront-reviews-updated" ||
+          message.type === "storefront-settings-updated"
+        ) {
+          publishStorefrontEvent(message.type);
+        }
+      } catch {
+        // Ignore malformed or unrelated public events.
+      }
+    };
+    const resyncAfterReconnect = () => {
+      if (hasConnectedOnce) publishStorefrontEvent("storefront-resync");
+      hasConnectedOnce = true;
+    };
+    const resyncAfterNetworkRestore = () => publishStorefrontEvent("storefront-resync");
+
+    eventSource.addEventListener("open", resyncAfterReconnect);
+    eventSource.addEventListener("storefront-products-updated", handleStorefrontEvent);
+    eventSource.addEventListener("storefront-catalog-updated", handleStorefrontEvent);
+    eventSource.addEventListener("storefront-reviews-updated", handleStorefrontEvent);
+    eventSource.addEventListener("storefront-settings-updated", handleStorefrontEvent);
+    window.addEventListener("online", resyncAfterNetworkRestore);
+
+    return () => {
+      eventSource.close();
+      window.removeEventListener("online", resyncAfterNetworkRestore);
+    };
+  }, []);
+
+  useEffect(() => {
     async function loadCurrentUser() {
       const storedUser = getStoredUser() as EcommerceUser | null;
       setUser(storedUser);
 
       try {
-        const response = await fetch("/api/auth/profile");
+        let response = await fetch("/api/auth/profile", { cache: "no-store" });
+        if (response.status === 401) {
+          const refreshResponse = await fetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+          if (refreshResponse.ok || refreshResponse.status === 409) {
+            response = await fetch("/api/auth/profile", { cache: "no-store" });
+          }
+        }
         const data = await response.json();
 
         if (!response.ok || !data?.user) {
@@ -114,10 +184,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
       }
     }
 
-    const updateCount = () => {
-      setCartCount(getCartCount());
-    };
-
     const refreshProfile = () => {
       void loadCurrentUser();
     };
@@ -135,20 +201,46 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
       stockWarningTimeout = window.setTimeout(() => setCartStockWarning(null), 4500);
     };
 
-    updateCount();
     void loadCurrentUser();
-    window.addEventListener("storage", updateCount);
     window.addEventListener("apc-user-updated", refreshProfile);
     window.addEventListener("apc-cart-toss", triggerCartToss);
     window.addEventListener("apc-cart-stock-warning", showStockWarning);
     return () => {
-      window.removeEventListener("storage", updateCount);
       window.removeEventListener("apc-user-updated", refreshProfile);
       window.removeEventListener("apc-cart-toss", triggerCartToss);
       window.removeEventListener("apc-cart-stock-warning", showStockWarning);
       if (stockWarningTimeout !== undefined) window.clearTimeout(stockWarningTimeout);
     };
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let isRefreshing = false;
+    const refreshSession = async () => {
+      if (isRefreshing) return;
+      isRefreshing = true;
+      try {
+        const response = await fetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+        if (response.status === 401) {
+          clearStoredUser();
+          setUser(null);
+        } else if (response.status === 409) {
+          const profileResponse = await fetch("/api/auth/profile", { cache: "no-store" });
+          if (profileResponse.status === 401) {
+            clearStoredUser();
+            setUser(null);
+          }
+        }
+      } catch {
+        // Keep the current session state; the next interval will retry.
+      } finally {
+        isRefreshing = false;
+      }
+    };
+    const refreshInterval = window.setInterval(() => void refreshSession(), 4 * 60 * 1000);
+    return () => window.clearInterval(refreshInterval);
+  }, [user]);
 
   useEffect(() => {
     if (!user) return;
@@ -198,9 +290,27 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     };
 
     void loadOrderStatuses();
-    const intervalId = window.setInterval(() => void loadOrderStatuses(), 10000);
+    const handleCustomerOrderUpdate = () => {
+      void loadOrderStatuses();
+      window.dispatchEvent(new Event("apc-customer-order-live-event"));
+    };
+    const eventSource = user.role === "CUSTOMER" ? new EventSource("/api/auth/live") : null;
+    eventSource?.addEventListener("customer-order-updated", handleCustomerOrderUpdate);
+    let hasConnectedOnce = false;
+    const handleCustomerStreamOpen = () => {
+      if (hasConnectedOnce) handleCustomerOrderUpdate();
+      hasConnectedOnce = true;
+    };
+    eventSource?.addEventListener("open", handleCustomerStreamOpen);
+    const handleNetworkRestore = () => handleCustomerOrderUpdate();
+    window.addEventListener("online", handleNetworkRestore);
+    const fallbackIntervalId = window.setInterval(() => void loadOrderStatuses(), 60_000);
 
-    return () => window.clearInterval(intervalId);
+    return () => {
+      window.clearInterval(fallbackIntervalId);
+      eventSource?.close();
+      window.removeEventListener("online", handleNetworkRestore);
+    };
   }, [user]);
 
   function renderNotificationButton(isMobileDrawer = false) {
@@ -208,7 +318,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
       <div className={isMobileDrawer ? "relative w-full" : "relative"}>
         <button
           type="button"
-          aria-label="View order status notifications"
+          aria-label={`View order status notifications${notificationCount > 0 ? `, ${notificationCount} unread` : ""}`}
           aria-expanded={isNotificationsOpen}
           onClick={() => setIsNotificationsOpen((open) => !open)}
           className={`relative flex items-center rounded-xl border border-white/10 bg-transparent text-white shadow-xs transition-all duration-150 hover:border-white/20 hover:bg-transparent hover:text-amber-200 active:scale-95 ${
@@ -218,7 +328,9 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
           <Bell className="h-4 w-4" />
           {isMobileDrawer && <span className="flex-1 text-left text-xs font-semibold">Order status updates</span>}
           {notificationCount > 0 && (
-            <span aria-label="Unread order updates" className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            <span className={`storefront-notification-count ${isMobileDrawer ? "static" : "absolute -right-1 -top-1"}`} aria-hidden="true">
+              {notificationCount > 99 ? "99+" : notificationCount}
+            </span>
           )}
         </button>
 
@@ -284,6 +396,15 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     setIsNotificationsOpen(false);
     window.dispatchEvent(new Event("apc-user-updated"));
     router.push("/");
+  }
+
+  function toggleTheme() {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    window.localStorage.setItem("apc-theme", nextTheme);
+    document.documentElement.classList.toggle("dark", nextTheme === "dark");
+    document.documentElement.style.colorScheme = nextTheme;
+    window.dispatchEvent(new CustomEvent("apc-theme-updated", { detail: nextTheme }));
   }
 
   const links = [
@@ -416,19 +537,23 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
         }
       `}</style>
       <header className="storefront-header sticky top-0 z-40 border-b border-white/8 bg-[#070b14]/85 backdrop-blur-xl shadow-[0_4px_30px_rgba(0,0,0,0.35)] transition-colors duration-300">
+        <div className="storefront-announcement border-b border-white/8 px-4 py-2 text-center text-[10px] font-semibold tracking-[0.12em] text-slate-300 sm:text-[11px]">
+          <span className="storefront-announcement-dot mr-2 inline-block h-1.5 w-1.5 rounded-full align-middle" aria-hidden="true" />
+          Store Hours · Open daily, 7:00 AM–8:30 PM
+        </div>
         <div className="mx-auto w-full max-w-7xl px-4 py-2.5 sm:px-6 sm:py-3 lg:px-8">
           <div className="flex items-center justify-between gap-2 sm:gap-4">
             
             {/* Brand Logo & Title */}
             <div className="flex min-w-0 items-center gap-3">
               <Link href="/" className="group flex min-w-0 items-center gap-2 sm:gap-3 transition-transform duration-150 active:scale-[0.99]">
-                <div className="relative flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-linear-to-br from-white/15 via-white/5 to-transparent p-1 shadow-md shadow-black/20 ring-1 ring-white/10 transition-transform duration-200 group-hover:scale-105">
+                <div className="relative flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-linear-to-br from-white/15 via-white/5 to-transparent shadow-md shadow-black/20 ring-1 ring-white/10 transition-transform duration-200 group-hover:scale-105">
                   <Image
-                    src={process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png"}
+                    src={process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png"}
                     alt="Apayao Pasalubong Center logo"
                     fill
                     sizes="(max-width: 640px) 36px, 44px"
-                    className="object-contain p-1"
+                    className="object-cover object-center"
                     unoptimized
                   />
                 </div>
@@ -444,7 +569,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
             </div>
 
             {/* Desktop Center Pill Navigation */}
-            <nav className="storefront-nav hidden items-center justify-center gap-1 rounded-full border border-white/8 bg-white/3 p-1 shadow-inner backdrop-blur-md lg:flex" aria-label="Main navigation">
+            <nav className="storefront-nav hidden items-center justify-center gap-1 rounded-full border border-white/8 bg-white/3 p-1 shadow-inner backdrop-blur-md xl:flex" aria-label="Main navigation">
               {links.map((link) => {
                 const isActive = activeSection === link.section;
 
@@ -452,6 +577,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                   <Link
                     key={link.href}
                     href={link.href}
+                    aria-current={isActive ? (link.href.includes("#") ? "location" : "page") : undefined}
                     onClick={(event) => {
                       event.preventDefault();
                       handleNavClick(link.href, link.section);
@@ -472,7 +598,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
             </nav>
 
             {/* Desktop Right Action Controls */}
-            <div className="hidden items-center gap-2.5 sm:gap-3 lg:flex">
+            <div className="hidden items-center gap-2.5 sm:gap-3 xl:flex">
               {/* Product Search */}
               {searchOpen ? (
                 <form
@@ -512,10 +638,28 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                 </button>
               )}
 
+              <button
+                type="button"
+                onClick={toggleTheme}
+                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+                title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+                className="flex h-9.5 w-9.5 items-center justify-center rounded-xl border border-white/10 bg-transparent text-white transition-all duration-150 hover:border-amber-400/40 hover:text-amber-200 active:scale-95"
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+
+              <Link
+                href="/favorites"
+                aria-label="View saved favorites"
+                className="flex h-9.5 w-9.5 items-center justify-center rounded-xl border border-white/10 bg-transparent text-white transition-all duration-150 hover:border-amber-400/40 hover:text-amber-200 active:scale-95"
+              >
+                <Heart className="h-4 w-4" />
+              </Link>
+
               {/* Shopping Cart Button */}
               <Link
                 href="/cart"
-                aria-label="View cart"
+                aria-label={`View cart${cartCount > 0 ? `, ${cartCount} item${cartCount === 1 ? "" : "s"}` : ""}`}
                 className={`relative flex h-9.5 w-9.5 items-center justify-center rounded-xl border border-white/10 bg-transparent text-white shadow-xs transition-all duration-150 hover:border-amber-400/40 hover:bg-transparent hover:text-amber-200 active:scale-95 ${
                   cartToss ? "animate-[cartToss_0.7s_ease-in-out]" : ""
                 }`}
@@ -548,7 +692,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                         width={32}
                         height={32}
                         className="h-8 w-8 rounded-full object-cover"
-                        unoptimized
                       />
                     ) : (
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-700 text-white">
@@ -585,7 +728,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                         <button
                           type="button"
                           onClick={handleSignOut}
-                          className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-semibold text-rose-300 transition-colors hover:bg-rose-500/15 hover:text-rose-200"
+                          className="storefront-signout flex w-full items-center gap-2.5 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition-colors"
                         >
                           <LogOut className="h-4 w-4" />
                           <span>Sign out</span>
@@ -613,10 +756,10 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
             </div>
 
             {/* Mobile View Controls */}
-            <div className="relative ml-auto flex shrink-0 items-center gap-1 sm:gap-2 lg:hidden">
+            <div className="relative ml-auto flex shrink-0 items-center gap-1 sm:gap-2 xl:hidden">
               <Link
                 href="/cart"
-                aria-label="View cart"
+                aria-label={`View cart${cartCount > 0 ? `, ${cartCount} item${cartCount === 1 ? "" : "s"}` : ""}`}
                 className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/10 bg-transparent text-white shadow-xs transition-all duration-150 hover:bg-transparent active:scale-95 sm:h-9.5 sm:w-9.5 sm:rounded-xl ${
                   cartToss ? "animate-[cartToss_0.7s_ease-in-out]" : ""
                 }`}
@@ -628,29 +771,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                   </span>
                 )}
               </Link>
-
-              {user && <div className="hidden sm:block">{renderNotificationButton()}</div>}
-
-              {user && (
-                <Link
-                  href="/profile"
-                  aria-label="View your profile"
-                  className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-slate-800 text-white transition hover:border-[#ff8a1e]/60 active:scale-95 sm:h-9 sm:w-9"
-                >
-                  {user.imageUrl ? (
-                    <Image
-                      src={user.imageUrl}
-                      alt=""
-                      width={36}
-                      height={36}
-                      className="h-full w-full object-cover"
-                      unoptimized
-                    />
-                  ) : (
-                    <User className="h-4 w-4" />
-                  )}
-                </Link>
-              )}
 
               {/* Mobile Menu Hamburger / Close Toggle */}
               <button
@@ -673,7 +793,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
 
           {/* Mobile Drawer */}
           {mobileMenuOpen && (
-            <div id="storefront-mobile-menu" className="relative z-50 mt-3 overflow-hidden rounded-3xl border border-white/15 bg-[#0b101c]/98 p-4 backdrop-blur-2xl shadow-[0_25px_60px_rgba(0,0,0,0.6)] ring-1 ring-white/10 animate-in fade-in-0 slide-in-from-top-3 duration-200 lg:hidden">
+            <div id="storefront-mobile-menu" className="relative z-50 mt-3 overflow-hidden rounded-3xl border border-white/15 bg-[#0b101c]/98 p-4 backdrop-blur-2xl shadow-[0_25px_60px_rgba(0,0,0,0.6)] ring-1 ring-white/10 animate-in fade-in-0 slide-in-from-top-3 duration-200 xl:hidden">
               <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-3 py-2.5 focus-within:border-white/20 focus-within:bg-white/8">
                 <input
                   value={navSearch}
@@ -697,7 +817,16 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                 </button>
               </form>
 
-              {user && <div className="mt-3 sm:hidden">{renderNotificationButton(true)}</div>}
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="mt-3 flex w-full items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3.5 py-2.5 text-left text-xs font-semibold text-slate-200 transition hover:border-amber-400/40 hover:text-amber-200"
+              >
+                {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                {theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              </button>
+
+              {user && <div className="mt-3">{renderNotificationButton(true)}</div>}
 
               <nav aria-label="Mobile navigation" className="mt-3 space-y-1">
                 {links.map((link) => {
@@ -707,6 +836,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                     <Link
                       key={link.href}
                       href={link.href}
+                      aria-current={isActive ? (link.href.includes("#") ? "location" : "page") : undefined}
                       onClick={(event) => {
                         event.preventDefault();
                         setMobileMenuOpen(false);
@@ -727,6 +857,15 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                 })}
               </nav>
 
+              <Link
+                href="/favorites"
+                onClick={() => setMobileMenuOpen(false)}
+                className="mt-2 flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-300 transition-all hover:bg-white/5 hover:text-white"
+              >
+                <Heart className="h-4 w-4" />
+                Saved favorites
+              </Link>
+
               {user ? (
                 <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/10 pt-3">
                   <Link
@@ -740,7 +879,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                   <button
                     type="button"
                     onClick={handleSignOut}
-                    className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10 hover:text-white"
+                    className="storefront-signout flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-xs font-semibold transition-colors"
                   >
                     <LogOut className="h-4 w-4" />
                     Sign out
@@ -769,11 +908,26 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
         </div>
       </header>
       {children}
+      {cartCount > 0 && pathname !== "/cart" && pathname !== "/checkout" && (
+        <Link
+          href="/cart"
+          className="storefront-cart-nudge fixed inset-x-3 bottom-3 z-30 mx-auto flex max-w-md items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-[0_14px_35px_rgba(32,39,32,0.2)] backdrop-blur-xl transition hover:-translate-y-0.5 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:mx-0"
+          aria-label={`View cart with ${cartCount} item${cartCount === 1 ? "" : "s"}`}
+        >
+          <span className="flex items-center gap-2 text-xs font-semibold">
+            <ShoppingCart className="h-4 w-4" aria-hidden="true" />
+            {cartCount} item{cartCount === 1 ? "" : "s"} ready for checkout
+          </span>
+          <span className="inline-flex items-center gap-1 text-xs font-bold">
+            View cart <span aria-hidden="true">→</span>
+          </span>
+        </Link>
+      )}
       {cartStockWarning && (
         <div
           role="alert"
           aria-live="assertive"
-          className="fixed inset-x-4 bottom-4 z-100 mx-auto flex max-w-lg items-start gap-3 rounded-xl border border-amber-400/30 bg-[#12141c] p-4 text-sm text-amber-100 shadow-xl sm:bottom-6"
+          className="storefront-stock-warning fixed inset-x-4 bottom-4 z-100 mx-auto flex max-w-lg items-start gap-3 rounded-xl border border-amber-400/30 bg-[#12141c] p-4 text-sm text-amber-100 shadow-xl sm:bottom-6"
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
           <p className="min-w-0 flex-1">{cartStockWarning}</p>

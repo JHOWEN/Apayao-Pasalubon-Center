@@ -10,6 +10,7 @@ import { AuthSuccessState } from "@/components/auth/AuthSuccessState";
 import { AuthCardLayout } from "@/components/auth/AuthCardLayout";
 import { AuthInput } from "@/components/auth/AuthInput";
 import { PasswordStrengthIndicator } from "@/components/auth/PasswordStrengthIndicator";
+import { getNewPasswordPolicyError } from "@/lib/password-policy";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -33,8 +34,9 @@ export default function RegisterPage() {
       return;
     }
 
-    if (form.password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    const passwordError = getNewPasswordPolicyError(form.password);
+    if (passwordError) {
+      setError(passwordError);
       return;
     }
 
@@ -193,8 +195,9 @@ export default function RegisterPage() {
                   setForm({ ...form, gdprConsent: e.target.checked })
                 }
                 className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 accent-slate-900"
+                style={{ colorScheme: "light" }}
               />
-              <span className="text-xs sm:text-sm leading-normal text-slate-600">
+              <span className="text-xs font-semibold leading-relaxed text-slate-700 sm:text-sm">
                 I agree to the{" "}
                 <Link
                   href="/terms?from=register"
@@ -236,7 +239,7 @@ export default function RegisterPage() {
             whileHover={{ scale: isLoading ? 1 : 1.005 }}
             whileTap={{ scale: isLoading ? 1 : 0.99 }}
             disabled={isLoading}
-            className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-6 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+            className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-4 text-sm font-bold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:px-6"
           >
             {isLoading ? (
               <>

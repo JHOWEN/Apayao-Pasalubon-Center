@@ -1,6 +1,8 @@
 "use client";
+import { adminFetch } from "@/lib/admin-data-cache";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
+import { getAdminQueryClient } from "@/components/providers/admin-query-provider";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -21,22 +23,22 @@ import {
   X,
 } from "lucide-react";
 import { clearAdminNotificationCount, getAdminNotificationCount } from "@/lib/admin-notifications";
-import { isSidebarLinkActive } from "@/utils/sidebar-nav";
+import { isSidebarLinkActive, normalizeSidebarPathname } from "@/utils/sidebar-nav";
 
 const dashboardLink = { href: "/dashboard", label: "Dashboard", icon: LayoutGrid };
-const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png";
 const logoSrc = fallbackAvatarSrc;
 
 const sections = [
   {
-    title: "Sales Channels",
+    title: "Sales",
     links: [
       { href: "/pos", label: "POS Terminal", icon: ShoppingCart },
       { href: "/admin-orders", label: "Orders", icon: ReceiptText },
     ],
   },
   {
-    title: "Inventory",
+    title: "Catalog & Stock",
     links: [
       { href: "/products", label: "Products", icon: Package },
       { href: "/categories", label: "Categories", icon: FolderOpen },
@@ -45,14 +47,16 @@ const sections = [
     ],
   },
   {
-    title: "Customer",
-    links: [{ href: "/customers", label: "Customer Accounts", icon: Users }],
-  },
-  {
-    title: "System",
+    title: "Insights",
     links: [
       { href: "/analytics", label: "Analytics", icon: BarChart3 },
       { href: "/reports", label: "Reports", icon: ShoppingBag },
+    ],
+  },
+  {
+    title: "Management",
+    links: [
+      { href: "/customers", label: "Customer Accounts", icon: Users },
       { href: "/admin-settings", label: "Settings", icon: Settings },
     ],
   },
@@ -61,34 +65,47 @@ const sections = [
 export function AdminSidebar({
   isMobile = false,
   onCloseMobile,
+  userRole,
 }: {
   isMobile?: boolean;
   onCloseMobile?: () => void;
-} = {}) {
+  userRole: "ADMIN" | "STAFF" | null;
+}) {
   const pathname = usePathname();
+  const normalizedPathname = normalizeSidebarPathname(pathname);
   const router = useRouter();
   const [notificationCount, setNotificationCount] = useState(0);
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
+  const [adminName, setAdminName] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [avatarSrc, setAvatarSrc] = useState(fallbackAvatarSrc);
 
   const visibleSections =
     userRole === "ADMIN"
       ? sections
-      : sections
-          .map((section) => ({
-            ...section,
-            links: section.links.filter((link) =>
-              ["/pos", "/products", "/admin-settings"].includes(link.href)
-            ),
-          }))
-          .filter((section) => section.links.length > 0);
+      : userRole === "STAFF"
+        ? sections
+            .map((section) => ({
+              ...section,
+              links: section.links.filter((link) =>
+                ["/pos", "/admin-orders", "/products", "/admin-settings"].includes(link.href)
+              ),
+            }))
+            .filter((section) => section.links.length > 0)
+        : [];
+
+  const showDashboardLink = userRole === "ADMIN";
+  const railLinks = [
+    ...(userRole === "ADMIN" ? [dashboardLink] : []),
+    ...visibleSections.flatMap((section) => section.links),
+  ];
 
   useEffect(() => {
-    async function loadUserRole() {
+    if (!userRole) return;
+
+    async function loadSidebarProfile() {
       try {
-        const response = await fetch("/api/auth/profile");
+        const response = await adminFetch("/api/auth/profile");
         if (!response.ok) return;
         const data = await response.json();
 
@@ -98,20 +115,25 @@ export function AdminSidebar({
             : fallbackAvatarSrc;
 
         setAvatarSrc(nextAvatarSrc);
+        setAdminName(typeof data?.user?.name === "string" ? data.user.name : "");
         setAdminEmail(typeof data?.user?.email === "string" ? data.user.email : "");
 
-        if (data?.user?.role === "ADMIN" || data?.user?.role === "STAFF") {
-          setUserRole(data.user.role);
-        }
       } catch {
-        // Keep navigation hidden until the authenticated role is known.
+        // The parent layout already verified the role; profile details are optional.
       }
     }
 
-    void loadUserRole();
+    void loadSidebarProfile();
 
-    const syncCount = () => setNotificationCount(getAdminNotificationCount());
-    syncCount();
+    const syncCount = () => {
+      const count = getAdminNotificationCount();
+      if (pathname === "/admin-orders") {
+        setNotificationCount(0);
+        if (count > 0) clearAdminNotificationCount();
+        return;
+      }
+      setNotificationCount(count);
+    };
 
     const handleStorage = (event: StorageEvent) => {
       if (event.key === "apc-admin-notifications") {
@@ -119,48 +141,28 @@ export function AdminSidebar({
       }
     };
 
-    const handleOrderCreated = () => {
-      syncCount();
-    };
-
     const handleCustomNotificationUpdate = () => {
       syncCount();
     };
 
-    const handleSseEvent = (event: MessageEvent) => {
-      try {
-        const message = JSON.parse(event.data) as { type?: string };
-        if (message?.type === "order-created" || message?.type === "order-updated" || message?.type === "inventory-updated") {
-          syncCount();
-        }
-      } catch {
-        // Ignore invalid SSE payloads.
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (message?.type === "order-created" || message?.type === "order-updated" || message?.type === "inventory-updated") {
+        syncCount();
       }
     };
 
-    const eventSource = new EventSource("/api/admin/live");
-    eventSource.addEventListener("order-created", handleSseEvent);
-    eventSource.addEventListener("order-updated", handleSseEvent);
-    eventSource.addEventListener("inventory-updated", handleSseEvent);
-
     window.addEventListener("storage", handleStorage);
-    window.addEventListener("apc-new-order", handleOrderCreated);
     window.addEventListener("apc-admin-notifications-updated", handleCustomNotificationUpdate);
-
-    if (pathname === "/admin-orders") {
-      clearAdminNotificationCount();
-      window.setTimeout(() => {
-        setNotificationCount(0);
-      }, 0);
-    }
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
+    syncCount();
 
     return () => {
       window.removeEventListener("storage", handleStorage);
-      window.removeEventListener("apc-new-order", handleOrderCreated);
       window.removeEventListener("apc-admin-notifications-updated", handleCustomNotificationUpdate);
-      eventSource.close();
+      window.removeEventListener("apc-admin-live-event", handleLiveEvent);
     };
-  }, [pathname]);
+  }, [pathname, userRole]);
 
   const handleLinkClick = () => {
     if (isMobile && onCloseMobile) {
@@ -170,49 +172,121 @@ export function AdminSidebar({
 
   async function handleSignOut() {
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      await adminFetch("/api/auth/logout", { method: "POST" });
     } finally {
+      getAdminQueryClient().clear();
       router.push("/login");
     }
   }
 
   const effectiveCollapsed = !isMobile && isCollapsed;
+  const accountName = adminName.trim() || adminEmail.split("@")[0] || (userRole ? "Admin account" : "Account");
 
   return (
     <aside
       data-admin-sidebar-collapsed={effectiveCollapsed}
-      className={`min-w-0 shrink-0 border-r border-slate-200/80 bg-white text-slate-800 transition-all duration-300 ease-in-out dark:border-slate-800/90 dark:bg-slate-950 dark:text-slate-100 ${
+      className={`relative min-w-0 shrink-0 bg-[#06262b] text-slate-200 transition-[width] duration-200 ease-out ${
         isMobile
-          ? "flex h-full w-72 flex-col"
-          : `flex h-dvh w-16 flex-col max-lg:w-16 max-lg:max-w-16 max-lg:flex-none lg:sticky lg:top-0 ${
-              effectiveCollapsed ? "lg:w-18" : "lg:w-71"
+          ? "fixed inset-y-0 left-0 z-60 flex h-dvh w-[min(19rem,88vw)] flex-col shadow-2xl shadow-slate-950/25 lg:sticky lg:top-0 lg:z-auto lg:h-dvh lg:w-72 lg:flex-row lg:shadow-none"
+          : `hidden h-dvh flex-row lg:sticky lg:top-0 lg:z-40 lg:flex ${
+              effectiveCollapsed ? "lg:w-20" : "lg:w-72"
             }`
       }`}
     >
-      <div className="flex h-full min-h-0 flex-col px-3 py-3 max-lg:px-1.5">
-        {/* Brand Header - Main View Hero */}
+      <div className="flex h-full min-h-0 w-full">
         <div
-          className={`relative mb-2 flex items-center border-b border-slate-200 pb-2 dark:border-slate-800 ${
-            effectiveCollapsed ? "flex-col justify-center gap-2.5" : "gap-3 max-lg:flex-col max-lg:justify-center max-lg:gap-2"
+          className={`${!isMobile && effectiveCollapsed ? "flex" : "hidden"} w-full min-w-0 flex-1 flex-col items-center bg-[#06262b] py-3`}
+        >
+          <Link
+            href={userRole === "ADMIN" ? dashboardLink.href : userRole === "STAFF" ? "/pos" : "/"}
+            onClick={handleLinkClick}
+            aria-label="APC Inventory home"
+            title="APC Inventory"
+            className="relative mb-4 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white p-0.5 ring-1 ring-white/15 transition-transform hover:scale-[1.03]"
+          >
+            <Image src={logoSrc} alt="APC logo" fill sizes="40px" className="object-cover object-center" />
+          </Link>
+
+          {effectiveCollapsed && (
+            <button
+              type="button"
+              onClick={() => setIsCollapsed(false)}
+              className="mb-3 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+            >
+              <PanelLeftOpen className="h-4 w-4" />
+            </button>
+          )}
+
+          <nav aria-label="Quick admin navigation" className="admin-sidebar-nav flex min-h-0 w-full flex-1 flex-col items-center gap-2 overflow-y-auto px-1">
+            {railLinks.map((link) => {
+              const Icon = link.icon;
+              const isActive =
+                link.href === dashboardLink.href
+                  ? normalizedPathname === dashboardLink.href
+                  : isSidebarLinkActive(pathname, link.href);
+
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={handleLinkClick}
+                  title={link.label}
+                  aria-label={link.label}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`group relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7] ${
+                    isActive
+                      ? "bg-[#0b4650] text-[#b4f2fa]"
+                      : "text-[#a8bbc0] hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <Icon className="h-4.5 w-4.5" />
+                  {link.href === "/admin-orders" && notificationCount > 0 && (
+                    <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-[#13889a] px-1 text-[8px] font-bold text-white ring-2 ring-[#06262b]">
+                      {notificationCount > 9 ? "9+" : notificationCount}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
+
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="mt-3 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-[#1597ae] transition-colors hover:bg-white/10 hover:text-[#57d3e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut className="h-4.5 w-4.5" />
+          </button>
+        </div>
+
+      <div className={`h-full min-h-0 min-w-0 flex-1 flex-col bg-[#06262b] px-3.5 py-2.5 ${effectiveCollapsed ? "hidden" : "flex"}`}>
+        {/* Brand */}
+        <div
+          className={`relative mb-2 flex min-h-11 items-center ${
+            effectiveCollapsed ? "flex-col justify-center gap-2.5" : "gap-3"
           }`}
         >
           {!effectiveCollapsed ? (
             <>
-              <div className="flex min-w-0 flex-1 items-center gap-3 max-lg:justify-center">
-                <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl shadow-sm ring-1 ring-slate-200/90 dark:ring-slate-700/80 bg-linear-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-900 p-0.5">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl bg-white p-0.5 shadow-sm ring-1 ring-white/20">
                   <Image
                     src={logoSrc}
                     alt="APC logo"
                     fill
                     sizes="44px"
-                    className="object-cover"
+                    className="object-cover object-center"
                   />
                 </div>
-                <div className="min-w-0 flex-1 max-lg:hidden">
-                  <h1 className="truncate text-base font-extrabold tracking-tight text-slate-900 dark:text-white leading-tight">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold tracking-tight text-white leading-tight">
                     Smart Inventory
-                  </h1>
-                  <p className="mt-0.5 whitespace-nowrap text-xs font-semibold text-slate-500 dark:text-slate-400 leading-tight">
+                  </p>
+                  <p className="mt-1 text-[11px] text-slate-400 leading-tight">
                     Apayao Pasalubong Center
                   </p>
                 </div>
@@ -222,7 +296,7 @@ export function AdminSidebar({
                 <button
                   type="button"
                   onClick={onCloseMobile}
-                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 active:scale-95"
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
                   aria-label="Close sidebar"
                 >
                   <X className="h-4.5 w-4.5" />
@@ -231,7 +305,7 @@ export function AdminSidebar({
                 <button
                   type="button"
                   onClick={() => setIsCollapsed((val) => !val)}
-                  className="inline-flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-slate-50/80 text-slate-400 shadow-2xs transition-all duration-150 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 active:scale-95 max-lg:hidden"
+                  className="-mr-7 z-50 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#06262b] text-slate-300 shadow-sm ring-1 ring-white/10 transition-colors hover:bg-[#0b4650] hover:text-white"
                   aria-label="Collapse sidebar"
                   title="Collapse sidebar"
                 >
@@ -242,7 +316,7 @@ export function AdminSidebar({
           ) : (
             <div className="flex flex-col items-center gap-2.5">
               <div
-                className="relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl shadow-sm ring-1 ring-slate-200 dark:ring-slate-700 bg-linear-to-b from-white to-slate-50 dark:from-slate-800 dark:to-slate-900 p-0.5"
+                className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-white p-0.5 shadow-sm ring-1 ring-white/20"
                 title="Smart Inventory - Apayao Pasalubong Center"
               >
                 <Image
@@ -250,13 +324,13 @@ export function AdminSidebar({
                   alt="APC logo"
                   fill
                   sizes="44px"
-                  className="object-cover"
+                  className="object-cover object-center"
                 />
               </div>
               <button
                 type="button"
                 onClick={() => setIsCollapsed((val) => !val)}
-                className="inline-flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-lg border border-slate-200/80 bg-slate-50/80 text-slate-400 shadow-2xs transition-all duration-150 hover:border-slate-300 hover:bg-slate-100 hover:text-slate-700 dark:border-slate-800 dark:bg-slate-900/60 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200 active:scale-95"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-white/10 hover:text-white"
                 aria-label="Expand sidebar"
                 title="Expand sidebar"
               >
@@ -267,44 +341,46 @@ export function AdminSidebar({
         </div>
 
         {/* Dashboard Link (Admin Only) */}
-        {userRole === "ADMIN" && (
-          <div className="mb-1 max-lg:px-1">
+        {showDashboardLink && (
+          <div className="mb-2">
             <Link
               href={dashboardLink.href}
               onClick={handleLinkClick}
               title={effectiveCollapsed ? dashboardLink.label : undefined}
               aria-label={dashboardLink.label}
-              className={`group relative flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors duration-150 max-lg:min-h-10 max-lg:justify-center max-lg:px-1 max-lg:py-2 ${
-                pathname === dashboardLink.href
-                  ? "bg-emerald-500/10 font-semibold text-emerald-800 dark:text-emerald-300 border border-emerald-500/20 dark:bg-emerald-500/15 shadow-2xs"
-                  : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/80 dark:hover:text-slate-100"
+              aria-current={normalizedPathname === dashboardLink.href ? "page" : undefined}
+              className={`group relative flex min-h-9 items-center gap-3 rounded-none px-3 py-2 text-sm transition-colors ${
+                normalizedPathname === dashboardLink.href
+                  ? "bg-[#0b4650] font-semibold text-white"
+                  : "text-slate-300 hover:bg-white/8 hover:text-white"
               } ${effectiveCollapsed ? "justify-center px-1.5 py-1.5" : ""}`}
             >
-              {pathname === dashboardLink.href && !effectiveCollapsed && (
-                <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-emerald-600 dark:bg-emerald-400" />
-              )}
               <dashboardLink.icon
                 className={`h-4.5 w-4.5 shrink-0 transition-colors ${
-                  pathname === dashboardLink.href
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300"
+                  normalizedPathname === dashboardLink.href
+                    ? "text-[#a9eaf3]"
+                    : "text-[#a8bbc0] group-hover:text-white"
                 }`}
               />
-              {!effectiveCollapsed && <span className="max-lg:hidden">{dashboardLink.label}</span>}
+              {!effectiveCollapsed && <span>{dashboardLink.label}</span>}
             </Link>
           </div>
         )}
 
         {/* Main Navigation Items */}
-        <nav className="flex-1 min-h-0 space-y-2 overflow-y-auto admin-modal-scrollbar pr-0.5">
+        <nav
+          aria-label="Admin navigation"
+          aria-busy={userRole === null}
+          className="admin-sidebar-nav flex w-full min-h-0 flex-1 flex-col space-y-3 overflow-y-auto"
+        >
           {visibleSections.map((section) => (
-            <div key={section.title} className="space-y-0.5">
+            <div key={section.title} className="space-y-1">
               {!effectiveCollapsed && (
-                <p className="px-2.5 pb-0.5 pt-1 text-[10.5px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 max-lg:hidden">
+                <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                   {section.title}
                 </p>
               )}
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {section.links.map((link) => {
                   const Icon = link.icon;
                   const isActive = isSidebarLinkActive(pathname, link.href);
@@ -316,26 +392,24 @@ export function AdminSidebar({
                       onClick={handleLinkClick}
                       title={link.label}
                       aria-label={link.label}
-                      className={`group relative flex min-h-9 items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors duration-150 max-lg:min-h-10 max-lg:justify-center max-lg:px-1 max-lg:py-2 ${
+                      className={`group relative flex min-h-9 items-center gap-3 rounded-none px-3 py-2 text-[13px] font-medium transition-colors ${
                         isActive
-                          ? "bg-emerald-500/10 font-semibold text-emerald-800 dark:text-emerald-300 border border-emerald-500/20 dark:bg-emerald-500/15 shadow-2xs"
-                          : "text-slate-600 hover:bg-slate-100/80 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900/80 dark:hover:text-slate-100"
+                          ? "bg-[#0b4650] font-semibold text-white"
+                          : "text-slate-300 hover:bg-white/8 hover:text-white"
                       } ${effectiveCollapsed ? "justify-center px-1.5 py-1.5" : ""}`}
+                      aria-current={isActive ? "page" : undefined}
                     >
-                      {isActive && !effectiveCollapsed && (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-emerald-600 dark:bg-emerald-400" />
-                      )}
 
                       <Icon
                         className={`h-4.5 w-4.5 shrink-0 transition-colors ${
                           isActive
-                            ? "text-emerald-600 dark:text-emerald-400"
-                            : "text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-300"
+                            ? "text-[#a9eaf3]"
+                            : "text-[#a8bbc0] group-hover:text-white"
                         }`}
                       />
 
                       {!effectiveCollapsed && (
-                        <span className="truncate whitespace-nowrap max-lg:hidden">{link.label}</span>
+                        <span className="truncate whitespace-nowrap">{link.label}</span>
                       )}
 
                       {/* Order Count Badge */}
@@ -344,7 +418,7 @@ export function AdminSidebar({
                           className={`inline-flex items-center justify-center font-bold text-white shadow-xs ${
                             effectiveCollapsed
                               ? "absolute -right-0.5 -top-0.5 h-4 min-w-4 rounded-full bg-rose-500 px-1 text-[9px] ring-2 ring-white dark:ring-slate-950"
-                              : "ml-auto h-4.5 min-w-4.5 rounded-full bg-rose-500 px-1.5 text-[10.5px] max-lg:absolute max-lg:-right-0.5 max-lg:-top-0.5 max-lg:h-4 max-lg:min-w-4 max-lg:px-1 max-lg:text-[9px]"
+                              : "ml-auto h-5 min-w-5 rounded-full bg-rose-500 px-1.5 text-[10px]"
                           }`}
                         >
                           {notificationCount > 9 ? "9+" : notificationCount}
@@ -358,75 +432,36 @@ export function AdminSidebar({
           ))}
         </nav>
 
-        {/* User Profile & Footer Section */}
-        {!effectiveCollapsed ? (
-          <div className="mt-1 border-t border-slate-200/80 pt-1 dark:border-slate-800">
-            <div className="flex items-center gap-2.5 rounded-xl border border-slate-200/80 bg-slate-50/70 p-2 shadow-2xs dark:border-slate-800/80 dark:bg-slate-900/50 max-lg:justify-center max-lg:border-0 max-lg:bg-transparent max-lg:p-0 max-lg:shadow-none">
-              <div className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-100 text-emerald-700 ring-2 ring-emerald-500/20 dark:bg-emerald-950 dark:text-emerald-300 shadow-2xs">
-                <Image
-                  src={avatarSrc}
-                  alt="Admin profile"
-                  fill
-                  sizes="32px"
-                  className="object-cover"
-                />
-              </div>
-              <div className="min-w-0 flex-1 max-lg:hidden">
-                <div
-                  className="truncate text-xs font-semibold text-slate-900 dark:text-white"
-                  title={adminEmail || "Admin account"}
-                >
-                  {adminEmail || "Admin account"}
-                </div>
-                <div className="mt-0.5">
-                  <span className="inline-flex items-center rounded-md bg-emerald-100/80 px-1.5 py-0.2 text-[9.5px] font-bold uppercase tracking-wider text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800/40">
-                    {userRole === "ADMIN"
-                      ? "Administrator"
-                      : userRole === "STAFF"
-                      ? "Staff Member"
-                      : "User"}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleSignOut}
-              aria-label="Sign out"
-              className="group mt-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-200/90 bg-white py-1.5 px-3 text-xs font-semibold text-slate-700 shadow-2xs transition-all duration-150 hover:border-rose-200 hover:bg-rose-50/80 hover:text-rose-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-rose-900/60 dark:hover:bg-rose-950/30 dark:hover:text-rose-300 active:scale-[0.98] max-lg:mx-auto max-lg:h-9 max-lg:w-9 max-lg:p-0"
-            >
-              <LogOut className="h-3.5 w-3.5 text-slate-400 transition-colors group-hover:text-rose-600 dark:text-slate-500 dark:group-hover:text-rose-400" />
-              <span className="max-lg:hidden">Sign out</span>
-            </button>
+        {/* Account and sign out */}
+        <div className="mt-auto flex min-w-0 shrink-0 items-center gap-2.5 pt-3">
+          <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-full bg-white/10 ring-1 ring-white/10">
+            <Image
+              src={avatarSrc}
+              alt=""
+              fill
+              sizes="36px"
+              className="object-cover"
+            />
           </div>
-        ) : (
-          <div className="mt-2 border-t border-slate-200/80 pt-2 dark:border-slate-800">
-            <div className="flex flex-col items-center gap-2">
-              <div
-                className="relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-100 text-emerald-700 ring-2 ring-emerald-500/20 dark:bg-emerald-950 dark:text-emerald-300 shadow-2xs"
-                title={`${adminEmail || "User"} (${userRole === "ADMIN" ? "Administrator" : "Staff"})`}
-              >
-                <Image
-                  src={avatarSrc}
-                  alt="Admin profile"
-                  fill
-                  sizes="32px"
-                  className="object-cover"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={handleSignOut}
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200/90 bg-white text-slate-600 shadow-2xs transition-all duration-150 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 dark:hover:border-rose-900/70 dark:hover:bg-rose-950/30 dark:hover:text-rose-300 active:scale-95"
-                aria-label="Sign out"
-                title="Sign out"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-              </button>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[11px] font-medium leading-tight text-slate-200" title={accountName}>
+              {accountName}
+            </div>
+            <div className="mt-0.5 truncate text-[9px] leading-tight text-slate-400" title={adminEmail}>
+              {adminEmail}
             </div>
           </div>
-        )}
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#1597ae] transition-colors hover:bg-white/10 hover:text-[#57d3e6] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#27a4b7]"
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
       </div>
     </aside>
   );

@@ -3,7 +3,7 @@ import { PackageSearch } from "lucide-react";
 
 export default function EcommerceNotFound() {
   return (
-    <main className="min-h-screen bg-[#0a0d14] px-4 py-16 text-slate-100">
+    <main className="storefront-page-state min-h-screen bg-[#0a0d14] px-4 py-16 text-slate-100">
       <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-[#12141c] p-8 text-center shadow-2xl">
         <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200">
           <PackageSearch className="h-6 w-6" />

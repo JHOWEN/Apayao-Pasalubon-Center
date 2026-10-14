@@ -160,7 +160,7 @@ export default function ForgotPasswordPage() {
               type="button"
               onClick={handleResend}
               disabled={isResending}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              className="flex min-h-12 flex-1 items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:px-4 sm:text-sm"
             >
               <RefreshCw
                 className={`h-3.5 w-3.5 ${isResending ? "animate-spin" : ""}`}
@@ -174,13 +174,13 @@ export default function ForgotPasswordPage() {
                 setResendMessage("");
                 setResendError("");
               }}
-              className="flex flex-1 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-xs font-semibold text-slate-800 transition hover:bg-slate-50"
+              className="flex min-h-12 flex-1 items-center justify-center rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-800 transition hover:bg-slate-50 sm:px-4 sm:text-sm"
             >
               Use another email
             </button>
             <Link
               href="/login"
-              className="flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-slate-800"
+              className="flex min-h-12 items-center justify-center gap-1.5 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-slate-800 sm:text-sm"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               Sign in
@@ -225,9 +225,6 @@ export default function ForgotPasswordPage() {
                   <p className="mt-1 whitespace-pre-line text-xs leading-relaxed text-slate-700">
                     {feedback.message}
                   </p>
-                  <p className="mt-1.5 text-[11px] text-slate-600">
-                    Check the email address and try again.
-                  </p>
                 </div>
               </motion.div>
             ) : null}
@@ -238,7 +235,7 @@ export default function ForgotPasswordPage() {
             whileHover={{ scale: isLoading ? 1 : 1.005 }}
             whileTap={{ scale: isLoading ? 1 : 0.99 }}
             disabled={isLoading}
-            className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-6 text-sm font-semibold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none"
+            className="group relative mt-2 flex h-12 min-h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-slate-900 px-4 text-sm font-bold uppercase tracking-[0.08em] text-white shadow-md shadow-slate-900/10 transition-all hover:bg-slate-800 hover:shadow-lg hover:shadow-slate-900/15 active:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60 disabled:shadow-none sm:px-6"
           >
             {isLoading ? (
               <>

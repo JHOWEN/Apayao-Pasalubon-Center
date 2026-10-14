@@ -1,6 +1,6 @@
 "use client";
 
-import Image from "next/image";
+import Image from "@/components/safe-image";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   CheckCircle2,
   ChevronRight,
+  Heart,
   Minus,
   PackageSearch,
   Plus,
@@ -20,7 +21,9 @@ import {
 } from "lucide-react";
 import { addToCart, getStoredUser } from "@/features/cart/lib/cart";
 import { getPrimaryImageUrl, parseImageUrls } from "@/features/catalog/utils/product-images";
-import { fetchWithTimeout, RequestTimeoutError } from "@/lib/client-fetch";
+import { isFavoriteProduct, recordRecentlyViewed, toggleFavoriteProduct } from "@/features/catalog/lib/favorites";
+import { RequestTimeoutError } from "@/lib/client-fetch";
+import { publicFetch } from "@/lib/public-data-cache";
 
 const formatReviewDate = (value: string) => {
   const date = new Date(value);
@@ -136,6 +139,7 @@ export default function ProductDetailPage() {
   const [activeGalleryIndex, setActiveGalleryIndex] = useState(0);
   const [, setShowOptionsModal] = useState(false);
   const [reviewOptionValue, setReviewOptionValue] = useState("all");
+  const [isFavorite, setIsFavorite] = useState(false);
   const [groupedOptionItems, setGroupedOptionItems] = useState<
     Array<{
       optionValue: string;
@@ -179,6 +183,18 @@ export default function ProductDetailPage() {
       .replace(/[_-]+/g, " ")
       .replace(/\b\w/g, (character) => character.toUpperCase());
 
+  function toggleProductFavorite() {
+    if (!product?.id) return;
+    setIsFavorite(
+      toggleFavoriteProduct({
+        id: product.id,
+        name: product.name ?? "Product",
+        imageUrl: getPrimaryImageUrl(product.imageUrl),
+        price: Number(product.price ?? 0),
+      }),
+    );
+  }
+
   useEffect(() => {
     const hashTarget = typeof window !== "undefined" ? window.location.hash.replace("#", "") : "";
 
@@ -195,13 +211,13 @@ export default function ProductDetailPage() {
       requestAnimationFrame(scrollToTarget);
     }
 
-    async function loadProduct() {
+    async function loadProduct(background = false) {
       try {
         const productId = typeof params.id === "string" && params.id !== "undefined" ? params.id : "";
 
         if (!productId) {
           setLookupMessage(
-            "This item could not be loaded from the catalog right now. You can still return to your completed orders and review your purchase history.",
+            "We couldn't load this item. Check your connection and try again. If it is still unavailable, browse the catalog or check your orders.",
           );
           setProduct(null);
           setSelectedImage(null);
@@ -209,10 +225,9 @@ export default function ProductDetailPage() {
           return;
         }
 
-        const response = await fetchWithTimeout(
+        const response = await publicFetch(
           `/api/public/products?id=${encodeURIComponent(productId)}`,
           { cache: "no-store" },
-          15000,
         );
         const data = await response.json();
 
@@ -225,15 +240,25 @@ export default function ProductDetailPage() {
           typeof productPayload !== "object" ||
           !("id" in productPayload)
         ) {
-          setLookupMessage(
-            "This item could not be loaded from the catalog right now. You can still return to your completed orders and review your purchase history.",
-          );
-          setProduct(null);
-          setSelectedImage(null);
-          setRelatedProducts([]);
+          if (!background || response.status === 404) {
+            setLookupMessage(
+              "We couldn't load this item. Check your connection and try again. If it is still unavailable, browse the catalog or check your orders.",
+            );
+            setProduct(null);
+            setSelectedImage(null);
+            setRelatedProducts([]);
+          }
         } else {
           setLookupMessage("");
           setProduct(productPayload);
+          const viewedProduct = {
+            id: String(productPayload.id),
+            name: String(productPayload.name ?? "Product"),
+            imageUrl: getPrimaryImageUrl(productPayload.imageUrl),
+            price: Number(productPayload.price ?? 0),
+          };
+          recordRecentlyViewed(viewedProduct);
+          setIsFavorite(isFavoriteProduct(viewedProduct.id));
           const preferredVariant =
             Array.isArray(productPayload.variants) && productPayload.variants.length > 0
               ? productPayload.variants.find(
@@ -242,12 +267,20 @@ export default function ProductDetailPage() {
                 ) ?? productPayload.variants[0]
               : null;
           const preferredVariantId = preferredVariant?.id ?? "";
-          setSelectedVariantId(preferredVariantId);
-          setSelectedOptionValue("");
-          setReviewOptionValue("all");
-          setSelectedImage(
-            preferredVariant?.imageUrls?.[0] ? getPrimaryImageUrl(preferredVariant.imageUrls[0]) ?? null : null,
-          );
+          if (background) {
+            setSelectedVariantId((current) =>
+              productPayload.variants?.some((variant: { id: string }) => variant.id === current)
+                ? current
+                : preferredVariantId,
+            );
+          } else {
+            setSelectedVariantId(preferredVariantId);
+            setSelectedOptionValue("");
+            setReviewOptionValue("all");
+            setSelectedImage(
+              preferredVariant?.imageUrls?.[0] ? getPrimaryImageUrl(preferredVariant.imageUrls[0]) ?? null : null,
+            );
+          }
 
           const legacyOptionItems =
             productPayload.productGroup?.items?.map(
@@ -308,6 +341,13 @@ export default function ProductDetailPage() {
           );
 
           if (configuredOptionItems.length > 0) {
+            const optionProducts = Array.isArray(productPayload.optionProducts)
+              ? productPayload.optionProducts as ProductType[]
+              : [];
+            const optionProductById = new Map(
+              optionProducts.map((optionProduct): [string, ProductType] => [String(optionProduct.id), optionProduct]),
+            );
+
             try {
               const optionItems = (
                 await Promise.all(
@@ -322,18 +362,10 @@ export default function ProductDetailPage() {
                       const assignedProductId = String(item.assignedProductId);
                       if (!assignedProductId || !item.optionValue.trim()) return null;
 
-                      let inventoryProduct =
+                      const inventoryProduct =
                         assignedProductId === String(productPayload.id)
                           ? productPayload
-                          : item.inventoryProduct;
-                      if (!inventoryProduct) {
-                        const response = await fetch(
-                          `/api/public/products?id=${encodeURIComponent(assignedProductId)}`,
-                          { cache: "no-store" },
-                        );
-                        const data = await response.json();
-                        inventoryProduct = response.ok ? data?.product : null;
-                      }
+                          : item.inventoryProduct ?? optionProductById.get(assignedProductId);
 
                       if (!inventoryProduct) return null;
 
@@ -358,7 +390,11 @@ export default function ProductDetailPage() {
                 .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
               setGroupedOptionItems(optionItems);
-              setSelectedOptionValue(optionItems[0]?.optionValue ?? "");
+              setSelectedOptionValue((current) =>
+                background && optionItems.some((item) => item.optionValue === current)
+                  ? current
+                  : optionItems[0]?.optionValue ?? "",
+              );
             } catch {
               setGroupedOptionItems([]);
             }
@@ -367,7 +403,7 @@ export default function ProductDetailPage() {
           }
 
           try {
-            const relatedResponse = await fetch(`/api/public/products?limit=12`, { cache: "no-store" });
+              const relatedResponse = await publicFetch(`/api/public/products?limit=12`, { cache: "no-store" });
             const relatedData = await relatedResponse.json();
 
             if (relatedResponse.ok && relatedData?.success) {
@@ -395,20 +431,40 @@ export default function ProductDetailPage() {
           }
         }
       } catch (error) {
-        setProduct(null);
-        setSelectedImage(null);
-        setRelatedProducts([]);
-        setLookupMessage(
-          error instanceof RequestTimeoutError
-            ? "Connection timed out while loading this product. Please refresh and try again."
-            : "This item could not be loaded from the catalog right now. You can still return to your completed orders and review your purchase history.",
-        );
+        if (!background) {
+          setProduct(null);
+          setSelectedImage(null);
+          setRelatedProducts([]);
+          setLookupMessage(
+            error instanceof RequestTimeoutError
+              ? "Connection timed out while loading this product. Please refresh and try again."
+              : "We couldn't load this item. Check your connection and try again. If it is still unavailable, browse the catalog or check your orders.",
+          );
+        }
       } finally {
         setLoading(false);
       }
     }
 
     void loadProduct();
+    const handleStorefrontUpdate = (event: Event) => {
+      const type = (event as CustomEvent<{ type?: string }>).detail?.type;
+      if (type === "storefront-reviews-updated") {
+        setReviewRefreshKey((current) => current + 1);
+        void loadProduct(true);
+        return;
+      }
+      if (
+        type === "storefront-products-updated" ||
+        type === "storefront-catalog-updated" ||
+        type === "storefront-resync"
+      ) {
+        void loadProduct(true);
+      }
+    };
+    window.addEventListener("apc-storefront-live-event", handleStorefrontUpdate);
+
+    return () => window.removeEventListener("apc-storefront-live-event", handleStorefrontUpdate);
   }, [params.id]);
 
   const selectedGroupItem = groupedOptionItems.find((item) => item.optionValue === selectedOptionValue) ?? null;
@@ -491,7 +547,6 @@ export default function ProductDetailPage() {
       quantity: customQuantity,
       imageUrl: getPrimaryImageUrl(variant.imageUrls?.[0] ?? product.imageUrl ?? undefined) ?? undefined,
     });
-    window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new Event("apc-cart-toss"));
     setAddedToast(true);
     setTimeout(() => setAddedToast(false), 2000);
@@ -613,7 +668,6 @@ export default function ProductDetailPage() {
       variantLabel: selectedGroupItem.optionValue,
     });
 
-    window.dispatchEvent(new Event("storage"));
     window.dispatchEvent(new Event("apc-cart-toss"));
     setShowOptionsModal(false);
     setAddedToast(true);
@@ -662,7 +716,6 @@ export default function ProductDetailPage() {
         imageUrl: getPrimaryImageUrl(activeProductImage as string | undefined) ?? undefined,
       });
 
-      window.dispatchEvent(new Event("storage"));
       window.dispatchEvent(new Event("apc-cart-toss"));
       setAddedToast(true);
       setTimeout(() => setAddedToast(false), 2000);
@@ -764,7 +817,7 @@ export default function ProductDetailPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-[#0a0d14] px-4 py-8">
+      <main className="storefront-page-product min-h-screen bg-[#0a0d14] px-4 py-8">
         <div className="mx-auto max-w-7xl animate-pulse space-y-6">
           <div className="h-6 w-32 rounded-lg bg-white/10" />
           <div className="grid gap-8 lg:grid-cols-2">
@@ -783,7 +836,7 @@ export default function ProductDetailPage() {
 
   if (!product) {
     return (
-      <main className="min-h-screen bg-[#0a0d14] px-4 py-16 text-center text-slate-100">
+      <main className="storefront-page-product min-h-screen bg-[#0a0d14] px-4 py-16 text-center text-slate-100">
         <div className="mx-auto max-w-md rounded-2xl border border-white/10 bg-[#12141c] p-8 shadow-2xl">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-200">
             {isTimeoutLookup ? <TimerReset className="h-6 w-6" /> : <PackageSearch className="h-6 w-6" />}
@@ -791,26 +844,23 @@ export default function ProductDetailPage() {
           <h1 className="text-xl font-bold text-white">
             {isTimeoutLookup ? "Connection timed out" : "Product Not Available"}
           </h1>
-          <p className="mt-2 text-xs sm:text-sm text-slate-400">
+          <p className="storefront-error-notice mt-2 rounded-xl border p-3 text-xs sm:text-sm" role="alert">
             {lookupMessage || "This item is no longer available in the store catalog."}
           </p>
           <div className="mt-6 flex flex-col gap-2">
-            {isTimeoutLookup ? (
-              <button
-                type="button"
-                onClick={() => window.location.reload()}
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-[#ff8a1e] px-5 text-xs font-bold text-slate-950 transition hover:bg-[#f97316]"
-              >
-                Retry Now
-              </button>
-            ) : (
-              <Link
-                href="/#catalog"
-                className="inline-flex h-11 items-center justify-center rounded-xl bg-[#ff8a1e] px-5 text-xs font-bold text-slate-950 transition hover:bg-[#f97316]"
-              >
-                Browse Catalog
-              </Link>
-            )}
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="inline-flex h-11 items-center justify-center rounded-xl bg-[#ff8a1e] px-5 text-xs font-bold text-slate-950 transition hover:bg-[#f97316]"
+            >
+              {isTimeoutLookup ? "Retry Now" : "Try again"}
+            </button>
+            <Link
+              href="/#catalog"
+              className="inline-flex h-11 items-center justify-center rounded-xl border border-white/20 bg-white/5 px-5 text-xs font-semibold text-white transition hover:bg-white/10"
+            >
+              Browse Catalog
+            </Link>
             <Link
               href="/orders"
               className="inline-flex h-11 items-center justify-center rounded-xl border border-white/10 bg-white/5 px-5 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
@@ -824,7 +874,7 @@ export default function ProductDetailPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
+    <main className="storefront-page-product min-h-screen bg-[#0a0d14] text-slate-100 pb-16">
       {/* Cart success */}
       {addedToast && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-2xl border border-emerald-400/30 bg-[#12141c] px-4 py-3 text-sm text-white shadow-2xl animate-fadeUp">
@@ -866,7 +916,6 @@ export default function ProductDetailPage() {
                 priority
                 sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-cover"
-                unoptimized
               />
             </div>
 
@@ -893,7 +942,6 @@ export default function ProductDetailPage() {
                       fill
                       sizes="80px"
                       className="object-cover"
-                      unoptimized
                     />
                   </button>
                 ))}
@@ -908,9 +956,18 @@ export default function ProductDetailPage() {
               <span className="rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-[#ffb36f]">
                 {product.category?.name ?? "Local Goods"}
               </span>
-              <span className="font-mono text-[11px] text-slate-400">
-                SKU: {effectiveSku}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-[11px] text-slate-400">SKU: {effectiveSku}</span>
+                <button
+                  type="button"
+                  onClick={toggleProductFavorite}
+                  aria-label={isFavorite ? "Remove product from favorites" : "Save product to favorites"}
+                  aria-pressed={isFavorite}
+                  className="storefront-favorite inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white transition hover:scale-105"
+                >
+                  <Heart className={`h-4 w-4 ${isFavorite ? "fill-current" : ""}`} />
+                </button>
+              </div>
             </div>
 
             {/* 2. Product Name */}
@@ -933,7 +990,7 @@ export default function ProductDetailPage() {
             </div>
 
             {/* 4. Price & 7. Stock Information */}
-            <div className="flex flex-wrap items-baseline gap-4 border-y border-white/10 py-4">
+            <div className="space-y-2 border-y border-white/10 py-4">
               <div className="text-3xl sm:text-4xl font-black tracking-tight text-white">
                 ₱{effectivePrice.toFixed(2)}
               </div>
@@ -1106,6 +1163,25 @@ export default function ProductDetailPage() {
                   Buy Now
                 </button>
               </div>
+
+              <div className="storefront-mobile-product-cta fixed inset-x-3 bottom-3 z-30 hidden items-center gap-2 rounded-2xl border border-white/15 bg-[#12141c]/95 p-2 shadow-2xl backdrop-blur-xl">
+                <button
+                  type="button"
+                  onClick={() => handleMainAction("cart")}
+                  disabled={effectiveStock <= 0}
+                  className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#ff8a1e] px-3 text-xs font-bold text-slate-950 transition hover:bg-[#f97316] disabled:opacity-50"
+                >
+                  <ShoppingBag className="h-4 w-4" /> Add to cart
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMainAction("buy")}
+                  disabled={effectiveStock <= 0}
+                  className="flex h-11 flex-1 items-center justify-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-bold text-white transition hover:bg-white/15 disabled:opacity-50"
+                >
+                  Buy now
+                </button>
+              </div>
             </div>
 
             {/* 5. Description */}
@@ -1224,7 +1300,7 @@ export default function ProductDetailPage() {
                               <button
                                 type="button"
                                 onClick={() => setReviewImages((imgs) => imgs.filter((_, i) => i !== idx))}
-                                className="absolute right-0.5 top-0.5 rounded-full bg-black/70 p-0.5 text-white hover:bg-rose-500"
+                                className="storefront-dark-overlay-control absolute right-0.5 top-0.5 rounded-full bg-black/70 p-0.5 text-white hover:bg-rose-500"
                               >
                                 <X className="h-3 w-3" />
                               </button>
@@ -1403,7 +1479,6 @@ export default function ProductDetailPage() {
                         fill
                         sizes="(max-width: 640px) 50vw, 25vw"
                         className="object-cover transition group-hover:scale-105"
-                        unoptimized
                       />
                     </Link>
                     <div className="flex flex-1 flex-col p-3.5">
@@ -1453,7 +1528,7 @@ export default function ProductDetailPage() {
             <button
               type="button"
               onClick={() => setLightboxImage(null)}
-              className="absolute right-4 top-4 z-10 rounded-full bg-black/70 p-2 text-white hover:bg-white/20 transition"
+              className="storefront-dark-overlay-control absolute right-4 top-4 z-10 rounded-full bg-black/70 p-2 text-white hover:bg-white/20 transition"
               aria-label="Close image preview"
             >
               <X className="h-4 w-4" />

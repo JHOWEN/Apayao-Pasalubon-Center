@@ -56,10 +56,10 @@ if count == 1 then
   redis.call('EXPIRE', countKey, countTtl)
 end
 
-if count >= maxRequests then
+if count > maxRequests then
   local delayMs
   if isAuth then
-    local exponent = math.min(count - maxRequests, 30)
+    local exponent = math.min(count - maxRequests - 1, 30)
     delayMs = math.min(backoffBaseMs * (2 ^ exponent), backoffMaxMs)
   else
     local remainingMs = redis.call('PTTL', countKey)
@@ -108,8 +108,8 @@ export function getRateLimitPolicy(group: RateLimitGroup): RateLimitPolicy {
 }
 
 export function calculateAuthBackoffMs(attemptCount: number, policy: RateLimitPolicy) {
-  if (policy.group !== "auth" || attemptCount < policy.maxRequests) return 0;
-  const exponent = Math.min(attemptCount - policy.maxRequests, 30);
+  if (policy.group !== "auth" || attemptCount <= policy.maxRequests) return 0;
+  const exponent = Math.min(attemptCount - policy.maxRequests - 1, 30);
   return Math.min(policy.backoffBaseMs * (2 ** exponent), policy.backoffMaxMs);
 }
 
@@ -215,7 +215,9 @@ async function getDatabaseRateLimitStatus(keys: string[]) {
 
     return { allowed: true, retryAfterSeconds: null };
   } catch {
-    return getLocalRateLimitStatus(keys);
+    return process.env.NODE_ENV === "production"
+      ? { allowed: false, retryAfterSeconds: 60 }
+      : getLocalRateLimitStatus(keys);
   }
 }
 
@@ -246,6 +248,8 @@ async function checkDatabaseRateLimit(keys: string[], policy: RateLimitPolicy) {
     return await prisma.$transaction(async (tx) => {
       let blockedRetryAfter = 0;
 
+      const entries: Array<{ key: string; entry: { count: number; resetAt: Date; blockedUntil: Date | null } }> = [];
+
       for (const key of normalizedKeys) {
         await tx.$executeRaw`
           INSERT INTO "RateLimitEntry" ("key", "count", "resetAt", "blockedUntil", "updatedAt")
@@ -264,15 +268,24 @@ async function checkDatabaseRateLimit(keys: string[], policy: RateLimitPolicy) {
 
         if (entry.blockedUntil && entry.blockedUntil.getTime() > currentTime) {
           blockedRetryAfter = Math.max(blockedRetryAfter, Math.ceil((entry.blockedUntil.getTime() - currentTime) / 1000));
-          continue;
         }
+
+        entries.push({ key, entry });
+      }
+
+      if (blockedRetryAfter > 0) {
+        return { allowed: false, retryAfterSeconds: blockedRetryAfter };
+      }
+
+      for (const { key, entry } of entries) {
+        const currentTime = Date.now();
 
         const isExpired = entry.resetAt.getTime() <= currentTime;
         const nextCount = isExpired ? 1 : entry.count + 1;
         let nextResetAt = isExpired ? new Date(currentTime + policy.windowMs) : entry.resetAt;
         let nextBlockedUntil: Date | null = null;
 
-        if (nextCount >= policy.maxRequests) {
+        if (nextCount > policy.maxRequests) {
           const delayMs = policy.group === "auth"
             ? calculateAuthBackoffMs(nextCount, policy)
             : Math.max(1_000, nextResetAt.getTime() - currentTime);
@@ -296,7 +309,9 @@ async function checkDatabaseRateLimit(keys: string[], policy: RateLimitPolicy) {
         : { allowed: true, retryAfterSeconds: null };
     }, { isolationLevel: "Serializable" });
   } catch {
-    return checkLocalRateLimit(normalizedKeys, policy);
+    return process.env.NODE_ENV === "production"
+      ? { allowed: false, retryAfterSeconds: 60 }
+      : checkLocalRateLimit(normalizedKeys, policy);
   }
 }
 
@@ -325,7 +340,7 @@ function checkLocalRateLimit(normalizedKeys: string[], policy: RateLimitPolicy) 
         resetAt: now + policy.windowMs,
         blockedUntil: null,
       };
-      if (nextEntry.count >= policy.maxRequests) {
+      if (nextEntry.count > policy.maxRequests) {
         const delayMs = policy.group === "auth"
           ? calculateAuthBackoffMs(nextEntry.count, policy)
           : policy.windowMs;
@@ -339,7 +354,7 @@ function checkLocalRateLimit(normalizedKeys: string[], policy: RateLimitPolicy) 
 
     existingEntry.count += 1;
 
-    if (existingEntry.count >= policy.maxRequests) {
+    if (existingEntry.count > policy.maxRequests) {
       const delayMs = policy.group === "auth"
         ? calculateAuthBackoffMs(existingEntry.count, policy)
         : Math.max(1_000, existingEntry.resetAt - now);
@@ -402,6 +417,9 @@ export async function checkRateLimit(keys: string[], policy: RateLimitPolicy) {
   if (!redis) return checkDatabaseRateLimit(keys, policy);
 
   try {
+    const status = await getRateLimitStatus(keys);
+    if (!status.allowed) return status;
+
     const windowSeconds = Math.max(1, Math.ceil(policy.windowMs / 1000));
     let retryAfterSeconds = 0;
 
@@ -422,6 +440,7 @@ export async function checkRateLimit(keys: string[], policy: RateLimitPolicy) {
 
       if (!allowed) {
         retryAfterSeconds = Math.max(retryAfterSeconds, Number(result[1]) || 1);
+        break;
       }
     }
 
@@ -532,12 +551,13 @@ export async function enforceRateLimit(
   );
 
   if (!rateLimit.allowed) {
+    const retryDelay = formatRateLimitRetryDelay(rateLimit.retryAfterSeconds ?? 0);
     return NextResponse.json(
       {
         success: false,
         message:
-          options?.message ||
-          `Too many requests. Please try again in ${formatRateLimitRetryDelay(rateLimit.retryAfterSeconds ?? 0)}.`,
+          options?.message?.replace("{retryAfter}", retryDelay) ||
+          `Too many requests. Please try again in ${retryDelay}.`,
       },
       {
         status: 429,
