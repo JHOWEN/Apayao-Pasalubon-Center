@@ -202,7 +202,7 @@ export function AdminSidebar({
             onClick={handleLinkClick}
             aria-label="APC Inventory home"
             title="APC Inventory"
-            className="relative mb-4 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white p-0.5 ring-1 ring-white/15 transition-transform hover:scale-[1.03]"
+            className="relative mb-4 flex h-10 w-10 shrink-0 items-center justify-center transition-transform hover:scale-[1.03]"
           >
             <Image src={logoSrc} alt="APC logo" fill sizes="40px" className="object-contain object-center" />
           </Link>
@@ -273,7 +273,7 @@ export function AdminSidebar({
           {!effectiveCollapsed ? (
             <>
               <div className="flex min-w-0 flex-1 items-center gap-3">
-                <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl bg-white p-0.5 shadow-sm ring-1 ring-white/20">
+                <div className="relative h-11 w-11 shrink-0">
                   <Image
                     src={logoSrc}
                     alt="APC logo"
@@ -316,7 +316,7 @@ export function AdminSidebar({
           ) : (
             <div className="flex flex-col items-center gap-2.5">
               <div
-                className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-white p-0.5 shadow-sm ring-1 ring-white/20"
+                className="relative h-10 w-10 shrink-0"
                 title="Smart Inventory - Apayao Pasalubong Center"
               >
                 <Image
