@@ -709,7 +709,7 @@ export async function GET(request: Request) {
       }
 
       return NextResponse.json(payload as Record<string, unknown>, {
-        headers: { "Cache-Control": "public, max-age=0, s-maxage=15, stale-while-revalidate=30" },
+        headers: { "Cache-Control": "public, max-age=0, s-maxage=0, must-revalidate" },
       });
     } catch (error) {
       logError("public.products.get_failed", error, { requestId: getRequestId(request) });

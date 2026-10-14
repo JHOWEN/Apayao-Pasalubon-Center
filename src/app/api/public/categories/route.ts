@@ -24,7 +24,7 @@ export async function GET(request: Request) {
     const categories = await getCachedCategories();
 
     return NextResponse.json(categories, {
-      headers: { "Cache-Control": "public, max-age=0, s-maxage=300, stale-while-revalidate=300" },
+      headers: { "Cache-Control": "public, max-age=0, s-maxage=0, must-revalidate" },
     });
   } catch (error) {
     logError("public.categories.get_failed", error, { requestId: getRequestId(request) });

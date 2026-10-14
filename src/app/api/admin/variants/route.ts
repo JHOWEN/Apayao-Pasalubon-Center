@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       return created;
     });
 
-    revalidateTag("public-products", "max");
+    revalidateTag("public-products", { expire: 0 });
     emitCatalogUpdatedEvent({ productId, variantId: variant.id });
     return NextResponse.json({ success: true, variant }, { status: 201 });
   } catch (error) {

@@ -244,7 +244,7 @@ export default function POSPage() {
         message?.type === "catalog-updated" ||
         message?.type === "admin-data-invalidated"
       ) {
-        if (document.visibilityState === "visible") void loadProducts();
+        void loadProducts();
       }
     };
 

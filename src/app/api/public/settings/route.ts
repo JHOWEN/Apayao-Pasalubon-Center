@@ -10,6 +10,6 @@ export async function GET(request: Request) {
     success: true,
     settings: await getCachedPublicSettings(),
   }, {
-    headers: { "Cache-Control": "public, max-age=0, s-maxage=60, stale-while-revalidate=60" },
+    headers: { "Cache-Control": "public, max-age=0, s-maxage=0, must-revalidate" },
   });
 }

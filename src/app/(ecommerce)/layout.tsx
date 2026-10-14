@@ -3,8 +3,9 @@
 import Image from "@/components/safe-image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { CART_UPDATED_EVENT, clearStoredUser, getCartCount, getStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
+import { invalidatePublicDataForEvent, type StorefrontDataEvent } from "@/lib/public-data-cache";
 import { AlertTriangle, Bell, Heart, LogOut, Menu, Moon, Search, ShoppingCart, Sun, User, X } from "lucide-react";
 
 type EcommerceUser = {
@@ -29,10 +30,32 @@ const orderStatusLabels: Record<string, string> = {
   CANCELLED: "Cancelled",
 };
 
+function subscribeToCartCount(onStoreChange: () => void) {
+  window.addEventListener("storage", onStoreChange);
+  window.addEventListener(CART_UPDATED_EVENT, onStoreChange);
+
+  return () => {
+    window.removeEventListener("storage", onStoreChange);
+    window.removeEventListener(CART_UPDATED_EVENT, onStoreChange);
+  };
+}
+
+function getCartCountSnapshot() {
+  return getCartCount();
+}
+
+function getServerCartCountSnapshot() {
+  return 0;
+}
+
 export default function EcommerceLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [cartCount, setCartCount] = useState(0);
+  const cartCount = useSyncExternalStore(
+    subscribeToCartCount,
+    getCartCountSnapshot,
+    getServerCartCountSnapshot,
+  );
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [user, setUser] = useState<EcommerceUser | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -80,6 +103,48 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
   }, []);
 
   useEffect(() => {
+    const publishStorefrontEvent = (type: StorefrontDataEvent) => {
+      invalidatePublicDataForEvent(type);
+      window.dispatchEvent(new CustomEvent("apc-storefront-live-event", { detail: { type } }));
+    };
+
+    const eventSource = new EventSource("/api/public/live");
+    let hasConnectedOnce = false;
+    const handleStorefrontEvent = (event: MessageEvent) => {
+      try {
+        const message = JSON.parse(event.data) as { type?: StorefrontDataEvent };
+        if (
+          message.type === "storefront-products-updated" ||
+          message.type === "storefront-catalog-updated" ||
+          message.type === "storefront-reviews-updated" ||
+          message.type === "storefront-settings-updated"
+        ) {
+          publishStorefrontEvent(message.type);
+        }
+      } catch {
+        // Ignore malformed or unrelated public events.
+      }
+    };
+    const resyncAfterReconnect = () => {
+      if (hasConnectedOnce) publishStorefrontEvent("storefront-resync");
+      hasConnectedOnce = true;
+    };
+    const resyncAfterNetworkRestore = () => publishStorefrontEvent("storefront-resync");
+
+    eventSource.addEventListener("open", resyncAfterReconnect);
+    eventSource.addEventListener("storefront-products-updated", handleStorefrontEvent);
+    eventSource.addEventListener("storefront-catalog-updated", handleStorefrontEvent);
+    eventSource.addEventListener("storefront-reviews-updated", handleStorefrontEvent);
+    eventSource.addEventListener("storefront-settings-updated", handleStorefrontEvent);
+    window.addEventListener("online", resyncAfterNetworkRestore);
+
+    return () => {
+      eventSource.close();
+      window.removeEventListener("online", resyncAfterNetworkRestore);
+    };
+  }, []);
+
+  useEffect(() => {
     async function loadCurrentUser() {
       const storedUser = getStoredUser() as EcommerceUser | null;
       setUser(storedUser);
@@ -119,10 +184,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
       }
     }
 
-    const updateCount = () => {
-      setCartCount(getCartCount());
-    };
-
     const refreshProfile = () => {
       void loadCurrentUser();
     };
@@ -140,16 +201,11 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
       stockWarningTimeout = window.setTimeout(() => setCartStockWarning(null), 4500);
     };
 
-    updateCount();
     void loadCurrentUser();
-    window.addEventListener("storage", updateCount);
-    window.addEventListener(CART_UPDATED_EVENT, updateCount);
     window.addEventListener("apc-user-updated", refreshProfile);
     window.addEventListener("apc-cart-toss", triggerCartToss);
     window.addEventListener("apc-cart-stock-warning", showStockWarning);
     return () => {
-      window.removeEventListener("storage", updateCount);
-      window.removeEventListener(CART_UPDATED_EVENT, updateCount);
       window.removeEventListener("apc-user-updated", refreshProfile);
       window.removeEventListener("apc-cart-toss", triggerCartToss);
       window.removeEventListener("apc-cart-stock-warning", showStockWarning);
@@ -185,10 +241,6 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     const refreshInterval = window.setInterval(() => void refreshSession(), 4 * 60 * 1000);
     return () => window.clearInterval(refreshInterval);
   }, [user]);
-
-  useEffect(() => {
-    setCartCount(getCartCount());
-  }, [pathname]);
 
   useEffect(() => {
     if (!user) return;
@@ -238,9 +290,27 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     };
 
     void loadOrderStatuses();
-    const intervalId = window.setInterval(() => void loadOrderStatuses(), 10000);
+    const handleCustomerOrderUpdate = () => {
+      void loadOrderStatuses();
+      window.dispatchEvent(new Event("apc-customer-order-live-event"));
+    };
+    const eventSource = user.role === "CUSTOMER" ? new EventSource("/api/auth/live") : null;
+    eventSource?.addEventListener("customer-order-updated", handleCustomerOrderUpdate);
+    let hasConnectedOnce = false;
+    const handleCustomerStreamOpen = () => {
+      if (hasConnectedOnce) handleCustomerOrderUpdate();
+      hasConnectedOnce = true;
+    };
+    eventSource?.addEventListener("open", handleCustomerStreamOpen);
+    const handleNetworkRestore = () => handleCustomerOrderUpdate();
+    window.addEventListener("online", handleNetworkRestore);
+    const fallbackIntervalId = window.setInterval(() => void loadOrderStatuses(), 60_000);
 
-    return () => window.clearInterval(intervalId);
+    return () => {
+      window.clearInterval(fallbackIntervalId);
+      eventSource?.close();
+      window.removeEventListener("online", handleNetworkRestore);
+    };
   }, [user]);
 
   function renderNotificationButton(isMobileDrawer = false) {

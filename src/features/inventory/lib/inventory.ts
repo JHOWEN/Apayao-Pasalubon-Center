@@ -1,5 +1,4 @@
 import { Prisma } from "@prisma/client";
-import { emitInventoryUpdatedEvent } from "@/lib/realtime";
 
 type TransactionClient = Prisma.TransactionClient;
 
@@ -259,17 +258,6 @@ export async function applyOrderInventoryMovement(
 
     await tx.inventoryTransaction.createMany({ data: auditRows });
 
-    try {
-      const onlyItem = auditRows.length === 1 ? auditRows[0] : null;
-      emitInventoryUpdatedEvent({
-        ...(onlyItem ? { productId: onlyItem.productId, variantId: onlyItem.variantId, quantity: onlyItem.quantity } : { itemCount: auditRows.length }),
-        type,
-        orderNumber: auditContext.orderNumber ?? null,
-      });
-    } catch (error) {
-      console.warn("Unable to publish the inventory refresh event.", error);
-    }
-
     return;
   }
 
@@ -361,13 +349,6 @@ export async function applyOrderInventoryMovement(
       },
     });
 
-    emitInventoryUpdatedEvent({
-      productId: item.productId,
-      variantId: item.variantId ?? null,
-      quantity,
-      type,
-      orderNumber: auditContext.orderNumber ?? null,
-    });
   }
 }
 

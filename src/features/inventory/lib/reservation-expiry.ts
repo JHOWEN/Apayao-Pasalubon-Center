@@ -1,3 +1,4 @@
+import { revalidateTag } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { logError } from "@/lib/logger";
 import { emitOrderUpdatedEvent } from "@/lib/realtime";
@@ -108,6 +109,7 @@ export async function expireWalletReservations(now = new Date(), limit = 50) {
 
       if (expired) {
         expiredCount += 1;
+        revalidateTag("public-products", { expire: 0 });
         emitOrderUpdatedEvent({
           orderId: candidate.id,
           orderNumber: candidate.orderNumber,

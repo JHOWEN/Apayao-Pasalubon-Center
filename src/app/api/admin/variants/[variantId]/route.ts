@@ -124,7 +124,7 @@ export async function PUT(
       return updated;
     });
 
-    revalidateTag("public-products", "max");
+    revalidateTag("public-products", { expire: 0 });
     emitCatalogUpdatedEvent({ variantId });
     return NextResponse.json({
       success: true,
@@ -164,7 +164,7 @@ export async function DELETE(
       await tx.productVariant.delete({ where: { id: variantId } });
     });
 
-    revalidateTag("public-products", "max");
+    revalidateTag("public-products", { expire: 0 });
     emitCatalogUpdatedEvent({ variantId });
     return NextResponse.json({ success: true, message: `Variant ${variant.sku} permanently deleted.` });
   } catch (error) {

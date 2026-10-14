@@ -9,6 +9,7 @@ import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { clearAuthCookies } from "@/lib/cookies";
 import { idBodySchema, userCreateSchema, userUpdateSchema } from "@/features/admin/validators/admin";
 import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitUsersUpdatedEvent } from "@/lib/realtime";
 
 async function requireAdmin() {
   const token = (await cookies()).get("token")?.value;
@@ -101,6 +102,7 @@ export async function POST(request: Request) {
       },
       select: { id: true, name: true, email: true, role: true, isBlocked: true, emailVerified: true, createdAt: true },
     });
+    emitUsersUpdatedEvent();
 
     await prisma.activityLog.create({
       data: { userId: auth.adminId, action: "CREATE_TEAM_ACCOUNT", description: `Created ${role} account for ${email}.` },
@@ -157,6 +159,7 @@ export async function PATCH(request: Request) {
       }
       return user;
     });
+    emitUsersUpdatedEvent();
 
     await prisma.activityLog.create({
       data: { userId: auth.adminId, action: "UPDATE_TEAM_ACCOUNT", description: `Updated team account ${existing.email}.` },
@@ -211,6 +214,7 @@ export async function DELETE(request: Request) {
         data: { userId: auth.adminId, action: "DELETE_TEAM_ACCOUNT", description: `Deleted team account ${existing.email}.` },
       });
     });
+    emitUsersUpdatedEvent();
 
     return NextResponse.json({ success: true });
   } catch (error) {

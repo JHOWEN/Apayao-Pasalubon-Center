@@ -175,10 +175,10 @@ export default function OrdersPage() {
   const [uploadingProofOrderId, setUploadingProofOrderId] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
 
-  const fetchOrders = useCallback(async (page = 1, statusFilter = selectedStatus, append = false) => {
+  const fetchOrders = useCallback(async (page = 1, statusFilter = selectedStatus, append = false, background = false) => {
     try {
       if (append) setIsLoadingMore(true);
-      else setIsLoading(true);
+      else if (!background) setIsLoading(true);
       const currentUser = getStoredUser() as { id?: string } | null;
 
       if (!currentUser?.id) {
@@ -216,12 +216,14 @@ export default function OrdersPage() {
       setOrdersLoadFailed(false);
     } catch (error) {
       console.error("Error fetching orders:", error);
-      if (!append) setOrders([]);
-      setMessage(getUserFacingErrorMessage(error, "We couldn't load your orders. Please try again."));
-      setOrdersLoadFailed(true);
+      if (!background) {
+        if (!append) setOrders([]);
+        setMessage(getUserFacingErrorMessage(error, "We couldn't load your orders. Please try again."));
+        setOrdersLoadFailed(true);
+      }
     } finally {
       if (append) setIsLoadingMore(false);
-      else setIsLoading(false);
+      else if (!background) setIsLoading(false);
     }
   }, [selectedStatus]);
 
@@ -353,13 +355,18 @@ export default function OrdersPage() {
     const handleReviewUpdate = () => {
       void fetchOrders();
     };
+    const handleCustomerOrderUpdate = () => {
+      void fetchOrders(1, selectedStatus, false, true);
+    };
 
     window.addEventListener("apc-order-review-updated", handleReviewUpdate);
+    window.addEventListener("apc-customer-order-live-event", handleCustomerOrderUpdate);
 
     return () => {
       window.removeEventListener("apc-order-review-updated", handleReviewUpdate);
+      window.removeEventListener("apc-customer-order-live-event", handleCustomerOrderUpdate);
     };
-  }, [fetchOrders]);
+  }, [fetchOrders, selectedStatus]);
 
   const orderStatusSteps = [
     { key: "PENDING", label: "Pending" },

@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 import { inventoryArchiveSchema, inventoryMovementSchema } from "@/features/admin/validators/admin";
 import { parseJsonRequestBody } from "@/lib/api-validation";
+import { emitInventoryHistoryUpdatedEvent, emitInventoryUpdatedEvent } from "@/lib/realtime";
 
 async function ensureAdminOnly() {
   const token = (await cookies()).get("token")?.value;
@@ -252,6 +253,7 @@ export async function PATCH(request: Request) {
       }
     });
 
+    emitInventoryHistoryUpdatedEvent();
     return NextResponse.json({ success: true, action, updatedCount: changedTransactions.length, ids: changedTransactions.map((transaction) => transaction.id) });
   } catch (error) {
     console.error("[PATCH /api/admin/inventory] archive update failed:", error);
@@ -353,7 +355,13 @@ export async function POST(request: Request) {
       return tx.inventoryTransaction.create({ data: { productId, productName: product.name, variantId: variant?.id ?? null, variantSku: variant?.sku ?? null, type, eventType: isThresholdOnlyUpdate ? "THRESHOLD_ADJUSTMENT" : type, quantity: isThresholdOnlyUpdate ? minStockValue : quantityValue, stockBefore: baseStock, stockAfter: newStock, minStockBefore: isThresholdOnlyUpdate ? baseMinStock : null, minStockAfter: isThresholdOnlyUpdate ? minStockValue : null, remarks: normalizedRemarks, performedById: actor.id, performedByName: actor.name, performedByType: actor.role, source: "INVENTORY" } });
     });
 
-    revalidateTag("public-products", "max");
+    revalidateTag("public-products", { expire: 0 });
+    emitInventoryUpdatedEvent({
+      productId,
+      variantId: variant?.id ?? null,
+      stockAfter: newStock,
+      type: isThresholdOnlyUpdate ? "THRESHOLD_ADJUSTMENT" : type,
+    });
     return NextResponse.json({ success: true, transaction }, { status: 201 });
   } catch (error) {
     return NextResponse.json(

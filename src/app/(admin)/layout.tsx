@@ -462,15 +462,26 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
     const handleSseMessage = (event: MessageEvent) => {
       try {
         const message = JSON.parse(event.data) as {
-          type?: "order-created" | "order-updated" | "inventory-updated" | "catalog-updated" | "customer-updated";
+          type?:
+            | "order-created"
+            | "order-updated"
+            | "inventory-updated"
+            | "inventory-history-updated"
+            | "catalog-updated"
+            | "customer-updated"
+            | "settings-updated"
+            | "users-updated";
           payload?: { orderId?: string };
         };
         if (
           message?.type === "order-created" ||
           message?.type === "order-updated" ||
           message?.type === "inventory-updated" ||
+          message?.type === "inventory-history-updated" ||
           message?.type === "catalog-updated" ||
-          message?.type === "customer-updated"
+          message?.type === "customer-updated" ||
+          message?.type === "settings-updated" ||
+          message?.type === "users-updated"
         ) {
           invalidateAdminDataForEvent(queryClient, message.type);
           if (message.type === "order-created" && message.payload?.orderId) {
@@ -504,8 +515,11 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
     eventSource.addEventListener("order-created", handleSseMessage);
     eventSource.addEventListener("order-updated", handleSseMessage);
     eventSource.addEventListener("inventory-updated", handleSseMessage);
+    eventSource.addEventListener("inventory-history-updated", handleSseMessage);
     eventSource.addEventListener("catalog-updated", handleSseMessage);
     eventSource.addEventListener("customer-updated", handleSseMessage);
+    eventSource.addEventListener("settings-updated", handleSseMessage);
+    eventSource.addEventListener("users-updated", handleSseMessage);
     window.addEventListener("online", invalidateAfterNetworkRestore);
 
     void loadPickupNotifications();

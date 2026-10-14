@@ -256,6 +256,7 @@ export default function InventoryTransactionsPage() {
       const message = (event as CustomEvent<{ type?: string }>).detail;
       if (
         message?.type === "inventory-updated" ||
+        message?.type === "inventory-history-updated" ||
         message?.type === "order-created" ||
         message?.type === "order-updated" ||
         message?.type === "catalog-updated" ||
@@ -724,7 +725,7 @@ export default function InventoryTransactionsPage() {
           )}
           <table
             aria-busy={isLoading}
-            className="w-full min-w-[1120px] table-fixed text-left text-sm"
+            className="w-full min-w-280 table-fixed text-left text-sm"
           >
             <colgroup>
               <col className="w-12" />
@@ -852,14 +853,14 @@ export default function InventoryTransactionsPage() {
                       <span className="mt-1 block text-[11px] tabular-nums text-slate-500 dark:text-slate-400">{new Date(record.createdAt).toLocaleTimeString()}</span>
                     </td>
                     <td className="px-4 py-4 align-top">
-                      <span className="block break-words text-[13px] font-semibold leading-5 text-slate-900 dark:text-white">
+                      <span className="block wrap-break-word text-[13px] font-semibold leading-5 text-slate-900 dark:text-white">
                       {record.productDisplayName ||
                         record.productName ||
                         record.product?.name ||
                         "Unknown item"}
                       </span>
                       {record.variantLabel && (
-                        <div className="mt-1 break-words text-[11px] font-normal leading-4 text-slate-500 dark:text-slate-400">
+                        <div className="mt-1 wrap-break-word text-[11px] font-normal leading-4 text-slate-500 dark:text-slate-400">
                           {record.variantLabel}
                           {record.variant?.sku
                             ? ` / SKU: ${record.variant.sku}`
@@ -881,13 +882,13 @@ export default function InventoryTransactionsPage() {
                       <StockTransition record={record} compact />
                     </td>
                     <td className="px-4 py-4 align-top">
-                      <span className="block break-words text-[13px] font-semibold leading-5 text-slate-800 dark:text-slate-100">{record.performedByName?.trim() || "System"}</span>
+                      <span className="block wrap-break-word text-[13px] font-semibold leading-5 text-slate-800 dark:text-slate-100">{record.performedByName?.trim() || "System"}</span>
                       <span className="mt-1 block text-[11px] leading-4 text-slate-500 dark:text-slate-400">
                         {record.performedByType || "SYSTEM"} / {sourceLabel(record.source)}
                       </span>
                     </td>
                     <td className="px-4 py-4 align-top">
-                      <span className="block break-words text-[12px] font-semibold leading-5 text-slate-800 dark:text-slate-200">
+                      <span className="block wrap-break-word text-[12px] font-semibold leading-5 text-slate-800 dark:text-slate-200">
                         {record.orderNumber ? `Order #${record.orderNumber}` : record.customerName || "No order reference"}
                       </span>
                       {record.orderNumber && record.customerName && <span className="mt-0.5 block text-[11px] leading-4 text-slate-500 dark:text-slate-400">{record.customerName}</span>}

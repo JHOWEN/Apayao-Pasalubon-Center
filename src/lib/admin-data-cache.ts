@@ -14,8 +14,11 @@ type AdminRealtimeEvent =
   | "order-created"
   | "order-updated"
   | "inventory-updated"
+  | "inventory-history-updated"
   | "catalog-updated"
   | "customer-updated"
+  | "settings-updated"
+  | "users-updated"
   | "admin-data-invalidated";
 
 const cacheableAdminPaths = new Set([
@@ -121,7 +124,10 @@ function queryKeysForMutation(pathname: string) {
 
 export function invalidateAdminApiPaths(queryClient: QueryClient, paths: string[]) {
   for (const pathname of new Set(paths)) {
-    void queryClient.invalidateQueries({ queryKey: ["admin-api", pathname] });
+    void queryClient.invalidateQueries({
+      queryKey: ["admin-api", pathname],
+      refetchType: "all",
+    });
   }
 }
 
@@ -153,8 +159,23 @@ export function invalidateAdminDataForEvent(queryClient: QueryClient, event: Adm
     return;
   }
 
+  if (event === "inventory-history-updated") {
+    invalidateAdminApiPaths(queryClient, ["/api/admin/inventory", "/api/admin/reports"]);
+    return;
+  }
+
   if (event === "customer-updated") {
     invalidateAdminApiPaths(queryClient, ["/api/admin/customers"]);
+    return;
+  }
+
+  if (event === "settings-updated") {
+    invalidateAdminApiPaths(queryClient, ["/api/admin/settings", "/api/admin/receipt-settings"]);
+    return;
+  }
+
+  if (event === "users-updated") {
+    invalidateAdminApiPaths(queryClient, ["/api/admin/users"]);
     return;
   }
 

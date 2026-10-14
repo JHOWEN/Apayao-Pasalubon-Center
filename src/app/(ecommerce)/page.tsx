@@ -2,7 +2,7 @@
 
 import Image from "@/components/safe-image";
 import Link from "next/link";
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
@@ -22,7 +22,8 @@ import {
 } from "lucide-react";
 import { ProductCard } from "@/components/ecommerce/product-card";
 import { ProductGroupCard } from "@/components/ecommerce/product-group-card";
-import { fetchWithTimeout, getResponseErrorMessage, getUserFacingErrorMessage } from "@/lib/client-fetch";
+import { getResponseErrorMessage, getUserFacingErrorMessage } from "@/lib/client-fetch";
+import { publicFetch } from "@/lib/public-data-cache";
 
 type ProductItem = {
   id: string;
@@ -158,6 +159,7 @@ function EcommerceHomeContent() {
   const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [hasMoreProducts, setHasMoreProducts] = useState(false);
   const [catalogPage, setCatalogPage] = useState(1);
+  const catalogPageRef = useRef(1);
   const [catalogTotalCount, setCatalogTotalCount] = useState(0);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
@@ -172,7 +174,7 @@ function EcommerceHomeContent() {
 
     async function loadStoreInfo() {
       try {
-        const response = await fetch("/api/public/settings");
+        const response = await publicFetch("/api/public/settings");
         const data = await response.json();
         const settings = data?.settings;
 
@@ -196,43 +198,56 @@ function EcommerceHomeContent() {
     }
 
     void loadStoreInfo();
+    const handleStoreSettingsUpdate = (event: Event) => {
+      const type = (event as CustomEvent<{ type?: string }>).detail?.type;
+      if (type === "storefront-settings-updated" || type === "storefront-resync") {
+        void loadStoreInfo();
+      }
+    };
+    window.addEventListener("apc-storefront-live-event", handleStoreSettingsUpdate);
     return () => {
       isMounted = false;
+      window.removeEventListener("apc-storefront-live-event", handleStoreSettingsUpdate);
     };
   }, []);
 
   useEffect(() => {
-    async function loadProducts() {
-      setLoading(true);
-      setCatalogError(null);
-      setLoadMoreError(null);
+    async function loadProducts(background = false) {
+      const pagesToLoad = background ? Math.max(1, catalogPageRef.current) : 1;
+      if (!background) {
+        catalogPageRef.current = 1;
+        setLoading(true);
+        setCatalogError(null);
+        setLoadMoreError(null);
+      }
 
       try {
-        const params = new URLSearchParams();
-        if (searchQuery.trim()) {
-          params.set("search", searchQuery.trim());
-        }
-        if (categoryQuery.trim()) {
-          params.set("categoryId", categoryQuery.trim());
-        }
-        params.set("limit", "24");
+        const pageNumbers = Array.from({ length: pagesToLoad }, (_, index) => index + 1);
+        const pageResults = await Promise.all(pageNumbers.map(async (page) => {
+          const params = new URLSearchParams({ page: String(page), limit: "24" });
+          if (searchQuery.trim()) params.set("search", searchQuery.trim());
+          if (categoryQuery.trim()) params.set("categoryId", categoryQuery.trim());
 
-        params.set("page", "1");
-        const response = await fetchWithTimeout(
-          `/api/public/products${params.toString() ? `?${params.toString()}` : ""}`,
-          {},
-          15000,
+          const response = await publicFetch(`/api/public/products?${params.toString()}`);
+          const data = await response.json();
+          if (!response.ok) {
+            throw new Error(getResponseErrorMessage(data, response.status, "Products are temporarily unavailable. Please try again."));
+          }
+          return data;
+        }));
+
+        const firstPage = pageResults[0];
+        const fetchedProducts = pageResults.flatMap((data) =>
+          (Array.isArray(data?.products) ? data.products : []) as ProductItem[],
         );
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(getResponseErrorMessage(data, response.status, "Products are temporarily unavailable. Please try again."));
-        }
-
-        const fetchedProducts = (Array.isArray(data?.products) ? data.products : []) as ProductItem[];
-        setCatalogPage(1);
-        setCatalogTotalCount(Number(data?.pagination?.totalCount ?? fetchedProducts.length));
-        setHasMoreProducts(Boolean(data?.pagination?.hasNextPage));
+        const totalPages = Math.max(1, Number(firstPage?.pagination?.totalPages ?? pagesToLoad));
+        const loadedPage = Math.min(pagesToLoad, totalPages);
+        catalogPageRef.current = loadedPage;
+        setCatalogPage(loadedPage);
+        setCatalogTotalCount(Number(firstPage?.pagination?.totalCount ?? fetchedProducts.length));
+        setHasMoreProducts(loadedPage < totalPages);
+        setCatalogError(null);
+        setLoadMoreError(null);
         const normalizedProducts = fetchedProducts.map((product) => {
             if (!product.productGroup?.items?.length) {
               return product;
@@ -262,17 +277,34 @@ function EcommerceHomeContent() {
 
         setProducts(normalizedProducts);
       } catch (error) {
-        setProducts([]);
-        setCatalogPage(1);
-        setCatalogTotalCount(0);
-        setHasMoreProducts(false);
-        setCatalogError(getUserFacingErrorMessage(error, "Products are temporarily unavailable. Please try again."));
+        if (!background) {
+          setProducts([]);
+          setCatalogPage(1);
+          catalogPageRef.current = 1;
+          setCatalogTotalCount(0);
+          setHasMoreProducts(false);
+          setCatalogError(getUserFacingErrorMessage(error, "Products are temporarily unavailable. Please try again."));
+        }
       } finally {
-        setLoading(false);
+        if (!background) setLoading(false);
       }
     }
 
     void loadProducts();
+    const handleStorefrontUpdate = (event: Event) => {
+      const type = (event as CustomEvent<{ type?: string }>).detail?.type;
+      if (
+        type === "storefront-products-updated" ||
+        type === "storefront-catalog-updated" ||
+        type === "storefront-reviews-updated" ||
+        type === "storefront-resync"
+      ) {
+        void loadProducts(true);
+      }
+    };
+    window.addEventListener("apc-storefront-live-event", handleStorefrontUpdate);
+
+    return () => window.removeEventListener("apc-storefront-live-event", handleStorefrontUpdate);
   }, [searchQuery, categoryQuery]);
 
   async function loadMoreProducts() {
@@ -284,7 +316,7 @@ function EcommerceHomeContent() {
       const params = new URLSearchParams({ page: String(catalogPage + 1), limit: "24" });
       if (searchQuery) params.set("search", searchQuery);
       if (categoryQuery) params.set("categoryId", categoryQuery);
-      const response = await fetchWithTimeout(`/api/public/products?${params.toString()}`, {}, 15000);
+      const response = await publicFetch(`/api/public/products?${params.toString()}`);
       const data = await response.json();
 
       if (!response.ok || !data?.success) {
@@ -297,6 +329,7 @@ function EcommerceHomeContent() {
         return [...current, ...nextProducts.filter((product) => !existingIds.has(product.id))];
       });
       setCatalogPage(Number(data?.pagination?.page ?? catalogPage + 1));
+      catalogPageRef.current = Number(data?.pagination?.page ?? catalogPage + 1);
       setHasMoreProducts(Boolean(data?.pagination?.hasNextPage));
       setCatalogTotalCount(Number(data?.pagination?.totalCount ?? catalogTotalCount));
     } catch (error) {
@@ -308,7 +341,7 @@ function EcommerceHomeContent() {
 
   const loadCategories = useCallback(async () => {
     try {
-      const response = await fetchWithTimeout("/api/public/categories", {}, 15000);
+      const response = await publicFetch("/api/public/categories");
       const data = await response.json();
 
       if (!response.ok) {
@@ -326,6 +359,18 @@ function EcommerceHomeContent() {
       setIsLoadingCategories(false);
     }
   }, []);
+
+  useEffect(() => {
+    const handleCatalogUpdate = (event: Event) => {
+      const type = (event as CustomEvent<{ type?: string }>).detail?.type;
+      if (type === "storefront-catalog-updated" || type === "storefront-resync") {
+        void loadCategories();
+      }
+    };
+
+    window.addEventListener("apc-storefront-live-event", handleCatalogUpdate);
+    return () => window.removeEventListener("apc-storefront-live-event", handleCatalogUpdate);
+  }, [loadCategories]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => void loadCategories(), 0);

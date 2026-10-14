@@ -22,7 +22,8 @@ import {
 import { addToCart, getStoredUser } from "@/features/cart/lib/cart";
 import { getPrimaryImageUrl, parseImageUrls } from "@/features/catalog/utils/product-images";
 import { isFavoriteProduct, recordRecentlyViewed, toggleFavoriteProduct } from "@/features/catalog/lib/favorites";
-import { fetchWithTimeout, RequestTimeoutError } from "@/lib/client-fetch";
+import { RequestTimeoutError } from "@/lib/client-fetch";
+import { publicFetch } from "@/lib/public-data-cache";
 
 const formatReviewDate = (value: string) => {
   const date = new Date(value);
@@ -210,7 +211,7 @@ export default function ProductDetailPage() {
       requestAnimationFrame(scrollToTarget);
     }
 
-    async function loadProduct() {
+    async function loadProduct(background = false) {
       try {
         const productId = typeof params.id === "string" && params.id !== "undefined" ? params.id : "";
 
@@ -224,10 +225,9 @@ export default function ProductDetailPage() {
           return;
         }
 
-        const response = await fetchWithTimeout(
+        const response = await publicFetch(
           `/api/public/products?id=${encodeURIComponent(productId)}`,
           { cache: "no-store" },
-          15000,
         );
         const data = await response.json();
 
@@ -240,12 +240,14 @@ export default function ProductDetailPage() {
           typeof productPayload !== "object" ||
           !("id" in productPayload)
         ) {
-          setLookupMessage(
-            "We couldn't load this item. Check your connection and try again. If it is still unavailable, browse the catalog or check your orders.",
-          );
-          setProduct(null);
-          setSelectedImage(null);
-          setRelatedProducts([]);
+          if (!background || response.status === 404) {
+            setLookupMessage(
+              "We couldn't load this item. Check your connection and try again. If it is still unavailable, browse the catalog or check your orders.",
+            );
+            setProduct(null);
+            setSelectedImage(null);
+            setRelatedProducts([]);
+          }
         } else {
           setLookupMessage("");
           setProduct(productPayload);
@@ -265,12 +267,20 @@ export default function ProductDetailPage() {
                 ) ?? productPayload.variants[0]
               : null;
           const preferredVariantId = preferredVariant?.id ?? "";
-          setSelectedVariantId(preferredVariantId);
-          setSelectedOptionValue("");
-          setReviewOptionValue("all");
-          setSelectedImage(
-            preferredVariant?.imageUrls?.[0] ? getPrimaryImageUrl(preferredVariant.imageUrls[0]) ?? null : null,
-          );
+          if (background) {
+            setSelectedVariantId((current) =>
+              productPayload.variants?.some((variant: { id: string }) => variant.id === current)
+                ? current
+                : preferredVariantId,
+            );
+          } else {
+            setSelectedVariantId(preferredVariantId);
+            setSelectedOptionValue("");
+            setReviewOptionValue("all");
+            setSelectedImage(
+              preferredVariant?.imageUrls?.[0] ? getPrimaryImageUrl(preferredVariant.imageUrls[0]) ?? null : null,
+            );
+          }
 
           const legacyOptionItems =
             productPayload.productGroup?.items?.map(
@@ -380,7 +390,11 @@ export default function ProductDetailPage() {
                 .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
 
               setGroupedOptionItems(optionItems);
-              setSelectedOptionValue(optionItems[0]?.optionValue ?? "");
+              setSelectedOptionValue((current) =>
+                background && optionItems.some((item) => item.optionValue === current)
+                  ? current
+                  : optionItems[0]?.optionValue ?? "",
+              );
             } catch {
               setGroupedOptionItems([]);
             }
@@ -389,7 +403,7 @@ export default function ProductDetailPage() {
           }
 
           try {
-            const relatedResponse = await fetch(`/api/public/products?limit=12`, { cache: "no-store" });
+              const relatedResponse = await publicFetch(`/api/public/products?limit=12`, { cache: "no-store" });
             const relatedData = await relatedResponse.json();
 
             if (relatedResponse.ok && relatedData?.success) {
@@ -417,20 +431,40 @@ export default function ProductDetailPage() {
           }
         }
       } catch (error) {
-        setProduct(null);
-        setSelectedImage(null);
-        setRelatedProducts([]);
-        setLookupMessage(
-          error instanceof RequestTimeoutError
-            ? "Connection timed out while loading this product. Please refresh and try again."
-            : "We couldn't load this item. Check your connection and try again. If it is still unavailable, browse the catalog or check your orders.",
-        );
+        if (!background) {
+          setProduct(null);
+          setSelectedImage(null);
+          setRelatedProducts([]);
+          setLookupMessage(
+            error instanceof RequestTimeoutError
+              ? "Connection timed out while loading this product. Please refresh and try again."
+              : "We couldn't load this item. Check your connection and try again. If it is still unavailable, browse the catalog or check your orders.",
+          );
+        }
       } finally {
         setLoading(false);
       }
     }
 
     void loadProduct();
+    const handleStorefrontUpdate = (event: Event) => {
+      const type = (event as CustomEvent<{ type?: string }>).detail?.type;
+      if (type === "storefront-reviews-updated") {
+        setReviewRefreshKey((current) => current + 1);
+        void loadProduct(true);
+        return;
+      }
+      if (
+        type === "storefront-products-updated" ||
+        type === "storefront-catalog-updated" ||
+        type === "storefront-resync"
+      ) {
+        void loadProduct(true);
+      }
+    };
+    window.addEventListener("apc-storefront-live-event", handleStorefrontUpdate);
+
+    return () => window.removeEventListener("apc-storefront-live-event", handleStorefrontUpdate);
   }, [params.id]);
 
   const selectedGroupItem = groupedOptionItems.find((item) => item.optionValue === selectedOptionValue) ?? null;

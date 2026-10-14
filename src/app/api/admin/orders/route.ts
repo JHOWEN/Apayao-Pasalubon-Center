@@ -489,7 +489,7 @@ export async function POST(request: Request) {
       return createdOrder;
     }, { maxWait: 10_000, timeout: 30_000 });
 
-    revalidateTag("public-products", "max");
+    revalidateTag("public-products", { expire: 0 });
     try {
       emitOrderCreatedEvent({
         orderId: order.id,
@@ -779,7 +779,7 @@ export async function PUT(request: Request) {
       return updatedOrder;
     });
 
-    revalidateTag("public-products", "max");
+    revalidateTag("public-products", { expire: 0 });
     emitOrderUpdatedEvent({
       orderId: order.id,
       orderNumber: order.orderNumber,

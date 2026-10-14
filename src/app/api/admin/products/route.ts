@@ -451,7 +451,7 @@ export async function POST(request: Request) {
       include: { category: true, variants: true },
     });
 
-    revalidateTag("public-products", "max");
+    revalidateTag("public-products", { expire: 0 });
     emitCatalogUpdatedEvent({ productId: product.id });
     return NextResponse.json({ success: true, product: updatedProduct ? serializeProduct(updatedProduct) : serializeProduct(product) }, { status: 201 });
   } catch (error: unknown) {
@@ -664,7 +664,7 @@ export async function PUT(request: Request) {
       return tx.product.findUnique({ where: { id: updated.id }, include: { category: true, variants: true } });
     });
 
-    revalidateTag("public-products", "max");
+    revalidateTag("public-products", { expire: 0 });
     emitCatalogUpdatedEvent({ productId: body.id });
     return NextResponse.json({ success: true, product: product ? serializeProduct(product) : null });
   } catch (error: unknown) {
@@ -707,7 +707,7 @@ export async function DELETE(request: Request) {
     ]);
 
     await prisma.product.delete({ where: { id } });
-    revalidateTag("public-products", "max");
+    revalidateTag("public-products", { expire: 0 });
     emitCatalogUpdatedEvent({ productId: id });
     return NextResponse.json({ success: true, message: "Product deleted." });
   } catch (error: unknown) {

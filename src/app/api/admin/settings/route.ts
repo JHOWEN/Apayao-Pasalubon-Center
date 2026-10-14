@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { revalidateTag } from "next/cache";
+import { emitSettingsUpdatedEvent } from "@/lib/realtime";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getUserForToken } from "@/lib/auth";
@@ -147,7 +148,8 @@ export async function PUT(request: Request) {
       },
     });
 
-    revalidateTag("public-settings", "max");
+    revalidateTag("public-settings", { expire: 0 });
+    emitSettingsUpdatedEvent();
 
     return NextResponse.json({
       success: true,

@@ -160,6 +160,8 @@ export default function AdminSettingsPage() {
   };
 
   useEffect(() => {
+    let canManageAdminSettings = false;
+
     async function loadSettings() {
       try {
         const response = await adminFetch("/api/admin/settings");
@@ -190,6 +192,7 @@ export default function AdminSettingsPage() {
         if (response.ok && data.user) {
           const role =
             data.user.role === "ADMIN" ? "ADMIN" : data.user.role === "STAFF" ? "STAFF" : null;
+          canManageAdminSettings = role === "ADMIN";
           setUserRole(role);
           setProfileForm({
             name: data.user.name ?? "",
@@ -231,7 +234,18 @@ export default function AdminSettingsPage() {
       }
     }
 
+    const handleLiveEvent = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (!canManageAdminSettings) return;
+      if (message?.type === "settings-updated") void loadSettings();
+      if (message?.type === "users-updated") void loadTeamUsers();
+    };
+
+    window.addEventListener("apc-admin-live-event", handleLiveEvent);
+
     void loadProfile();
+
+    return () => window.removeEventListener("apc-admin-live-event", handleLiveEvent);
   }, []);
 
   async function handleProfileSave(e: React.FormEvent) {

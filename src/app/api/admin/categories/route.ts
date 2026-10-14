@@ -59,8 +59,8 @@ export async function POST(request: Request) {
       },
     });
 
-    revalidateTag("public-categories", "max");
-    revalidateTag("public-products", "max");
+    revalidateTag("public-categories", { expire: 0 });
+    revalidateTag("public-products", { expire: 0 });
     emitCatalogUpdatedEvent({ categoryId: category.id });
 
     return NextResponse.json(
@@ -116,8 +116,8 @@ export async function PUT(request: Request) {
       },
     });
 
-    revalidateTag("public-categories", "max");
-    revalidateTag("public-products", "max");
+    revalidateTag("public-categories", { expire: 0 });
+    revalidateTag("public-products", { expire: 0 });
     emitCatalogUpdatedEvent({ categoryId: category.id });
 
     return NextResponse.json({ success: true, category });
@@ -149,8 +149,8 @@ export async function DELETE(request: Request) {
     }
 
     await prisma.category.delete({ where: { id } });
-    revalidateTag("public-categories", "max");
-    revalidateTag("public-products", "max");
+    revalidateTag("public-categories", { expire: 0 });
+    revalidateTag("public-products", { expire: 0 });
     emitCatalogUpdatedEvent({ categoryId: id });
 
     return NextResponse.json({ success: true, message: "Category deleted." });
