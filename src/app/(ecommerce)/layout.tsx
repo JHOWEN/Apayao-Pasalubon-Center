@@ -549,7 +549,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
               <Link href="/" className="group flex min-w-0 items-center gap-2 sm:gap-3 transition-transform duration-150 active:scale-[0.99]">
                 <div className="relative flex h-9 w-9 sm:h-11 sm:w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-linear-to-br from-white/15 via-white/5 to-transparent shadow-md shadow-black/20 ring-1 ring-white/10 transition-transform duration-200 group-hover:scale-105">
                   <Image
-                    src={process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png"}
+                    src={process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo.png"}
                     alt="Apayao Pasalubong Center logo"
                     fill
                     sizes="(max-width: 640px) 36px, 44px"

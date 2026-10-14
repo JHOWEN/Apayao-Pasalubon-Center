@@ -31,9 +31,10 @@ export function AuthCardLayout({
   children,
   footer,
 }: AuthCardLayoutProps) {
-  const logoSrc =
-    process.env.NEXT_PUBLIC_APP_LOGO_URL ??
-    "/logo/apc-inventory-logo-round.png";
+  const configuredLogoSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL;
+  const logoSrc = configuredLogoSrc
+    ? `${configuredLogoSrc}${configuredLogoSrc.includes("?") ? "&" : "?"}v=3`
+    : "/logo/apc-inventory-logo.png";
 
   return (
     <main
@@ -50,7 +51,7 @@ export function AuthCardLayout({
             <div className="absolute inset-0 opacity-50" style={{ backgroundImage: "radial-gradient(rgba(154, 52, 18, 0.12) 1px, transparent 1px)", backgroundSize: "18px 18px" }} />
 
             <div className="relative z-10 flex w-full max-w-77.5 flex-col items-center">
-              <div className="mb-3 flex h-16 w-16 items-center justify-center sm:mb-5 sm:h-24 sm:w-24">
+              <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-[#f4d7c7] shadow-[0_12px_28px_-14px_rgba(146,64,14,0.42)] ring-4 ring-orange-200/80 sm:mb-5 sm:h-24 sm:w-24">
                 <Image
                   src={logoSrc}
                   alt="APC Inventory logo"
