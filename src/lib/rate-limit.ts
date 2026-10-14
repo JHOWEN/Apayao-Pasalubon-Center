@@ -3,7 +3,7 @@ import { isIP } from "node:net";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { Redis } from "@upstash/redis";
-import { verifyToken } from "@/lib/auth";
+import { canAccessAdminPortal, getUserForToken } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 type RateLimitEntry = {
@@ -558,9 +558,13 @@ export async function enforceAuthenticatedRateLimit(
   group: "user" | "admin",
 ) {
   const token = (await cookies()).get("token")?.value;
-  const payload = token ? verifyToken(token) as { sub?: string; role?: string } | null : null;
-  const canUseAdminPolicy = group !== "admin" || payload?.role === "ADMIN" || payload?.role === "STAFF";
-  const accountId = payload?.sub && canUseAdminPolicy ? payload.sub : undefined;
+  const user = await getUserForToken(token);
+  if (!user) {
+    return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
+  }
+  if (group === "admin" && (user.isBlocked || !canAccessAdminPortal(user.role))) {
+    return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
+  }
 
-  return enforceRateLimit(request, route, { group, accountId });
+  return enforceRateLimit(request, route, { group, accountId: user.id });
 }

@@ -1,11 +1,19 @@
-import { createHmac, randomBytes } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { getAppBaseUrl } from "@/lib/app-url";
 
-const resetSecret = process.env.EMAIL_VERIFICATION_SECRET || "dev-email-verification-secret";
+function getResetSecret() {
+  const configuredSecret = process.env.PASSWORD_RESET_SECRET?.trim();
+  if (configuredSecret) return configuredSecret;
+  return process.env.NODE_ENV === "production" ? null : "dev-password-reset-secret";
+}
 
 export function createPasswordResetToken(email: string) {
+  const secret = getResetSecret();
+  if (!secret) throw new Error("PASSWORD_RESET_SECRET must be configured in production.");
+
   const randomPart = randomBytes(16).toString("hex");
   const payload = `${email.toLowerCase()}:${randomPart}`;
-  const signature = createHmac("sha256", resetSecret).update(payload).digest("hex");
+  const signature = createHmac("sha256", secret).update(payload).digest("hex");
   return `${payload}.${signature}`;
 }
 
@@ -18,15 +26,20 @@ export function verifyPasswordResetToken(email: string, token: string) {
   const payload = token.slice(0, separatorIndex);
   const signature = token.slice(separatorIndex + 1);
   if (!payload || !signature) return false;
+  if (!/^[0-9a-f]{64}$/i.test(signature)) return false;
 
-  const expectedSignature = createHmac("sha256", resetSecret).update(payload).digest("hex");
-  if (expectedSignature !== signature) return false;
+  const secret = getResetSecret();
+  if (!secret) return false;
+  const expectedSignature = createHmac("sha256", secret).update(payload).digest("hex");
+  const expectedBuffer = Buffer.from(expectedSignature, "hex");
+  const signatureBuffer = Buffer.from(signature, "hex");
+  if (expectedBuffer.length !== signatureBuffer.length || !timingSafeEqual(expectedBuffer, signatureBuffer)) return false;
 
   const [storedEmail] = payload.split(":");
   return storedEmail.toLowerCase() === email.toLowerCase();
 }
 
 export function buildPasswordResetUrl(email: string, token: string, baseUrl?: string) {
-  const resolvedBaseUrl = (baseUrl || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(/\/$/, "");
+  const resolvedBaseUrl = getAppBaseUrl(baseUrl);
   return `${resolvedBaseUrl}/reset-password?email=${encodeURIComponent(email.toLowerCase())}&token=${encodeURIComponent(token)}`;
 }

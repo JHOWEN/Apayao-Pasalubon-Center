@@ -41,6 +41,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
   const [avatarSrc, setAvatarSrc] = useState(fallbackAvatarSrc);
   const [userRole, setUserRole] = useState<"ADMIN" | "STAFF" | null>(null);
+  const [sessionStatus, setSessionStatus] = useState<"checking" | "verified" | "unavailable">("checking");
+  const [sessionRetryVersion, setSessionRetryVersion] = useState(0);
   const [theme, setTheme] = useState<ThemeMode>("system");
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<
@@ -51,27 +53,61 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const orderChannelRef = useRef<BroadcastChannel | null>(null);
 
   useEffect(() => {
+    let isActive = true;
+    let isCheckingSession = false;
+
     async function loadProfileAvatar() {
+      if (isCheckingSession) return;
+      isCheckingSession = true;
+
       try {
-        const response = await fetch("/api/auth/profile");
-        if (!response.ok) {
-          setAvatarSrc(fallbackAvatarSrc);
+        const response = await fetch("/api/admin/profile", { cache: "no-store" });
+        if (response.status === 401) {
+          window.location.replace("/login?reason=session-expired");
+          return;
+        }
+        if (response.status === 403) {
+          window.location.replace("/login?reason=access-denied");
+          return;
+        }
+        if (!response.ok) throw new Error("Unable to verify your admin session.");
+
+        const data = await response.json();
+        const role = data?.user?.role;
+        if (!data?.success || (role !== "ADMIN" && role !== "STAFF")) {
+          window.location.replace("/login?reason=access-denied");
           return;
         }
 
-        const data = await response.json();
         const nextAvatarSrc =
           typeof data?.user?.imageUrl === "string" && data.user.imageUrl.trim()
             ? data.user.imageUrl
             : fallbackAvatarSrc;
-        setAvatarSrc(nextAvatarSrc);
-        if (data?.user?.role === "ADMIN" || data?.user?.role === "STAFF") {
-          setUserRole(data.user.role);
+        if (isActive) {
+          setAvatarSrc(nextAvatarSrc);
+          setUserRole(role);
+          setSessionStatus("verified");
         }
       } catch {
-        setAvatarSrc(fallbackAvatarSrc);
+        if (isActive) setSessionStatus("unavailable");
+      } finally {
+        isCheckingSession = false;
       }
     }
+
+    const revalidateVisibleSession = () => {
+      if (document.visibilityState !== "visible") return;
+      setSessionStatus("checking");
+      void loadProfileAvatar();
+    };
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) revalidateVisibleSession();
+    };
+    const handleSessionEnded = (event: StorageEvent) => {
+      if (event.key === "apc-auth-session-ended" && event.newValue) {
+        window.location.replace("/login?reason=session-expired");
+      }
+    };
 
     const storedTheme = window.localStorage.getItem("apc-theme") as ThemeMode | null;
     if (storedTheme === "light" || storedTheme === "dark" || storedTheme === "system") {
@@ -83,11 +119,18 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     loadProfileAvatar();
 
     window.addEventListener("apc-user-updated", loadProfileAvatar);
+    document.addEventListener("visibilitychange", revalidateVisibleSession);
+    window.addEventListener("pageshow", handlePageShow);
+    window.addEventListener("storage", handleSessionEnded);
 
     return () => {
+      isActive = false;
       window.removeEventListener("apc-user-updated", loadProfileAvatar);
+      document.removeEventListener("visibilitychange", revalidateVisibleSession);
+      window.removeEventListener("pageshow", handlePageShow);
+      window.removeEventListener("storage", handleSessionEnded);
     };
-  }, []);
+  }, [sessionRetryVersion]);
 
   useEffect(() => {
     if (userRole !== "STAFF") return;
@@ -120,6 +163,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (sessionStatus !== "verified") return;
+
     async function loadPickupNotifications() {
       try {
         const response = await fetch("/api/admin/orders?status=ACTIVE&filterDate=NEXT_7_DAYS&limit=50");
@@ -232,7 +277,32 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         orderChannelRef.current = null;
       }
     };
-  }, []);
+  }, [sessionStatus]);
+
+  if (sessionStatus !== "verified") {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-5 text-slate-800 dark:bg-slate-950 dark:text-slate-100">
+        <section className="w-full max-w-sm text-center" aria-live="polite" role="status">
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-emerald-500/25 border-t-emerald-500" />
+          <h1 className="text-lg font-semibold">{sessionStatus === "checking" ? "Verifying your session" : "Can’t verify your session"}</h1>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+            {sessionStatus === "checking"
+              ? "Protected dashboard content is hidden while we confirm your access."
+              : "Check your connection and retry to continue to the dashboard."}
+          </p>
+          {sessionStatus === "unavailable" ? (
+            <button
+              type="button"
+              onClick={() => setSessionRetryVersion((version) => version + 1)}
+              className="mt-5 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Retry verification
+            </button>
+          ) : null}
+        </section>
+      </main>
+    );
+  }
 
   return (
     <div className="fixed inset-0 h-dvh overflow-hidden bg-slate-50 text-slate-800 dark:bg-slate-950 dark:text-slate-100">

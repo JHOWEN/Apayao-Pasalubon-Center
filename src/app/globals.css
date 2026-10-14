@@ -492,6 +492,7 @@ textarea:focus-visible {
 
   .admin-product-modal-backdrop {
     --admin-sidebar-width: 4rem;
+    padding-left: calc(var(--admin-sidebar-width) + 1rem);
   }
 
   @media (min-width: 64rem) {

@@ -1,21 +1,34 @@
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 
+if (process.env.NODE_ENV === 'production') {
+  throw new Error('User seed scripts are disabled in production.');
+}
+
+const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
+const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+const customerEmail = process.env.SEED_CUSTOMER_EMAIL?.trim().toLowerCase();
+const customerPassword = process.env.SEED_CUSTOMER_PASSWORD;
+
+if (!adminEmail || !adminPassword || !customerEmail || !customerPassword) {
+  throw new Error('Set SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, SEED_CUSTOMER_EMAIL, and SEED_CUSTOMER_PASSWORD.');
+}
+
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding users...');
+  console.log('Seeding users...');
 
-  const adminPassword = await bcrypt.hash('admin12345', 10);
-  const customerPassword = await bcrypt.hash('customer12345', 10);
+  const hashedAdminPassword = await bcrypt.hash(adminPassword, 12);
+  const hashedCustomerPassword = await bcrypt.hash(customerPassword, 12);
 
   const admin = await prisma.user.upsert({
-    where: { email: 'admin@apc-inventory.com' },
+    where: { email: adminEmail },
     update: {},
     create: {
       name: 'Admin',
-      email: 'admin@apc-inventory.com',
-      password: adminPassword,
+      email: adminEmail,
+      password: hashedAdminPassword,
       role: 'ADMIN',
       phone: '1234567890',
       address: '123 Admin Street',
@@ -24,15 +37,15 @@ async function main() {
     },
   });
 
-  console.log('✅ Admin created:', { id: admin.id, email: admin.email, role: admin.role });
+  console.log('Admin created:', { id: admin.id, role: admin.role });
 
   const customer = await prisma.user.upsert({
-    where: { email: 'customer@gmail.com' },
+    where: { email: customerEmail },
     update: {},
     create: {
       name: 'Customer User',
-      email: 'customer@gmail.com',
-      password: customerPassword,
+      email: customerEmail,
+      password: hashedCustomerPassword,
       role: 'CUSTOMER',
       phone: '0987654321',
       address: '456 Customer Avenue',
@@ -41,10 +54,7 @@ async function main() {
     },
   });
 
-  console.log('✅ Customer created:', { id: customer.id, email: customer.email, role: customer.role });
-  console.log('\n📝 Login credentials:');
-  console.log('Admin:    admin@apc-inventory.com / Admin12345');
-  console.log('Customer: customer@gmail.com / Customer12345');
+  console.log('Customer created:', { id: customer.id, role: customer.role });
 }
 
 main()

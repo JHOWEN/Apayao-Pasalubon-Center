@@ -151,6 +151,18 @@ export async function PUT(request: Request) {
     const updatedCustomer = await prisma.user.update({
       where: { id },
       data: updateData,
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        address: true,
+        imageUrl: true,
+        emailVerified: true,
+        isBlocked: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     return NextResponse.json({ success: true, customer: updatedCustomer });

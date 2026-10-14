@@ -1,21 +1,38 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
+if (process.env.NODE_ENV === "production") {
+  throw new Error("Database seed scripts are disabled in production.");
+}
+
+const { adminEmail, adminPassword, customerEmail, customerPassword } = (() => {
+  const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim().toLowerCase();
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+  const customerEmail = process.env.SEED_CUSTOMER_EMAIL?.trim().toLowerCase();
+  const customerPassword = process.env.SEED_CUSTOMER_PASSWORD;
+
+  if (!adminEmail || !adminPassword || !customerEmail || !customerPassword) {
+    throw new Error("Set SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, SEED_CUSTOMER_EMAIL, and SEED_CUSTOMER_PASSWORD.");
+  }
+
+  return { adminEmail, adminPassword, customerEmail, customerPassword };
+})();
+
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log("🌱 Seeding database...");
+  console.log("Seeding database...");
 
-  const adminPassword = await bcrypt.hash("admin123!", 10);
-  const customerPassword = await bcrypt.hash("customer123!", 10);
+  const hashedAdminPassword = await bcrypt.hash(adminPassword, 12);
+  const hashedCustomerPassword = await bcrypt.hash(customerPassword, 12);
 
   const admin = await prisma.user.upsert({
-    where: { email: "admin@apc-inventory.com" },
+    where: { email: adminEmail },
     update: {},
     create: {
       name: "Admin User",
-      email: "admin@apc-inventory.com",
-      password: adminPassword,
+      email: adminEmail,
+      password: hashedAdminPassword,
       role: "ADMIN",
       phone: "1234567890",
       address: "123 Admin Street",
@@ -25,12 +42,12 @@ async function main() {
   });
 
   const customer = await prisma.user.upsert({
-    where: { email: "customer@example.com" },
+    where: { email: customerEmail },
     update: {},
     create: {
       name: "Customer User",
-      email: "customer@example.com",
-      password: customerPassword,
+      email: customerEmail,
+      password: hashedCustomerPassword,
       role: "CUSTOMER",
       phone: "0987654321",
       address: "456 Customer Avenue",
@@ -110,16 +127,9 @@ async function main() {
     ],
   });
 
-  console.log("✅ Seeded admin, customer, category, and products.");
-  console.log("Admin login: admin@apc-inventory.com / admin123!");
-  console.log("Customer login: customer@example.com / customer123!");
-  console.log("Sample products:", {
-    admin: admin.email,
-    customer: customer.email,
-    category: category.name,
-    simpleProduct: simpleProduct.name,
-    variantProduct: variantProduct.name,
-  });
+  console.log("Seeded admin, customer, category, and products.");
+  console.log("Seeded account ids:", { admin: admin.id, customer: customer.id });
+  console.log("Sample products:", { category: category.name, simpleProduct: simpleProduct.name, variantProduct: variantProduct.name });
 }
 
 main()
