@@ -26,7 +26,7 @@ import { clearAdminNotificationCount, getAdminNotificationCount } from "@/lib/ad
 import { isSidebarLinkActive, normalizeSidebarPathname } from "@/utils/sidebar-nav";
 
 const dashboardLink = { href: "/dashboard", label: "Dashboard", icon: LayoutGrid };
-const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png";
 const logoSrc = fallbackAvatarSrc;
 
 const sections = [
@@ -83,14 +83,16 @@ export function AdminSidebar({
   const visibleSections =
     userRole === "ADMIN"
       ? sections
-      : sections
-          .map((section) => ({
-            ...section,
-            links: section.links.filter((link) =>
-              ["/pos", "/admin-orders", "/products", "/admin-settings"].includes(link.href)
-            ),
-          }))
-          .filter((section) => section.links.length > 0);
+      : userRole === "STAFF"
+        ? sections
+            .map((section) => ({
+              ...section,
+              links: section.links.filter((link) =>
+                ["/pos", "/admin-orders", "/products", "/admin-settings"].includes(link.href)
+              ),
+            }))
+            .filter((section) => section.links.length > 0)
+        : [];
 
   const showDashboardLink = userRole === "ADMIN";
   const railLinks = [
@@ -196,13 +198,13 @@ export function AdminSidebar({
           className={`${!isMobile && effectiveCollapsed ? "flex" : "hidden"} w-full min-w-0 flex-1 flex-col items-center bg-[#06262b] py-3`}
         >
           <Link
-            href={userRole === "ADMIN" ? dashboardLink.href : "/pos"}
+            href={userRole === "ADMIN" ? dashboardLink.href : userRole === "STAFF" ? "/pos" : "/"}
             onClick={handleLinkClick}
             aria-label="APC Inventory home"
             title="APC Inventory"
             className="relative mb-4 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white p-0.5 ring-1 ring-white/15 transition-transform hover:scale-[1.03]"
           >
-            <Image src={logoSrc} alt="APC logo" fill sizes="40px" className="object-cover" />
+            <Image src={logoSrc} alt="APC logo" fill sizes="40px" className="object-cover object-center" />
           </Link>
 
           {effectiveCollapsed && (
@@ -277,7 +279,7 @@ export function AdminSidebar({
                     alt="APC logo"
                     fill
                     sizes="44px"
-                    className="object-cover"
+                    className="object-cover object-center"
                   />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -322,7 +324,7 @@ export function AdminSidebar({
                   alt="APC logo"
                   fill
                   sizes="44px"
-                  className="object-cover"
+                  className="object-cover object-center"
                 />
               </div>
               <button
@@ -366,7 +368,11 @@ export function AdminSidebar({
         )}
 
         {/* Main Navigation Items */}
-        <nav aria-label="Admin navigation" className="admin-sidebar-nav flex w-full min-h-0 flex-1 flex-col space-y-3 overflow-y-auto">
+        <nav
+          aria-label="Admin navigation"
+          aria-busy={userRole === null}
+          className="admin-sidebar-nav flex w-full min-h-0 flex-1 flex-col space-y-3 overflow-y-auto"
+        >
           {visibleSections.map((section) => (
             <div key={section.title} className="space-y-1">
               {!effectiveCollapsed && (

@@ -18,7 +18,7 @@ import { adminFetch, invalidateAdminDataForEvent } from "@/lib/admin-data-cache"
 import { notifyAdminOfNewOrder } from "@/lib/admin-notifications";
 import { getPickupDateKey } from "@/lib/order";
 
-const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png";
 const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const ADMIN_ACTIVITY_STORAGE_KEY = "apc-admin-last-activity";
 type ThemeMode = "light" | "dark" | "system";

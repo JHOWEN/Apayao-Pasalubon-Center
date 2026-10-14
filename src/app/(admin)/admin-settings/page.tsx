@@ -31,7 +31,7 @@ import { useEffect, useState } from "react";
 import { getNewPasswordPolicyError, MIN_NEW_PASSWORD_CHARACTERS } from "@/lib/password-policy";
 
 const fallbackAvatarSrc =
-  process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+  process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png";
 
 type SettingsTab = "profile" | "store" | "pos" | "wallets" | "security" | "team";
 

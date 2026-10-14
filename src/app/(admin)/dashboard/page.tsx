@@ -343,7 +343,7 @@ export default function DashboardPage() {
       hour: "2-digit",
       minute: "2-digit",
     });
-    const logoUrl = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-logo.png";
+    const logoUrl = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png";
 
     const channelRows =
       stats.channelComparison.length > 0
