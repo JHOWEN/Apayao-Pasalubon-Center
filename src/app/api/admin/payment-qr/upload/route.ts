@@ -6,7 +6,6 @@ import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const storageService = createStorageService();
 
 export async function POST(request: Request) {
   const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:payment-qr:upload", "admin");
@@ -32,6 +31,7 @@ export async function POST(request: Request) {
 
     const extension = file.type === "image/jpeg" ? "jpg" : file.type.split("/")[1];
     const key = `payment-qr/${adminId}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${extension}`;
+    const storageService = createStorageService();
     const upload = await storageService.upload({
       bucket: PAYMENT_QR_BUCKET,
       key,

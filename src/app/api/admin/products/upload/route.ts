@@ -5,8 +5,6 @@ import { processProductImage } from "@/lib/image-processing";
 import { getRequestId, logInfo } from "@/lib/logger";
 import { enforceAuthenticatedRateLimit } from "@/lib/rate-limit";
 
-const storageService = createStorageService();
-
 export async function POST(request: Request) {
   const rateLimitResponse = await enforceAuthenticatedRateLimit(request, "admin:products:upload", "admin");
   if (rateLimitResponse) return rateLimitResponse;
@@ -34,6 +32,7 @@ export async function POST(request: Request) {
       );
     }
 
+    const storageService = createStorageService();
     const uploadedResults = await Promise.all(
       files.map(async (file) => {
         const baseId = `product-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
