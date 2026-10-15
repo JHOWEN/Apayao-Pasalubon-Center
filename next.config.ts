@@ -1,17 +1,15 @@
 import type { NextConfig } from "next";
-import { SUPABASE_STORAGE_HOST } from "./src/lib/storage/public-image-host";
+import { SUPABASE_STORAGE_HOSTS } from "./src/lib/storage/public-image-host";
 
 const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   images: {
     formats: ["image/avif", "image/webp"],
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: SUPABASE_STORAGE_HOST,
-        pathname: "/storage/v1/object/public/**",
-      },
-    ],
+    remotePatterns: SUPABASE_STORAGE_HOSTS.map((hostname) => ({
+      protocol: "https" as const,
+      hostname,
+      pathname: "/storage/v1/object/public/**",
+    })),
   },
   async headers() {
     return [
