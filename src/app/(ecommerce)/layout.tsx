@@ -391,6 +391,11 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     }
 
     clearStoredUser();
+    try {
+      window.localStorage.setItem("apc-auth-session-ended", String(Date.now()));
+    } catch {
+      // Other tabs will detect the cleared cookies on their next session check.
+    }
     setProfileMenuOpen(false);
     setMobileMenuOpen(false);
     setIsNotificationsOpen(false);

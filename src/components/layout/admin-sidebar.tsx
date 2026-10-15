@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { clearAdminNotificationCount, getAdminNotificationCount } from "@/lib/admin-notifications";
+import { clearStoredUser } from "@/features/cart/lib/cart";
 import { isSidebarLinkActive, normalizeSidebarPathname } from "@/utils/sidebar-nav";
 
 const dashboardLink = { href: "/dashboard", label: "Dashboard", icon: LayoutGrid };
@@ -178,6 +179,12 @@ export function AdminSidebar({
       await adminFetch("/api/auth/logout", { method: "POST" });
     } finally {
       getAdminQueryClient().clear();
+      clearStoredUser();
+      try {
+        window.localStorage.setItem("apc-auth-session-ended", String(Date.now()));
+      } catch {
+        // Other tabs will detect the cleared cookies on their next session check.
+      }
       router.push("/login");
     }
   }
