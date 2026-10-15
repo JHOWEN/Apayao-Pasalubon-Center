@@ -5,7 +5,6 @@ import Image from "@/components/safe-image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowCounterClockwise as RotateCcw,
-  Check,
   CircleNotch,
   List,
   MagnifyingGlass as Search,
@@ -99,7 +98,6 @@ export default function POSPage() {
   const [paymentMethod, setPaymentMethod] = useState<"CASH">("CASH");
   const [statusMessage, setStatusMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
   const [warningMessage, setWarningMessage] = useState("");
   const [warningType, setWarningType] = useState<"stock" | "unavailable">("stock");
   const [searchQuery, setSearchQuery] = useState("");
@@ -233,7 +231,7 @@ export default function POSPage() {
 
   // Refresh the catalog only when an order or catalog event changes it.
   useEffect(() => {
-    if (isSubmitting || showReceipt || showSuccessOverlay) return;
+    if (isSubmitting || showReceipt) return;
 
     const handleAdminLiveEvent = (event: Event) => {
       const message = (event as CustomEvent<{ type?: string }>).detail;
@@ -253,7 +251,7 @@ export default function POSPage() {
     return () => {
       window.removeEventListener("apc-admin-live-event", handleAdminLiveEvent);
     };
-  }, [isSubmitting, loadProducts, showReceipt, showSuccessOverlay]);
+  }, [isSubmitting, loadProducts, showReceipt]);
 
   function getSelectedVariant(product: Product) {
     const variantId = selectedVariantIds[product.id];
@@ -704,7 +702,6 @@ export default function POSPage() {
     setIsSubmitting(true);
     setStatusMessage("");
     setWarningMessage("");
-    setShowSuccessOverlay(false);
 
     const requestItems = cart.map((item) => ({
       productId: item.productId,
@@ -757,7 +754,6 @@ export default function POSPage() {
         // Clearing browser storage is best effort after the sale is confirmed.
       }
 
-      setShowSuccessOverlay(true);
       setCompletedSubtotal(subtotal);
       setCompletedTender(tender);
       setCompletedItems(cart);
@@ -801,15 +797,11 @@ export default function POSPage() {
         })
       );
 
-      // Refresh the current lightweight, paginated POS result in the background.
-      await loadProducts();
-
-      window.setTimeout(() => {
-        setShowSuccessOverlay(false);
-        setCart([]);
-        setQuantityDrafts({});
-        setShowReceipt(true);
-      }, 1200);
+      // The sale is committed. Show its receipt now and refresh the catalog in the background.
+      setCart([]);
+      setQuantityDrafts({});
+      setShowReceipt(true);
+      void loadProducts();
     } catch {
       setIsSubmitting(false);
       setStatusMessage("The connection ended before checkout could be confirmed. Check recent orders before retrying. If you retry without reloading this page, the same request key prevents a duplicate sale.");
@@ -823,7 +815,6 @@ export default function POSPage() {
     setTenderAmount("");
     setStatusMessage("");
     setShowReceipt(false);
-    setShowSuccessOverlay(false);
     setOrderNumber("");
     setCompletedSubtotal(null);
     setCompletedTender(null);
@@ -892,41 +883,6 @@ export default function POSPage() {
             </div>
             <h3 className="mt-3 text-base font-bold text-slate-900 dark:text-white">Processing Sale</h3>
             <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Recording transaction and updating stocks...</p>
-          </div>
-        </div>
-        </AdminModalPortal>
-      )}
-
-      {/* 3. Clean Order Complete Success Overlay */}
-      {showSuccessOverlay && (
-        <AdminModalPortal>
-        <div
-          className={`${ADMIN_MODAL_BACKDROP_CLASS} px-4`}
-          data-admin-modal="true"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-6 text-center shadow-xl dark:border-slate-800 dark:bg-slate-900">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400">
-              <Check className="h-6 w-6 stroke-3" />
-            </div>
-            <h3 className="mt-3 text-lg font-bold text-slate-900 dark:text-white">Sale Completed</h3>
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">The sale was recorded and inventory was deducted.</p>
-
-            <div className="mt-4 grid grid-cols-2 divide-x divide-slate-200 rounded-lg border border-slate-200 bg-slate-50 text-left dark:divide-slate-800 dark:border-slate-800 dark:bg-slate-800/50">
-              <div className="p-3">
-                <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">Order No.</span>
-                <span className="mt-0.5 block font-mono text-xs font-bold text-slate-900 dark:text-white">{orderNumber}</span>
-              </div>
-              <div className="p-3">
-                <span className="block text-[10px] font-semibold uppercase tracking-wider text-slate-400">Total Paid</span>
-                <span className="mt-0.5 block text-sm font-bold text-emerald-600 dark:text-emerald-400">
-                  ₱{(completedSubtotal ?? subtotal).toFixed(2)}
-                </span>
-              </div>
-            </div>
-
-            <p className="mt-4 text-[11px] text-slate-400">Opening printable receipt confirmation...</p>
           </div>
         </div>
         </AdminModalPortal>

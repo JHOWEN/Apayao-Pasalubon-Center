@@ -1,5 +1,33 @@
 export const ADMIN_NOTIFICATION_STORAGE_KEY = "apc-admin-notifications";
+export const DISMISSED_PICKUP_ALERTS_STORAGE_KEY = "apc-admin-dismissed-pickup-alerts";
+export const OPEN_PICKUP_ORDER_STORAGE_KEY = "apc-admin-open-pickup-order";
+export const OPEN_PICKUP_ORDER_EVENT = "apc-admin-open-pickup-order";
 const ADMIN_NOTIFIED_ORDERS_KEY = "apc-admin-notified-orders";
+
+export function getDismissedPickupAlertIds() {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(DISMISSED_PICKUP_ALERTS_STORAGE_KEY) ?? "[]");
+    return Array.isArray(stored)
+      ? [...new Set(stored.filter((id): id is string => typeof id === "string" && id.length > 0))]
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function dismissPickupAlert(orderId: string) {
+  if (typeof window === "undefined" || !orderId) return;
+
+  try {
+    const dismissedIds = new Set(getDismissedPickupAlertIds());
+    dismissedIds.add(orderId);
+    window.localStorage.setItem(DISMISSED_PICKUP_ALERTS_STORAGE_KEY, JSON.stringify([...dismissedIds]));
+  } catch {
+    // The alert still disappears for the current page when storage is unavailable.
+  }
+}
 
 export function getAdminNotificationCount() {
   if (typeof window === "undefined") {

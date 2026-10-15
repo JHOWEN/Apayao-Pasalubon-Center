@@ -23,10 +23,14 @@ import {
   X,
 } from "lucide-react";
 import { clearAdminNotificationCount, getAdminNotificationCount } from "@/lib/admin-notifications";
+import { clearStoredUser } from "@/features/cart/lib/cart";
 import { isSidebarLinkActive, normalizeSidebarPathname } from "@/utils/sidebar-nav";
 
 const dashboardLink = { href: "/dashboard", label: "Dashboard", icon: LayoutGrid };
-const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo-round.png";
+const configuredLogoSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL;
+const fallbackAvatarSrc = configuredLogoSrc
+  ? `${configuredLogoSrc}${configuredLogoSrc.includes("?") ? "&" : "?"}v=3`
+  : "/logo/apc-inventory-logo.png";
 const logoSrc = fallbackAvatarSrc;
 
 const sections = [
@@ -175,6 +179,12 @@ export function AdminSidebar({
       await adminFetch("/api/auth/logout", { method: "POST" });
     } finally {
       getAdminQueryClient().clear();
+      clearStoredUser();
+      try {
+        window.localStorage.setItem("apc-auth-session-ended", String(Date.now()));
+      } catch {
+        // Other tabs will detect the cleared cookies on their next session check.
+      }
       router.push("/login");
     }
   }
@@ -202,9 +212,9 @@ export function AdminSidebar({
             onClick={handleLinkClick}
             aria-label="APC Inventory home"
             title="APC Inventory"
-            className="relative mb-4 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white p-0.5 ring-1 ring-white/15 transition-transform hover:scale-[1.03]"
+            className="relative mb-4 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 shadow-sm ring-1 ring-white/20 transition-transform hover:scale-[1.03]"
           >
-            <Image src={logoSrc} alt="APC logo" fill sizes="40px" className="object-cover object-center" />
+            <Image src={logoSrc} alt="APC logo" fill sizes="40px" className="object-contain object-center" />
           </Link>
 
           {effectiveCollapsed && (
@@ -273,13 +283,13 @@ export function AdminSidebar({
           {!effectiveCollapsed ? (
             <>
               <div className="flex min-w-0 flex-1 items-center gap-3">
-                <div className="relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl bg-white p-0.5 shadow-sm ring-1 ring-white/20">
+                <div className="relative h-11 w-11 shrink-0 rounded-full bg-white/10 shadow-sm ring-1 ring-white/20">
                   <Image
                     src={logoSrc}
                     alt="APC logo"
                     fill
                     sizes="44px"
-                    className="object-cover object-center"
+                    className="object-contain object-center"
                   />
                 </div>
                 <div className="min-w-0 flex-1">
@@ -316,7 +326,7 @@ export function AdminSidebar({
           ) : (
             <div className="flex flex-col items-center gap-2.5">
               <div
-                className="relative h-10 w-10 shrink-0 overflow-hidden rounded-xl bg-white p-0.5 shadow-sm ring-1 ring-white/20"
+                className="relative h-10 w-10 shrink-0 rounded-full bg-white/10 shadow-sm ring-1 ring-white/20"
                 title="Smart Inventory - Apayao Pasalubong Center"
               >
                 <Image
@@ -324,7 +334,7 @@ export function AdminSidebar({
                   alt="APC logo"
                   fill
                   sizes="44px"
-                  className="object-cover object-center"
+                  className="object-contain object-center"
                 />
               </div>
               <button
