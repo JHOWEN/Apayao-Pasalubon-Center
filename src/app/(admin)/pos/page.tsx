@@ -120,6 +120,22 @@ export default function POSPage() {
   const productRequestSequence = useRef(0);
   const checkoutAttemptRef = useRef<CheckoutAttempt | null>(null);
 
+  const loadReceiptHeader = useCallback(async () => {
+    try {
+      const response = await fetch("/api/admin/receipt-settings", { cache: "no-store" });
+      const data = await response.json();
+      if (response.ok && data?.settings) {
+        setReceiptHeader({
+          registeredBusinessName: data.settings.registeredBusinessName || defaultReceiptHeader.registeredBusinessName,
+          businessAddress: data.settings.businessAddress || defaultReceiptHeader.businessAddress,
+          tinNumber: data.settings.tinNumber || "",
+        });
+      }
+    } catch {
+      // Keep the current receipt header if settings cannot be loaded.
+    }
+  }, []);
+
   const loadProducts = useCallback(async () => {
     const requestSequence = ++productRequestSequence.current;
     const params = new URLSearchParams({ view: "pos", page: String(productPage), limit: "30" });
@@ -188,29 +204,16 @@ export default function POSPage() {
       }
     }
 
-    async function loadReceiptHeader() {
-      try {
-        const response = await adminFetch("/api/admin/receipt-settings", { cache: "no-store" });
-        const data = await response.json();
-        if (response.ok && data?.settings) {
-          setReceiptHeader({
-            registeredBusinessName: data.settings.registeredBusinessName || defaultReceiptHeader.registeredBusinessName,
-            businessAddress: data.settings.businessAddress || defaultReceiptHeader.businessAddress,
-            tinNumber: data.settings.tinNumber || "",
-          });
-        }
-      } catch {
-        // Keep the standard receipt header if settings cannot be loaded.
-      }
-    }
-
     void loadCashierProfile();
-    void loadReceiptHeader();
+    const receiptHeaderTimeoutId = window.setTimeout(() => {
+      void loadReceiptHeader();
+    }, 0);
 
     return () => {
       window.clearInterval(clockInterval);
+      window.clearTimeout(receiptHeaderTimeoutId);
     };
-  }, []);
+  }, [loadReceiptHeader]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -252,6 +255,18 @@ export default function POSPage() {
       window.removeEventListener("apc-admin-live-event", handleAdminLiveEvent);
     };
   }, [isSubmitting, loadProducts, showReceipt]);
+
+  useEffect(() => {
+    const handleSettingsUpdated = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (message?.type === "settings-updated" || message?.type === "admin-data-invalidated") {
+        void loadReceiptHeader();
+      }
+    };
+
+    window.addEventListener("apc-admin-live-event", handleSettingsUpdated);
+    return () => window.removeEventListener("apc-admin-live-event", handleSettingsUpdated);
+  }, [loadReceiptHeader]);
 
   function getSelectedVariant(product: Product) {
     const variantId = selectedVariantIds[product.id];
