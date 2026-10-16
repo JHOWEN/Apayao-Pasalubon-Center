@@ -476,8 +476,8 @@ export default function ReportsPage() {
 
     const styles = `
       @page {
-        size: A4 landscape;
-        margin: 14mm 16mm;
+        size: 8.5in 13in portrait;
+        margin: 14mm;
       }
       * { box-sizing: border-box; }
       html, body { width: auto; min-width: 0; }

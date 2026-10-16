@@ -98,7 +98,7 @@ export default function ReportPdfDocument({
 
   return (
     <Document title={reportTitle} author={report.business.name}>
-      <Page size="A4" orientation="landscape" style={styles.page} wrap>
+      <Page size={[612, 936]} style={styles.page} wrap>
         <View style={styles.header} fixed>
           <Text style={styles.reportTitle}>{reportTitle}</Text>
           <Text style={styles.brand}>{report.business.name}</Text>
