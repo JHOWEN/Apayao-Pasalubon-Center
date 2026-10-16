@@ -55,6 +55,7 @@ export const storefrontSettingsSchema = z.object({
   appName: optionalText(120),
   registeredBusinessName: optionalText(120),
   businessAddress: optionalText(240),
+  posNumber: optionalText(40),
   contactEmail: z.string().trim().max(160).optional(),
   contactPhone: optionalText(40),
   facebookUrl: z.string().trim().max(240).optional(),

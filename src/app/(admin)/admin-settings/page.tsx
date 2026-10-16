@@ -39,6 +39,7 @@ type SettingsState = {
   appName?: string;
   registeredBusinessName?: string | null;
   businessAddress?: string | null;
+  posNumber?: string | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
   facebookUrl?: string | null;
@@ -65,7 +66,7 @@ const settingsSectionFields: Record<SettingsSection, readonly (keyof SettingsSta
     "storeHours",
     "currency",
   ],
-  pos: ["registeredBusinessName", "businessAddress", "tinNumber"],
+  pos: ["registeredBusinessName", "businessAddress", "posNumber", "tinNumber"],
   wallets: [
     "gcashAccountName",
     "gcashAccountNumber",
@@ -80,6 +81,7 @@ const defaultSettings: SettingsState = {
   appName: "APC Inventory",
   registeredBusinessName: "APAYAO PASALUBONG CENTER",
   businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+  posNumber: "POS 1",
   contactEmail: "info@apayao-pasalubong.com",
   contactPhone: "0917 123 4567",
   facebookUrl: "https://www.facebook.com/apayaopasalubong",
@@ -100,6 +102,7 @@ function normalizeSettings(settings?: Partial<SettingsState> | null): SettingsSt
     ...settings,
     registeredBusinessName: settings?.registeredBusinessName ?? defaultSettings.registeredBusinessName,
     businessAddress: settings?.businessAddress ?? defaultSettings.businessAddress,
+    posNumber: settings?.posNumber?.trim() || defaultSettings.posNumber,
     contactEmail: settings?.contactEmail ?? "",
     contactPhone: settings?.contactPhone ?? "",
     facebookUrl: settings?.facebookUrl ?? "",
@@ -1088,7 +1091,7 @@ export default function AdminSettingsPage() {
           <div className="border-b border-slate-100 pb-4 dark:border-slate-800">
             <h2 className="text-base font-bold text-slate-900 dark:text-white">POS Receipt Header</h2>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
-              Set the business name and address shown at the top of browser and USB thermal receipts. The address is also used in Store Setup.
+              Set the business name, address, POS number, and TIN shown on POS receipts. The address is also used in Store Setup.
             </p>
           </div>
 
@@ -1120,6 +1123,23 @@ export default function AdminSettingsPage() {
                 placeholder="Street, barangay, municipality, province"
                 className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
+            </div>
+
+            <div>
+              <label htmlFor="receipt-pos-number" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                POS No.
+              </label>
+              <input
+                id="receipt-pos-number"
+                maxLength={40}
+                value={settingsForm.posNumber ?? "POS 1"}
+                onChange={(e) => setSettingsForm((curr) => ({ ...curr, posNumber: e.target.value }))}
+                placeholder="POS 1"
+                className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+              />
+              <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                Shown on the POS terminal and printed receipts.
+              </p>
             </div>
 
             <div>

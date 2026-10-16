@@ -21,6 +21,7 @@ export async function GET(request: Request) {
       select: {
         registeredBusinessName: true,
         businessAddress: true,
+        posNumber: true,
         tinNumber: true,
       },
     });
@@ -30,6 +31,7 @@ export async function GET(request: Request) {
       settings: {
         registeredBusinessName: settings?.registeredBusinessName ?? "APAYAO PASALUBONG CENTER",
         businessAddress: settings?.businessAddress ?? "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+        posNumber: settings?.posNumber || "POS 1",
         tinNumber: settings?.tinNumber ?? "",
       },
     });

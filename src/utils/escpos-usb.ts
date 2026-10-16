@@ -55,7 +55,7 @@ export type EscPosReceipt = {
   businessAddress: string;
   tinNumber: string;
   cashier: string;
-  terminal: string;
+  posNumber: string;
   paymentMethod: string;
   subtotal: number;
   tender: number;
@@ -121,7 +121,7 @@ function buildReceiptText(receipt: EscPosReceipt) {
     `TIME: ${createdAt.toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}`,
     `ORDER: ${printerSafeText(receipt.orderNumber)}`,
     `CASHIER: ${printerSafeText(receipt.cashier || "Unknown user")}`,
-    `TERMINAL: ${printerSafeText(receipt.terminal || "POS-LOCAL")}`,
+    `POS NO.: ${printerSafeText(receipt.posNumber || "POS 1")}`,
     SEPARATOR,
   ];
 
