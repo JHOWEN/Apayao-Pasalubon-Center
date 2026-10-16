@@ -9,32 +9,37 @@ function isProduction() {
   return process.env.NODE_ENV === "production";
 }
 
-export function getAuthCookieOptions() {
+export function getAuthCookieOptions(sessionOnly = false) {
   return {
     httpOnly: true,
     secure: isProduction(),
     sameSite: "lax" as const,
     path: "/",
-    maxAge: ACCESS_TOKEN_TTL_SECONDS,
+    ...(!sessionOnly ? { maxAge: ACCESS_TOKEN_TTL_SECONDS } : {}),
     ...(isProduction() ? { partitioned: true } : {}),
   };
 }
 
-export function getRefreshCookieOptions(expiresAt: Date) {
+export function getRefreshCookieOptions(expiresAt: Date, sessionOnly = false) {
   return {
     httpOnly: true,
     secure: isProduction(),
     sameSite: "lax" as const,
     path: "/api/auth",
-    expires: expiresAt,
+    ...(!sessionOnly ? { expires: expiresAt } : {}),
     ...(isProduction() ? { partitioned: true } : {}),
   };
 }
 
-export async function setAuthCookies(accessToken: string, refreshToken: string, refreshExpiresAt: Date) {
+export async function setAuthCookies(
+  accessToken: string,
+  refreshToken: string,
+  refreshExpiresAt: Date,
+  sessionOnly = false,
+) {
   const cookieStore = await cookies();
-  cookieStore.set(ACCESS_COOKIE_NAME, accessToken, getAuthCookieOptions());
-  cookieStore.set(REFRESH_COOKIE_NAME, refreshToken, getRefreshCookieOptions(refreshExpiresAt));
+  cookieStore.set(ACCESS_COOKIE_NAME, accessToken, getAuthCookieOptions(sessionOnly));
+  cookieStore.set(REFRESH_COOKIE_NAME, refreshToken, getRefreshCookieOptions(refreshExpiresAt, sessionOnly));
 }
 
 export function clearAuthCookies(response: NextResponse) {

@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       );
     }
 
-    await setAuthCookies(session.accessToken, session.refreshToken, session.refreshExpiresAt);
+    await setAuthCookies(session.accessToken, session.refreshToken, session.refreshExpiresAt, session.sessionOnly);
     return NextResponse.json({ success: true });
   } catch (error) {
     logError("auth.refresh_failed", error, { requestId: getRequestId(request) });
