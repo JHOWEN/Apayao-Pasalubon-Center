@@ -1,77 +1,28 @@
+import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import {
-  Document,
-  Page,
-  StyleSheet,
-  Text,
-  View,
-} from "@react-pdf/renderer";
-
-type ReportType = "ALL" | "INVENTORY" | "SALES" | "LOW_STOCK" | "TOP_PRODUCTS";
-
-type ReportData = {
-  business: {
-    name: string;
-    address: string;
-  };
-  summary: {
-    totalRevenue: number;
-    grossProfit: number;
-    completedOrders: number;
-    totalItemsSold: number;
-    stockValue: number;
-    retailValue: number;
-    activeProducts: number;
-    lowStockCount?: number;
-  };
-  recentOrders: Array<{
-    orderNumber: string;
-    totalAmount: string;
-    grossProfit: number;
-    completedAt: string;
-    items: Array<{
-      productName: string;
-      sku: string;
-      quantity: number;
-      unitPrice: number;
-      unitCost: number;
-      subtotal: number;
-      grossProfit: number;
-    }>;
-  }>;
-  lowStock: Array<{ name: string; sku: string; stock: number; minStock: number }>;
-  topProducts: Array<{ name: string; sku: string; unitsSold: number; revenue: number }>;
-  inventoryItems: Array<{
-    name: string;
-    sku: string;
-    stock: number;
-    cost: string;
-    price: string;
-    stockValue: string;
-  }>;
-  channelBreakdown: Record<string, { count: number; revenue: number }>;
-  paymentBreakdown: Record<string, { count: number; revenue: number }>;
-};
+  formatReportGeneratedAt,
+  getReportSections,
+  getReportSummaryRows,
+  isReportNumericHeader,
+  type ReportDocumentData,
+  type ReportType,
+} from "@/lib/report-document";
 
 type ReportPdfDocumentProps = {
-  report: ReportData;
+  report: ReportDocumentData;
   reportType: ReportType;
   reportTitle: string;
   periodLabel: string;
   categoryLabel: string;
+  searchLabel: string;
   generatedAt: Date;
-};
-
-type ReportSection = {
-  title: string;
-  headers: string[];
-  rows: string[][];
 };
 
 const styles = StyleSheet.create({
   page: {
-    paddingTop: 78,
-    paddingBottom: 54,
-    paddingHorizontal: 34,
+    paddingTop: 92,
+    paddingBottom: 42,
+    paddingHorizontal: 38,
     backgroundColor: "#ffffff",
     color: "#17211b",
     fontFamily: "Helvetica",
@@ -80,146 +31,57 @@ const styles = StyleSheet.create({
   header: {
     position: "absolute",
     top: 22,
-    left: 34,
-    right: 34,
+    left: 38,
+    right: 38,
     paddingBottom: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#d5ded6",
-    textAlign: "center",
+    borderBottomColor: "#a8b8ad",
   },
-  brand: { marginTop: 3, fontSize: 10, fontWeight: 700, color: "#174c37" },
-  subtitle: { marginTop: 3, fontSize: 7, color: "#526257" },
-  reportTitle: { fontSize: 13, fontWeight: 700, color: "#142a20" },
-  scope: { marginTop: 5, fontSize: 7, color: "#526257" },
+  reportTitle: { fontSize: 15, fontWeight: 700, color: "#142a20" },
+  brand: { marginTop: 4, fontSize: 9, fontWeight: 700, color: "#174c37" },
+  address: { marginTop: 2, fontSize: 7, color: "#526257" },
+  scope: { flexDirection: "row", marginTop: 8 },
+  scopeItem: { flexGrow: 1, flexBasis: 0, paddingRight: 10 },
+  scopeLabel: { fontSize: 6, fontWeight: 700, color: "#526257", textTransform: "uppercase" },
+  scopeValue: { marginTop: 2, fontSize: 7, color: "#17211b" },
   sectionTitle: {
     marginTop: 14,
-    marginBottom: 6,
+    marginBottom: 5,
+    paddingBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#cbd5cd",
     fontSize: 9,
     fontWeight: 700,
     color: "#26332b",
   },
-  summaryTable: { width: "100%", marginBottom: 4 },
-  summaryHeader: {
-    flexDirection: "row",
-    backgroundColor: "#eef2ee",
-    borderBottomWidth: 1,
-    borderBottomColor: "#cbd5cd",
-  },
-  summaryHeaderCell: { flex: 1, paddingVertical: 5, paddingHorizontal: 4, fontSize: 7, fontWeight: 700, color: "#405148" },
-  summaryRow: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#dce5dd" },
-  summaryLabel: { flex: 1, paddingVertical: 5, paddingHorizontal: 4, fontSize: 8, color: "#26332b" },
-  summaryValue: { width: "35%", paddingVertical: 5, paddingHorizontal: 4, textAlign: "right", fontSize: 8, fontWeight: 700, color: "#17211b" },
-  table: { width: "100%", marginBottom: 6 },
-  tableHeader: {
-    flexDirection: "row",
-    backgroundColor: "#eef2ee",
-    borderBottomWidth: 1,
-    borderBottomColor: "#cbd5cd",
-  },
-  headerCell: {
-    flex: 1,
-    paddingVertical: 5,
-    paddingHorizontal: 4,
-    color: "#405148",
-    fontSize: 7,
-    fontWeight: 700,
-  },
-  row: {
+  summary: { width: "100%", marginBottom: 2 },
+  summaryRow: {
     flexDirection: "row",
     borderBottomWidth: 0.5,
-    borderBottomColor: "#dce5dd",
-    minHeight: 19,
+    borderBottomColor: "#e1e7e2",
   },
-  cell: { flex: 1, paddingVertical: 5, paddingHorizontal: 4, fontSize: 7, color: "#26332b" },
-  empty: { padding: 8, fontSize: 8, color: "#526257" },
+  summaryLabel: { flexGrow: 1, paddingVertical: 4, fontSize: 8, color: "#405148" },
+  summaryValue: { width: "32%", paddingVertical: 4, textAlign: "right", fontSize: 8, fontWeight: 700, color: "#17211b" },
+  table: { width: "100%", marginBottom: 4 },
+  tableHeader: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#82948a",
+  },
+  headerCell: { flex: 1, paddingVertical: 5, paddingHorizontal: 4, fontSize: 7, fontWeight: 700, color: "#405148" },
+  headerCellRight: { textAlign: "right" },
+  row: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#e1e7e2", minHeight: 18 },
+  cell: { flex: 1, paddingVertical: 4, paddingHorizontal: 4, fontSize: 7, color: "#26332b" },
+  cellRight: { textAlign: "right" },
+  empty: { paddingVertical: 7, fontSize: 8, color: "#526257" },
   footer: {
     position: "absolute",
     bottom: 18,
-    left: 34,
-    right: 34,
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: "#d5ded6",
-    flexDirection: "row",
-    justifyContent: "space-between",
+    right: 38,
     fontSize: 7,
     color: "#526257",
   },
 });
-
-const currency = (value: number | string) =>
-  `PHP ${Number(value || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-function createSections(report: ReportData, type: ReportType): ReportSection[] {
-  const inventory = report.inventoryItems.map((item) => [
-    item.name,
-    item.sku,
-    String(item.stock),
-    currency(item.cost),
-    currency(item.price),
-    currency(item.stockValue),
-  ]);
-  const sales = report.recentOrders.flatMap((order) => order.items.map((item) => [
-    order.orderNumber,
-    new Date(order.completedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" }),
-    item.productName,
-    item.sku,
-    String(item.quantity),
-    currency(item.unitPrice),
-    currency(item.unitCost),
-    currency(item.subtotal),
-    currency(item.grossProfit),
-  ]));
-  const channels = Object.entries(report.channelBreakdown).map(([name, values]) => [
-    name,
-    String(values.count),
-    currency(values.revenue),
-  ]);
-  const payments = Object.entries(report.paymentBreakdown).map(([name, values]) => [
-    name,
-    String(values.count),
-    currency(values.revenue),
-  ]);
-  const lowStock = report.lowStock.map((item) => [
-    item.name,
-    item.sku,
-    String(item.stock),
-    String(item.minStock),
-    String(Math.max(item.minStock - item.stock, 0)),
-  ]);
-  const topProducts = report.topProducts.map((item, index) => [
-    String(index + 1),
-    item.name,
-    item.sku,
-    String(item.unitsSold),
-    currency(item.revenue),
-  ]);
-
-  if (type === "INVENTORY") {
-    return [{ title: "Inventory valuation and stock ledger", headers: ["Product / variant", "SKU", "Stock", "Unit cost", "Retail price", "Stock value"], rows: inventory }];
-  }
-  if (type === "SALES") {
-    return [
-      { title: "Sales channel breakdown", headers: ["Channel", "Orders", "Revenue"], rows: channels },
-      { title: "Payment method breakdown", headers: ["Payment method", "Orders", "Revenue"], rows: payments },
-      { title: "Itemized sales", headers: ["Order", "Completed date", "Product / variant", "SKU", "Qty", "Unit price", "Unit cost", "Line total", "Gross profit"], rows: sales },
-    ];
-  }
-  if (type === "LOW_STOCK") {
-    return [{ title: "Low stock alerts", headers: ["Product / variant", "SKU", "In stock", "Minimum", "Deficit"], rows: lowStock }];
-  }
-  if (type === "TOP_PRODUCTS") {
-    return [{ title: "Top performing products", headers: ["Rank", "Product / variant", "SKU", "Units sold", "Revenue"], rows: topProducts }];
-  }
-  return [
-    { title: "Sales channel breakdown", headers: ["Channel", "Orders", "Revenue"], rows: channels },
-    { title: "Payment method breakdown", headers: ["Payment method", "Orders", "Revenue"], rows: payments },
-    { title: "Itemized sales", headers: ["Order", "Completed date", "Product / variant", "SKU", "Qty", "Unit price", "Unit cost", "Line total", "Gross profit"], rows: sales },
-    { title: "Inventory snapshot", headers: ["Product / variant", "SKU", "Stock", "Unit cost", "Retail price", "Stock value"], rows: inventory },
-    { title: "Low stock snapshot", headers: ["Product / variant", "SKU", "In stock", "Minimum"], rows: lowStock.map((row) => row.slice(0, 4)) },
-    { title: "Top products", headers: ["Rank", "Product / variant", "SKU", "Units sold", "Revenue"], rows: topProducts },
-  ];
-}
 
 export default function ReportPdfDocument({
   report,
@@ -227,19 +89,12 @@ export default function ReportPdfDocument({
   reportTitle,
   periodLabel,
   categoryLabel,
+  searchLabel,
   generatedAt,
 }: ReportPdfDocumentProps) {
-  const sections = createSections(report, reportType);
-  const summary = [
-    ["Gross revenue", currency(report.summary.totalRevenue)],
-    ["Cost of goods (current costs)", currency(report.summary.totalRevenue - report.summary.grossProfit)],
-    ["Gross profit (current costs)", currency(report.summary.grossProfit)],
-    ["Completed orders", String(report.summary.completedOrders)],
-    ["Units sold", String(report.summary.totalItemsSold)],
-    ["Stock value", currency(report.summary.stockValue)],
-    ["Retail value", currency(report.summary.retailValue)],
-    ["Low stock items", String(report.summary.lowStockCount ?? report.lowStock.length)],
-  ];
+  const hasSearchFilter = searchLabel !== "Not applied";
+  const sections = getReportSections(report, reportType, hasSearchFilter);
+  const summary = getReportSummaryRows(report, reportType);
 
   return (
     <Document title={reportTitle} author={report.business.name}>
@@ -247,18 +102,24 @@ export default function ReportPdfDocument({
         <View style={styles.header} fixed>
           <Text style={styles.reportTitle}>{reportTitle}</Text>
           <Text style={styles.brand}>{report.business.name}</Text>
-          <Text style={styles.subtitle}>{report.business.address}</Text>
-          <Text style={styles.scope}>
-            Period: {periodLabel}  |  Category: {categoryLabel}  |  Generated: {generatedAt.toLocaleString("en-PH")}
-          </Text>
+          <Text style={styles.address}>{report.business.address}</Text>
+          <View style={styles.scope}>
+            {[
+              ["Reporting period", periodLabel],
+              ["Category", categoryLabel],
+              ["Search", searchLabel],
+              ["Generated", formatReportGeneratedAt(generatedAt)],
+            ].map(([label, value]) => (
+              <View key={label} style={styles.scopeItem}>
+                <Text style={styles.scopeLabel}>{label}</Text>
+                <Text style={styles.scopeValue}>{value}</Text>
+              </View>
+            ))}
+          </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Report summary</Text>
-        <View style={styles.summaryTable}>
-          <View style={styles.summaryHeader}>
-            <Text style={styles.summaryHeaderCell}>METRIC</Text>
-            <Text style={[styles.summaryHeaderCell, { textAlign: "right" }]}>VALUE</Text>
-          </View>
+        <Text style={styles.sectionTitle}>Summary</Text>
+        <View style={styles.summary}>
           {summary.map(([label, value]) => (
             <View key={label} style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>{label}</Text>
@@ -272,19 +133,34 @@ export default function ReportPdfDocument({
             <Text style={styles.sectionTitle}>{section.title}</Text>
             <View style={styles.table}>
               <View style={styles.tableHeader}>
-                {section.headers.map((header) => <Text key={header} style={styles.headerCell}>{header}</Text>)}
+                {section.headers.map((header) => (
+                  <Text
+                    key={header}
+                    style={isReportNumericHeader(header) ? [styles.headerCell, styles.headerCellRight] : styles.headerCell}
+                  >
+                    {header}
+                  </Text>
+                ))}
               </View>
               {section.rows.length ? section.rows.map((row, index) => (
                 <View key={`${section.title}-${index}`} style={styles.row} wrap={false}>
-                  {row.map((value, cellIndex) => <Text key={`${index}-${cellIndex}`} style={styles.cell}>{value}</Text>)}
+                  {row.map((value, cellIndex) => (
+                    <Text
+                      key={`${index}-${cellIndex}`}
+                      style={isReportNumericHeader(section.headers[cellIndex] ?? "") ? [styles.cell, styles.cellRight] : styles.cell}
+                    >
+                      {value}
+                    </Text>
+                  ))}
                 </View>
-              )) : <Text style={styles.empty}>No records found for this section.</Text>}
+              )) : (
+                <Text style={styles.empty}>{section.emptyMessage}</Text>
+              )}
             </View>
           </View>
         ))}
 
         <View style={styles.footer} fixed>
-          <Text>Apayao Pasalubong Center | Internal report</Text>
           <Text render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
         </View>
       </Page>
