@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "@/components/safe-image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { clearCart, getCartItems, getStoredUser, saveRecentOrder, saveStoredUser } from "@/features/cart/lib/cart";
+import { clearBuyNowItems, clearCart, getBuyNowItems, getCartItems, getStoredUser, saveRecentOrder, saveStoredUser } from "@/features/cart/lib/cart";
 import { getCheckoutData } from "@/features/cart/lib/checkout-data";
 import { fetchWithTimeout, getResponseErrorMessage, getUserFacingErrorMessage } from "@/lib/client-fetch";
 import { isPickupDateOnOrAfterToday, ONLINE_PAYMENT_RESERVATION_TTL_MS } from "@/lib/order";
@@ -52,6 +52,7 @@ type ActiveReservation = {
 export default function CheckoutPage() {
   const router = useRouter();
   const [items, setItems] = useState<CheckoutItem[]>([]);
+  const [isBuyNowCheckout, setIsBuyNowCheckout] = useState(false);
   const [user, setUser] = useState<CheckoutUser | null>(null);
   const [form, setForm] = useState({
     name: "",
@@ -77,6 +78,13 @@ export default function CheckoutPage() {
 
   useEffect(() => {
     let isMounted = true;
+    const buyNowCheckout = new URLSearchParams(window.location.search).get("source") === "buy-now";
+    setIsBuyNowCheckout(buyNowCheckout);
+    if (!buyNowCheckout) clearBuyNowItems();
+
+    function getCheckoutItems() {
+      return buyNowCheckout ? getBuyNowItems() : getCartItems();
+    }
 
     function applyUser(profile: CheckoutUser | null) {
       if (!isMounted) return;
@@ -96,7 +104,7 @@ export default function CheckoutPage() {
 
     void getCheckoutData().then((data) => {
       if (!isMounted) return;
-      setItems(getCartItems());
+      setItems(getCheckoutItems());
       setPaymentSettings(data.settings ?? {});
       if (data.user) {
         saveStoredUser(data.user);
@@ -106,7 +114,7 @@ export default function CheckoutPage() {
       const savedUser = getStoredUser();
       applyUser(savedUser);
     }).catch(() => {
-      if (isMounted) setItems(getCartItems());
+      if (isMounted) setItems(getCheckoutItems());
       applyUser(getStoredUser());
     }).finally(() => {
       if (isMounted) setIsLoadingCheckout(false);
@@ -207,7 +215,8 @@ export default function CheckoutPage() {
 
       orderIdempotencyKeyRef.current = null;
 
-      clearCart();
+      clearBuyNowItems();
+      if (!isBuyNowCheckout) clearCart();
       if (form.paymentMethod !== "CASH") {
         const createdAt = new Date(data.order.createdAt).getTime();
         setActiveReservation({

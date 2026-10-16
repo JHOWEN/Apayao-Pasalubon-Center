@@ -350,6 +350,7 @@ model ProductReview {
   rating      Int
   comment     String?
   optionValue String?
+  imageUrls   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   product     Product  @relation(fields: [productId], references: [id])

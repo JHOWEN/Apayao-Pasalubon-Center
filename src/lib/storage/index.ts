@@ -4,6 +4,7 @@ import { StorageService } from "@/lib/storage/storage-service";
 
 export const PRODUCT_IMAGE_BUCKET = process.env.SUPABASE_PRODUCT_BUCKET?.trim() || "product-images";
 export const PROFILE_IMAGE_BUCKET = process.env.SUPABASE_PROFILE_BUCKET?.trim() || "profile-images";
+export const RATING_IMAGE_BUCKET = process.env.SUPABASE_RATING_IMAGE_BUCKET?.trim() || "RATINGS_IMAGES";
 export const PAYMENT_PROOF_BUCKET = process.env.SUPABASE_RECEIPT_BUCKET?.trim() || "payment-proofs";
 export const PAYMENT_QR_BUCKET = process.env.SUPABASE_PAYMENT_QR_BUCKET?.trim() || "payment-qr";
 

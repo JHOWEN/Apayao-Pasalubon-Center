@@ -6,7 +6,7 @@ import { Heart, Minus, Plus, ShoppingBag, Star, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { addToCart, getStoredUser } from "@/features/cart/lib/cart";
+import { addToCart, getStoredUser, saveBuyNowItems } from "@/features/cart/lib/cart";
 import { getPrimaryImageUrl, getThumbnailImageUrl } from "@/features/catalog/utils/product-images";
 import { cleanProductDescription } from "@/features/catalog/utils/product-text";
 import { isFavoriteProduct, recordRecentlyViewed, toggleFavoriteProduct } from "@/features/catalog/lib/favorites";
@@ -108,8 +108,8 @@ export function ProductCard({
       router.push("/register");
       return;
     }
-    addToCart({
-      id,
+    const item = {
+      productId: id,
       name,
       price: includeVariant ? selectedVariant?.price ?? price : price,
       imageUrl: selectedVariantImage || primaryImage,
@@ -119,14 +119,20 @@ export function ProductCard({
       variantSku: includeVariant ? selectedVariant?.sku : undefined,
       variantLabel: includeVariant && selectedVariant ? getVariantLabel(selectedVariant) : undefined,
       variantAttributes: includeVariant ? selectedVariant?.attributes : undefined,
-    });
-    setAdded(true);
-    window.dispatchEvent(new Event("apc-cart-toss"));
-    if (goToCheckout) router.push("/checkout");
+    };
+
+    if (goToCheckout) {
+      saveBuyNowItems([item]);
+      router.push("/checkout?source=buy-now");
+    } else {
+      addToCart({ id: item.productId, ...item });
+      setAdded(true);
+      window.dispatchEvent(new Event("apc-cart-toss"));
+      setTimeout(() => setAdded(false), 1200);
+    }
     setIsOptionModalOpen(false);
     setQuantity(1);
     setQuantityInput("1");
-    setTimeout(() => setAdded(false), 1200);
   }
 
   return (

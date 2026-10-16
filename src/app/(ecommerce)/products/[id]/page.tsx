@@ -19,11 +19,19 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { addToCart, getStoredUser } from "@/features/cart/lib/cart";
+import { addToCart, getStoredUser, saveBuyNowItems } from "@/features/cart/lib/cart";
 import { getPrimaryImageUrl, parseImageUrls } from "@/features/catalog/utils/product-images";
 import { isFavoriteProduct, recordRecentlyViewed, toggleFavoriteProduct } from "@/features/catalog/lib/favorites";
 import { RequestTimeoutError } from "@/lib/client-fetch";
 import { publicFetch } from "@/lib/public-data-cache";
+import { compressUploadImage, RATING_IMAGE_COMPRESSION } from "@/utils/compress-upload-image";
+
+type ReviewImageDraft = { key: string; url: string };
+
+const MAX_REVIEW_IMAGES = 5;
+const MAX_REVIEW_IMAGE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_REVIEW_UPLOAD_SIZE_BYTES = 4 * 1024 * 1024;
+const REVIEW_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 const formatReviewDate = (value: string) => {
   const date = new Date(value);
@@ -127,7 +135,8 @@ export default function ProductDetailPage() {
   const [reviewComment, setReviewComment] = useState("");
   const [reviewMessage, setReviewMessage] = useState("");
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
-  const [reviewImages, setReviewImages] = useState<string[]>([]);
+  const [reviewImages, setReviewImages] = useState<ReviewImageDraft[]>([]);
+  const [isUploadingReviewImages, setIsUploadingReviewImages] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [reviewFilter, setReviewFilter] = useState<"all" | number | "with-images">("all");
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
@@ -535,8 +544,8 @@ export default function ProductDetailPage() {
       return;
     }
 
-    addToCart({
-      id: product.id,
+    const item = {
+      productId: product.id,
       variantId: variant.id,
       variantSku: variant.sku,
       variantLabel: getVariantLabel(variant),
@@ -546,11 +555,18 @@ export default function ProductDetailPage() {
       stock: Number(variant.stock),
       quantity: customQuantity,
       imageUrl: getPrimaryImageUrl(variant.imageUrls?.[0] ?? product.imageUrl ?? undefined) ?? undefined,
-    });
+    };
+
+    if (action === "buy") {
+      saveBuyNowItems([item]);
+      router.push("/checkout?source=buy-now");
+      return;
+    }
+
+    addToCart({ id: item.productId, ...item });
     window.dispatchEvent(new Event("apc-cart-toss"));
     setAddedToast(true);
     setTimeout(() => setAddedToast(false), 2000);
-    if (action === "buy") router.push("/checkout");
   }
 
   useEffect(() => {
@@ -657,8 +673,8 @@ export default function ProductDetailPage() {
       return;
     }
 
-    addToCart({
-      id: selectedGroupItem.assignedProductId,
+    const item = {
+      productId: selectedGroupItem.assignedProductId,
       name: selectedGroupItem.name,
       price: selectedGroupItem.price,
       stock: selectedGroupItem.stock,
@@ -666,16 +682,20 @@ export default function ProductDetailPage() {
       imageUrl: getPrimaryImageUrl(selectedGroupItem.imageUrl as string | undefined) ?? undefined,
       variantSku: selectedGroupItem.sku,
       variantLabel: selectedGroupItem.optionValue,
-    });
+    };
 
+    if (action === "buy") {
+      saveBuyNowItems([item]);
+      router.push("/checkout?source=buy-now");
+      setShowOptionsModal(false);
+      return;
+    }
+
+    addToCart({ id: item.productId, ...item });
     window.dispatchEvent(new Event("apc-cart-toss"));
     setShowOptionsModal(false);
     setAddedToast(true);
     setTimeout(() => setAddedToast(false), 2000);
-
-    if (action === "buy") {
-      router.push("/checkout");
-    }
   }
 
   function handleMainAction(action: "cart" | "buy") {
@@ -707,22 +727,25 @@ export default function ProductDetailPage() {
     }
 
     if (!isVariantRequired && activeProductId) {
-      addToCart({
-        id: activeProductId,
+      const item = {
+        productId: activeProductId,
         name: activeProductName,
         price: activeProductPrice,
         stock: activeProductStock,
         quantity: pageQuantity,
         imageUrl: getPrimaryImageUrl(activeProductImage as string | undefined) ?? undefined,
-      });
+      };
 
+      if (action === "buy") {
+        saveBuyNowItems([item]);
+        router.push("/checkout?source=buy-now");
+        return;
+      }
+
+      addToCart({ id: item.productId, ...item });
       window.dispatchEvent(new Event("apc-cart-toss"));
       setAddedToast(true);
       setTimeout(() => setAddedToast(false), 2000);
-
-      if (action === "buy") {
-        router.push("/checkout");
-      }
       return;
     }
 
@@ -736,36 +759,67 @@ export default function ProductDetailPage() {
 
   async function handleReviewImageSelection(event: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
-
     if (!files.length) {
       return;
     }
 
-    const nextImages = [...reviewImages];
-
-    for (const file of files) {
-      if (!file.type.startsWith("image/")) {
-        continue;
-      }
-
-      if (nextImages.length >= 5) {
-        break;
-      }
-
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => {
-          resolve(typeof reader.result === "string" ? reader.result : "");
-        };
-        reader.onerror = () => reject(new Error("Failed to read selected image."));
-        reader.readAsDataURL(file);
-      });
-
-      nextImages.push(dataUrl);
+    if (files.some((file) => !REVIEW_IMAGE_TYPES.has(file.type))) {
+      setReviewMessage("Only JPEG, PNG, and WebP photos are allowed.");
+      event.target.value = "";
+      return;
     }
 
-    setReviewImages(nextImages.slice(0, 5));
-    event.target.value = "";
+    if (files.some((file) => file.size > MAX_REVIEW_IMAGE_SIZE_BYTES)) {
+      setReviewMessage("Each review photo must be 10 MB or smaller.");
+      event.target.value = "";
+      return;
+    }
+
+    const availableSlots = Math.max(0, MAX_REVIEW_IMAGES - reviewImages.length);
+    const filesToUpload = files.slice(0, availableSlots);
+    const reachedImageLimit = filesToUpload.length < files.length;
+    if (!filesToUpload.length) {
+      setReviewMessage("You can attach up to five photos to a review.");
+      event.target.value = "";
+      return;
+    }
+
+    setIsUploadingReviewImages(true);
+    setReviewMessage("");
+    const uploadedImages: ReviewImageDraft[] = [];
+    let uploadError = "";
+
+    try {
+      for (const file of filesToUpload) {
+        const compressedFile = await compressUploadImage(file, RATING_IMAGE_COMPRESSION);
+        if (compressedFile.size > MAX_REVIEW_UPLOAD_SIZE_BYTES) {
+          throw new Error("A photo is still too large after compression. Choose a smaller image and try again.");
+        }
+
+        const formData = new FormData();
+        formData.append("file", compressedFile);
+        const response = await fetch("/api/auth/review-images/upload", {
+          method: "POST",
+          body: formData,
+        });
+        const data = await response.json().catch(() => null);
+
+        if (!response.ok || !data?.success || typeof data.key !== "string" || typeof data.url !== "string") {
+          throw new Error(data?.message ?? "Unable to upload this photo. Please try again.");
+        }
+
+        uploadedImages.push({ key: data.key, url: data.url });
+      }
+    } catch (error) {
+      uploadError = error instanceof Error ? error.message : "Unable to upload this photo. Please try again.";
+    } finally {
+      if (uploadedImages.length) {
+        setReviewImages((current) => [...current, ...uploadedImages].slice(0, MAX_REVIEW_IMAGES));
+      }
+      setIsUploadingReviewImages(false);
+      setReviewMessage(uploadError || (reachedImageLimit ? "You can attach up to five photos to a review." : ""));
+      event.target.value = "";
+    }
   }
 
   async function submitReview() {
@@ -789,7 +843,7 @@ export default function ProductDetailPage() {
           productId: reviewTargetId,
           rating: ratingValue,
           comment: reviewComment,
-          imageUrls: reviewImages,
+          imageKeys: reviewImages.map((image) => image.key),
           optionValue: reviewOptionValue === "all" ? undefined : reviewOptionValue,
         }),
       });
@@ -1283,12 +1337,13 @@ export default function ProductDetailPage() {
                     <div>
                       <label className="inline-flex items-center gap-2 cursor-pointer rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/10">
                         <Upload className="h-3.5 w-3.5 text-[#ff8a1e]" />
-                        <span>Upload Photos ({reviewImages.length}/5)</span>
+                        <span>{isUploadingReviewImages ? "Uploading photos..." : `Upload Photos (${reviewImages.length}/5)`}</span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/jpeg,image/png,image/webp"
                           multiple
                           onChange={handleReviewImageSelection}
+                          disabled={isUploadingReviewImages || reviewImages.length >= MAX_REVIEW_IMAGES}
                           className="hidden"
                         />
                       </label>
@@ -1296,7 +1351,7 @@ export default function ProductDetailPage() {
                         <div className="mt-2.5 flex flex-wrap gap-2">
                           {reviewImages.map((img, idx) => (
                             <div key={idx} className="relative h-14 w-14 overflow-hidden rounded-lg border border-white/10">
-                              <Image src={img} alt="Upload preview" fill sizes="56px" className="object-cover" unoptimized />
+                              <Image src={img.url} alt="Upload preview" fill sizes="56px" className="object-cover" unoptimized />
                               <button
                                 type="button"
                                 onClick={() => setReviewImages((imgs) => imgs.filter((_, i) => i !== idx))}
@@ -1317,7 +1372,7 @@ export default function ProductDetailPage() {
                     <button
                       type="button"
                       onClick={() => void submitReview()}
-                      disabled={isSubmittingReview}
+                      disabled={isSubmittingReview || isUploadingReviewImages}
                       className="w-full rounded-xl bg-[#ff8a1e] py-2.5 text-xs font-bold text-slate-950 transition hover:bg-[#f97316] disabled:opacity-50"
                     >
                       {isSubmittingReview ? "Submitting..." : "Submit Verified Review"}

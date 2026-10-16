@@ -12,6 +12,7 @@ export type CartItem = {
 };
 
 const CART_KEY = "apc-cart";
+const BUY_NOW_KEY = "apc-buy-now-items";
 const ORDERS_KEY = "apc-orders";
 export const CART_UPDATED_EVENT = "apc-cart-updated";
 
@@ -29,6 +30,37 @@ export function saveCartItems(items: CartItem[]) {
   if (typeof window === "undefined") return;
   localStorage.setItem(CART_KEY, JSON.stringify(items));
   window.dispatchEvent(new Event(CART_UPDATED_EVENT));
+}
+
+export function getBuyNowItems(): CartItem[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const items = JSON.parse(sessionStorage.getItem(BUY_NOW_KEY) ?? "[]");
+    return Array.isArray(items) ? (items as CartItem[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveBuyNowItems(items: CartItem[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    sessionStorage.setItem(BUY_NOW_KEY, JSON.stringify(items));
+  } catch {
+    // The checkout page will show an empty selection if session storage is unavailable.
+  }
+}
+
+export function clearBuyNowItems() {
+  if (typeof window === "undefined") return;
+
+  try {
+    sessionStorage.removeItem(BUY_NOW_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
 }
 
 function dispatchStockWarning(message: string) {

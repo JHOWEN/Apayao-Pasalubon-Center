@@ -20,6 +20,11 @@ export const PROFILE_IMAGE_COMPRESSION: ImageCompressionPreset = {
   maxWidthOrHeight: 1024,
 };
 
+export const RATING_IMAGE_COMPRESSION: ImageCompressionPreset = {
+  maxSizeMB: 2.5,
+  maxWidthOrHeight: 1800,
+};
+
 export async function compressUploadImage(file: File, preset: ImageCompressionPreset) {
   if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
 
