@@ -53,6 +53,78 @@ type SettingsState = {
   mayaQrCodeUrl?: string | null;
 };
 
+type SettingsSection = "store" | "pos" | "wallets";
+
+const settingsSectionFields: Record<SettingsSection, readonly (keyof SettingsState)[]> = {
+  store: [
+    "appName",
+    "businessAddress",
+    "contactEmail",
+    "contactPhone",
+    "facebookUrl",
+    "storeHours",
+    "currency",
+  ],
+  pos: ["registeredBusinessName", "businessAddress", "tinNumber"],
+  wallets: [
+    "gcashAccountName",
+    "gcashAccountNumber",
+    "gcashQrCodeUrl",
+    "mayaAccountName",
+    "mayaAccountNumber",
+    "mayaQrCodeUrl",
+  ],
+};
+
+const defaultSettings: SettingsState = {
+  appName: "APC Inventory",
+  registeredBusinessName: "APAYAO PASALUBONG CENTER",
+  businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+  contactEmail: "info@apayao-pasalubong.com",
+  contactPhone: "0917 123 4567",
+  facebookUrl: "https://www.facebook.com/apayaopasalubong",
+  storeHours: "Open daily, 7:00 AM - 8:30 PM.",
+  tinNumber: "",
+  currency: "PHP",
+  gcashAccountName: "",
+  gcashAccountNumber: "",
+  gcashQrCodeUrl: "",
+  mayaAccountName: "",
+  mayaAccountNumber: "",
+  mayaQrCodeUrl: "",
+};
+
+function normalizeSettings(settings?: Partial<SettingsState> | null): SettingsState {
+  return {
+    ...defaultSettings,
+    ...settings,
+    registeredBusinessName: settings?.registeredBusinessName ?? defaultSettings.registeredBusinessName,
+    businessAddress: settings?.businessAddress ?? defaultSettings.businessAddress,
+    contactEmail: settings?.contactEmail ?? "",
+    contactPhone: settings?.contactPhone ?? "",
+    facebookUrl: settings?.facebookUrl ?? "",
+    storeHours: settings?.storeHours ?? "",
+    tinNumber: settings?.tinNumber ?? "",
+    gcashAccountName: settings?.gcashAccountName ?? "",
+    gcashAccountNumber: settings?.gcashAccountNumber ?? "",
+    gcashQrCodeUrl: settings?.gcashQrCodeUrl ?? "",
+    mayaAccountName: settings?.mayaAccountName ?? "",
+    mayaAccountNumber: settings?.mayaAccountNumber ?? "",
+    mayaQrCodeUrl: settings?.mayaQrCodeUrl ?? "",
+  };
+}
+
+function getSettingsErrorMessage(
+  data: { message?: string; errors?: Record<string, string[] | undefined> },
+  fallback: string,
+) {
+  for (const [field, messages] of Object.entries(data.errors ?? {})) {
+    if (messages?.[0]) return `${field}: ${messages[0]}`;
+  }
+
+  return data.message ?? fallback;
+}
+
 type ProfileFormState = {
   name: string;
   email: string;
@@ -73,23 +145,7 @@ type TeamUser = {
 
 export default function AdminSettingsPage() {
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
-  const [settingsForm, setSettingsForm] = useState<SettingsState>({
-    appName: "APC Inventory",
-    registeredBusinessName: "APAYAO PASALUBONG CENTER",
-    businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
-    contactEmail: "info@apayao-pasalubong.com",
-    contactPhone: "0917 123 4567",
-    facebookUrl: "https://www.facebook.com/apayaopasalubong",
-    storeHours: "Open daily, 7:00 AM - 8:30 PM.",
-    tinNumber: "",
-    currency: "PHP",
-    gcashAccountName: "",
-    gcashAccountNumber: "",
-    gcashQrCodeUrl: "",
-    mayaAccountName: "",
-    mayaAccountNumber: "",
-    mayaQrCodeUrl: "",
-  });
+  const [settingsForm, setSettingsForm] = useState<SettingsState>(defaultSettings);
 
   const [profileForm, setProfileForm] = useState<ProfileFormState>({
     name: "",
@@ -166,18 +222,7 @@ export default function AdminSettingsPage() {
       try {
         const response = await adminFetch("/api/admin/settings");
         const data = await response.json();
-        const nextSettings = {
-          appName: "APC Inventory",
-          registeredBusinessName: "APAYAO PASALUBONG CENTER",
-          businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
-          contactEmail: "info@apayao-pasalubong.com",
-          contactPhone: "0917 123 4567",
-          facebookUrl: "https://www.facebook.com/apayaopasalubong",
-          storeHours: "Open daily, 7:00 AM - 8:30 PM.",
-          tinNumber: "",
-          currency: "PHP",
-          ...data?.settings,
-        };
+        const nextSettings = normalizeSettings(data?.settings);
         setSettingsForm(nextSettings);
       } catch (err) {
         console.error("Failed to load settings:", err);
@@ -390,24 +435,31 @@ export default function AdminSettingsPage() {
     }
   }
 
-  async function handleSettingsSave(e: React.FormEvent) {
+  async function handleSettingsSave(e: React.FormEvent, section: SettingsSection) {
     e.preventDefault();
     setIsSavingSettings(true);
 
     try {
+      const normalizedSettings = normalizeSettings(settingsForm);
+      const payload = Object.fromEntries(
+        settingsSectionFields[section].map((field) => [field, normalizedSettings[field]]),
+      );
       const response = await adminFetch("/api/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(settingsForm),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
 
       if (!response.ok) {
-        showToast("error", data.message ?? "Failed to save settings.");
+        showToast("error", getSettingsErrorMessage(data, "Failed to save settings."));
         return;
       }
 
-      const nextSettings = data?.settings ?? settingsForm;
+      const nextSettings = normalizeSettings({
+        ...settingsForm,
+        ...(data?.settings ?? payload),
+      });
       setSettingsForm(nextSettings);
       showToast("success", "Settings saved successfully.");
     } catch {
@@ -437,16 +489,27 @@ export default function AdminSettingsPage() {
       }
 
       const field = wallet === "gcash" ? "gcashQrCodeUrl" : "mayaQrCodeUrl";
-      const updatedForm = { ...settingsForm, [field]: data.url };
-      setSettingsForm(updatedForm);
-
-      // Auto-save settings with new QR code
-      await adminFetch("/api/admin/settings", {
+      const saveResponse = await adminFetch("/api/admin/settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updatedForm),
+        body: JSON.stringify({ [field]: data.url }),
       });
+      const saveData = await saveResponse.json();
 
+      if (!saveResponse.ok) {
+        showToast(
+          "error",
+          getSettingsErrorMessage(saveData, "QR code uploaded, but its settings could not be saved."),
+        );
+        return;
+      }
+
+      setSettingsForm(
+        normalizeSettings({
+          ...settingsForm,
+          ...(saveData?.settings ?? { [field]: data.url }),
+        }),
+      );
       showToast("success", `${wallet.toUpperCase()} QR code uploaded & saved.`);
     } catch {
       showToast("error", "Unable to upload QR code.");
@@ -879,7 +942,7 @@ export default function AdminSettingsPage() {
             </p>
           </div>
 
-          <form className="mt-5 space-y-4" onSubmit={handleSettingsSave}>
+          <form className="mt-5 space-y-4" onSubmit={(event) => void handleSettingsSave(event, "store")}>
             <div>
               <label
                 htmlFor="store-name"
@@ -1029,7 +1092,7 @@ export default function AdminSettingsPage() {
             </p>
           </div>
 
-          <form className="mt-5 space-y-4" onSubmit={handleSettingsSave}>
+          <form className="mt-5 space-y-4" onSubmit={(event) => void handleSettingsSave(event, "pos")}>
             <div>
               <label htmlFor="receipt-business-name" className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
                 Registered Business Name
@@ -1107,7 +1170,7 @@ export default function AdminSettingsPage() {
             </div>
           </div>
 
-          <form className="mt-5 space-y-6" onSubmit={handleSettingsSave}>
+          <form className="mt-5 space-y-6" onSubmit={(event) => void handleSettingsSave(event, "wallets")}>
             <div className="grid gap-6 grid-cols-2">
               {/* GCASH WALLET CARD */}
               <div className="rounded-xl border border-blue-200/80 bg-blue-50/30 p-5 dark:border-blue-900/50 dark:bg-blue-950/20">
