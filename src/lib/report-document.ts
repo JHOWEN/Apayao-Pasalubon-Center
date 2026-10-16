@@ -54,7 +54,7 @@ export type ReportSection = {
 };
 
 export function isReportNumericHeader(header: string) {
-  return /quantity|units|on hand|minimum|stock|cost|price|value|revenue|profit|orders|collected|rank|total|restock|amount/i.test(header);
+  return /qty|quantity|units|on hand|minimum|stock|cost|price|value|revenue|profit|orders|collected|rank|total|restock|amount/i.test(header);
 }
 
 export const getReportTitle = (type: ReportType) => ({
@@ -211,7 +211,7 @@ export function getReportSections(
 
   const salesSection: ReportSection = {
     title: "Sales items",
-    headers: ["Order number", "Date completed", "Product", "SKU", "Quantity", "Unit price", "Unit cost", "Line total", "Estimated profit"],
+    headers: ["Order No.", "Date", "Product", "SKU", "Qty", "Price", "Cost", "Total", "Profit"],
     rows: sales,
     emptyMessage: "No sales items match the selected filters.",
   };

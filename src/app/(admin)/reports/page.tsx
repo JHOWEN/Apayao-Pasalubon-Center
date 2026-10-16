@@ -399,6 +399,8 @@ export default function ReportsPage() {
       .join("");
     const sections = getReportSections(data, type, hasSearchFilter)
       .map((section) => {
+        const tableClass = `report-table report-table-${section.headers.length}`;
+        const columns = section.headers.map(() => "<col>").join("");
         const rows = section.rows.length
           ? section.rows.map((row) => `<tr>${row.map((value, index) => {
               const header = section.headers[index] ?? "";
@@ -412,8 +414,9 @@ export default function ReportsPage() {
         return `
           <section class="report-section">
             <h2 class="section-title">${escapeHtml(section.title)}</h2>
-            <table>
-              <thead><tr>${section.headers.map((header) => `<th${isReportNumericHeader(header) ? " class=\"right\"" : ""}>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+            <table class="${tableClass}">
+              <colgroup>${columns}</colgroup>
+              <thead><tr>${section.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </section>
@@ -491,9 +494,10 @@ export default function ReportsPage() {
       }
       .report-header {
         display: block;
-        padding-bottom: 10px;
+        padding-bottom: 12px;
         border-bottom: 1px solid #a8b8ad;
-        margin-bottom: 10px;
+        margin-bottom: 13px;
+        text-align: center;
       }
       .brand-name {
         margin-top: 5px;
@@ -515,14 +519,16 @@ export default function ReportsPage() {
       .meta-strip {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 14px;
-        margin: 0 0 12px;
-        padding: 0 0 9px;
+        gap: 12px;
+        margin: 0 0 15px;
+        padding: 0 0 10px;
         border-bottom: 1px solid #d5ded6;
         color: #374151;
         font-size: 8pt;
+        text-align: center;
       }
-      .meta-strip div { display: grid; gap: 3px; }
+      .meta-strip div { display: grid; justify-items: center; gap: 4px; min-width: 0; }
+      .meta-strip span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .meta-strip strong {
         color: #526257;
         font-size: 7pt;
@@ -530,12 +536,13 @@ export default function ReportsPage() {
         text-transform: uppercase;
       }
       .section-title {
-        margin: 14px 0 5px;
-        padding-bottom: 4px;
+        margin: 16px 0 7px;
+        padding-bottom: 6px;
         border-bottom: 1px solid #cbd5cd;
         color: #26332b;
         font-size: 10pt;
         font-weight: 700;
+        text-align: center;
       }
       .summary-list {
         display: grid;
@@ -556,27 +563,48 @@ export default function ReportsPage() {
         color: #17211b;
         font-weight: 700;
       }
+      .summary-item dt, .summary-item dd {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
       table {
         width: 100%;
         border-collapse: collapse;
-        margin-top: 4px;
-        table-layout: auto;
+        margin-top: 5px;
+        table-layout: fixed;
       }
+      .report-table-9 col:nth-child(1) { width: 18%; }
+      .report-table-9 col:nth-child(2) { width: 10%; }
+      .report-table-9 col:nth-child(3) { width: 20%; }
+      .report-table-9 col:nth-child(4) { width: 13%; }
+      .report-table-9 col:nth-child(5) { width: 7%; }
+      .report-table-9 col:nth-child(6),
+      .report-table-9 col:nth-child(7),
+      .report-table-9 col:nth-child(8),
+      .report-table-9 col:nth-child(9) { width: 8%; }
       th, td {
-        padding: 5px 6px;
+        padding: 5px 4px;
         border-bottom: 1px solid #e1e7e2;
         text-align: left;
-        vertical-align: top;
-        overflow-wrap: anywhere;
+        vertical-align: middle;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        overflow-wrap: normal;
       }
       th {
+        padding-top: 6px;
+        padding-bottom: 6px;
         border-bottom: 1px solid #82948a;
         color: #405148;
         font-size: 7pt;
         font-weight: 700;
+        text-align: center;
       }
-      td { font-size: 8pt; }
-      td.right, th.right { text-align: right; }
+      td { font-size: 7pt; }
+      td.right { text-align: right; }
       @media screen {
         body { visibility: hidden; }
       }

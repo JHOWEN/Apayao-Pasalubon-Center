@@ -37,13 +37,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#a8b8ad",
   },
-  reportTitle: { fontSize: 15, fontWeight: 700, color: "#142a20" },
-  brand: { marginTop: 4, fontSize: 9, fontWeight: 700, color: "#174c37" },
-  address: { marginTop: 2, fontSize: 7, color: "#526257" },
-  scope: { flexDirection: "row", marginTop: 8 },
-  scopeItem: { flexGrow: 1, flexBasis: 0, paddingRight: 10 },
-  scopeLabel: { fontSize: 6, fontWeight: 700, color: "#526257", textTransform: "uppercase" },
-  scopeValue: { marginTop: 2, fontSize: 7, color: "#17211b" },
+  reportTitle: { fontSize: 15, fontWeight: 700, color: "#142a20", textAlign: "center" },
+  brand: { marginTop: 4, fontSize: 9, fontWeight: 700, color: "#174c37", textAlign: "center" },
+  address: { marginTop: 2, fontSize: 7, color: "#526257", textAlign: "center" },
+  scope: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
+  scopeItem: { flexGrow: 1, flexBasis: 0, alignItems: "center", paddingRight: 8 },
+  scopeLabel: { fontSize: 6, fontWeight: 700, color: "#526257", textTransform: "uppercase", textAlign: "center" },
+  scopeValue: { marginTop: 2, fontSize: 7, color: "#17211b", maxLines: 1, textOverflow: "ellipsis", textAlign: "center" },
   sectionTitle: {
     marginTop: 14,
     marginBottom: 5,
@@ -53,6 +53,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: 700,
     color: "#26332b",
+    textAlign: "center",
   },
   summary: { width: "100%", marginBottom: 2 },
   summaryRow: {
@@ -60,18 +61,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5,
     borderBottomColor: "#e1e7e2",
   },
-  summaryLabel: { flexGrow: 1, paddingVertical: 4, fontSize: 8, color: "#405148" },
-  summaryValue: { width: "32%", paddingVertical: 4, textAlign: "right", fontSize: 8, fontWeight: 700, color: "#17211b" },
+  summaryLabel: { flexGrow: 1, paddingVertical: 4, fontSize: 8, color: "#405148", maxLines: 1, textOverflow: "ellipsis" },
+  summaryValue: { width: "32%", paddingVertical: 4, textAlign: "right", fontSize: 8, fontWeight: 700, color: "#17211b", maxLines: 1, textOverflow: "ellipsis" },
   table: { width: "100%", marginBottom: 4 },
   tableHeader: {
     flexDirection: "row",
     borderBottomWidth: 1,
     borderBottomColor: "#82948a",
   },
-  headerCell: { flex: 1, paddingVertical: 5, paddingHorizontal: 4, fontSize: 7, fontWeight: 700, color: "#405148" },
-  headerCellRight: { textAlign: "right" },
-  row: { flexDirection: "row", borderBottomWidth: 0.5, borderBottomColor: "#e1e7e2", minHeight: 18 },
-  cell: { flex: 1, paddingVertical: 4, paddingHorizontal: 4, fontSize: 7, color: "#26332b" },
+  headerCell: { flex: 1, paddingVertical: 6, paddingHorizontal: 3, fontSize: 7, fontWeight: 700, color: "#405148", maxLines: 1, textOverflow: "ellipsis", textAlign: "center" },
+  row: { flexDirection: "row", borderBottomWidth: 0.6, borderBottomColor: "#d5ded6", minHeight: 20 },
+  cell: { flex: 1, paddingVertical: 5, paddingHorizontal: 3, fontSize: 7, color: "#26332b", maxLines: 1, textOverflow: "ellipsis" },
   cellRight: { textAlign: "right" },
   empty: { paddingVertical: 7, fontSize: 8, color: "#526257" },
   footer: {
@@ -82,6 +82,15 @@ const styles = StyleSheet.create({
     color: "#526257",
   },
 });
+
+const salesColumnWidths = [18, 10, 20, 13, 7, 8, 8, 8, 8] as const;
+
+function getColumnLayout(columnCount: number, columnIndex: number) {
+  if (columnCount !== salesColumnWidths.length) return { flex: 1 };
+
+  const width = `${salesColumnWidths[columnIndex]}%`;
+  return { width, flexBasis: width, flexGrow: 0, flexShrink: 0 };
+}
 
 export default function ReportPdfDocument({
   report,
@@ -133,11 +142,8 @@ export default function ReportPdfDocument({
             <Text style={styles.sectionTitle}>{section.title}</Text>
             <View style={styles.table}>
               <View style={styles.tableHeader}>
-                {section.headers.map((header) => (
-                  <Text
-                    key={header}
-                    style={isReportNumericHeader(header) ? [styles.headerCell, styles.headerCellRight] : styles.headerCell}
-                  >
+                {section.headers.map((header, columnIndex) => (
+                  <Text key={header} style={[styles.headerCell, getColumnLayout(section.headers.length, columnIndex)]}>
                     {header}
                   </Text>
                 ))}
@@ -147,7 +153,11 @@ export default function ReportPdfDocument({
                   {row.map((value, cellIndex) => (
                     <Text
                       key={`${index}-${cellIndex}`}
-                      style={isReportNumericHeader(section.headers[cellIndex] ?? "") ? [styles.cell, styles.cellRight] : styles.cell}
+                      style={[
+                        styles.cell,
+                        getColumnLayout(section.headers.length, cellIndex),
+                        isReportNumericHeader(section.headers[cellIndex] ?? "") ? styles.cellRight : undefined,
+                      ]}
                     >
                       {value}
                     </Text>
