@@ -1,4 +1,37 @@
-export type ReportType = "ALL" | "INVENTORY" | "SALES" | "LOW_STOCK" | "TOP_PRODUCTS";
+import { getDirectStockOutReasonLabel } from "@/lib/direct-stock-out";
+
+export type ReportType = "ALL" | "INVENTORY" | "SALES" | "LOW_STOCK" | "TOP_PRODUCTS" | "DIRECT_STOCK_OUT";
+
+export type DirectStockOutRecord = {
+  id: string;
+  createdAt: string;
+  productDisplayName: string;
+  variantSku: string | null;
+  reason: string;
+  quantity: number;
+  unitCostSnapshot: number | null;
+  estimatedLossValue: number | null;
+  stockBefore: number | null;
+  stockAfter: number | null;
+  remarks: string | null;
+  performedByName: string | null;
+  isArchived: boolean;
+};
+
+export type DirectStockOutSummary = {
+  entries: number;
+  units: number;
+  estimatedValue: number;
+  unvaluedEntries: number;
+};
+
+export type DirectStockOutReasonGroup = DirectStockOutSummary & { reason: string };
+
+export type DirectStockOutReportData = {
+  summary: DirectStockOutSummary;
+  reasonBreakdown: DirectStockOutReasonGroup[];
+  transactions: DirectStockOutRecord[];
+};
 
 export type ReportDocumentData = {
   business: {
@@ -44,6 +77,7 @@ export type ReportDocumentData = {
   }>;
   channelBreakdown: Record<string, { count: number; revenue: number }>;
   paymentBreakdown: Record<string, { count: number; revenue: number }>;
+  directStockOut?: DirectStockOutReportData;
 };
 
 export type ReportSection = {
@@ -63,6 +97,7 @@ export const getReportTitle = (type: ReportType) => ({
   SALES: "Sales Report",
   LOW_STOCK: "Low Stock Report",
   TOP_PRODUCTS: "Top Products Report",
+  DIRECT_STOCK_OUT: "Direct Stock-out Report",
 })[type];
 
 const currency = (value: number | string) =>
@@ -147,6 +182,15 @@ export function getReportSummaryRows(report: ReportDocumentData, type: ReportTyp
         ["Units sold", topProductUnits.toLocaleString("en-PH")],
         ["Sales revenue", currency(topProductRevenue)],
       ];
+    case "DIRECT_STOCK_OUT": {
+      const summary = report.directStockOut?.summary;
+      return [
+        ["Stock-out entries", (summary?.entries ?? 0).toLocaleString("en-PH")],
+        ["Units removed", (summary?.units ?? 0).toLocaleString("en-PH")],
+        ["Estimated stock loss (recorded unit costs)", currency(summary?.estimatedValue ?? 0)],
+        ["Entries without cost (excluded from estimate)", (summary?.unvaluedEntries ?? 0).toLocaleString("en-PH")],
+      ];
+    }
     default:
       return [
         ["Sales revenue", currency(report.summary.totalRevenue)],
@@ -234,10 +278,43 @@ export function getReportSections(
     emptyMessage: "No product sales match the selected filters.",
   };
 
+  const directStockOut = report.directStockOut;
+  const directStockOutReasons: ReportSection = {
+    title: "Stock-out by reason",
+    headers: ["Reason", "Entries", "Units removed", "Estimated loss", "Unvalued entries"],
+    rows: (directStockOut?.reasonBreakdown ?? []).map((group) => [
+      getDirectStockOutReasonLabel(group.reason),
+      group.entries.toLocaleString("en-PH"),
+      group.units.toLocaleString("en-PH"),
+      currency(group.estimatedValue),
+      group.unvaluedEntries.toLocaleString("en-PH"),
+    ]),
+    emptyMessage: "No stock-out entries match the selected filters.",
+  };
+  const directStockOutTransactions: ReportSection = {
+    title: "Direct stock-out transactions",
+    headers: ["Date and time", "Product", "SKU", "Reason", "Qty", "Stock before", "Stock after", "Unit cost", "Estimated loss", "Recorded by", "Remarks"],
+    rows: (directStockOut?.transactions ?? []).map((record) => [
+      new Date(record.createdAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" }),
+      record.productDisplayName,
+      record.variantSku ?? "—",
+      getDirectStockOutReasonLabel(record.reason),
+      Number(record.quantity).toLocaleString("en-PH"),
+      record.stockBefore == null ? "—" : Number(record.stockBefore).toLocaleString("en-PH"),
+      record.stockAfter == null ? "—" : Number(record.stockAfter).toLocaleString("en-PH"),
+      record.unitCostSnapshot == null ? "Unvalued" : currency(record.unitCostSnapshot),
+      record.estimatedLossValue == null ? "Unvalued" : currency(record.estimatedLossValue),
+      record.performedByName || "System",
+      record.remarks || "—",
+    ]),
+    emptyMessage: "No stock-out transactions match the selected filters.",
+  };
+
   if (type === "INVENTORY") return [inventorySection];
   if (type === "SALES") return [salesSection];
   if (type === "LOW_STOCK") return [lowStockSection];
   if (type === "TOP_PRODUCTS") return [topProductsSection];
+  if (type === "DIRECT_STOCK_OUT") return [directStockOutReasons, directStockOutTransactions];
 
   const sections: ReportSection[] = [];
   if (!hasSearchFilter) {

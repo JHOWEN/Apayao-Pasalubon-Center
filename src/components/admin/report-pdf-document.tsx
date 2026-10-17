@@ -55,6 +55,7 @@ const styles = StyleSheet.create({
     color: "#26332b",
     textAlign: "center",
   },
+  directSectionTitle: { marginTop: 18, marginBottom: 8, textAlign: "left" },
   summary: { width: "100%", marginBottom: 2 },
   summaryRow: {
     flexDirection: "row",
@@ -63,6 +64,7 @@ const styles = StyleSheet.create({
   },
   summaryLabel: { flexGrow: 1, paddingVertical: 4, fontSize: 8, color: "#405148", maxLines: 1, textOverflow: "ellipsis" },
   summaryValue: { width: "32%", paddingVertical: 4, textAlign: "right", fontSize: 8, fontWeight: 700, color: "#17211b", maxLines: 1, textOverflow: "ellipsis" },
+  directSummaryText: { paddingVertical: 6 },
   table: { width: "100%", marginBottom: 4 },
   tableHeader: {
     flexDirection: "row",
@@ -73,6 +75,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", borderBottomWidth: 0.6, borderBottomColor: "#d5ded6", minHeight: 20 },
   cell: { flex: 1, paddingVertical: 5, paddingHorizontal: 3, fontSize: 7, color: "#26332b", maxLines: 1, textOverflow: "ellipsis" },
   cellRight: { textAlign: "right" },
+  directTableCell: { paddingVertical: 6, paddingHorizontal: 4, fontSize: 6.5 },
   empty: { paddingVertical: 7, fontSize: 8, color: "#526257" },
   footer: {
     position: "absolute",
@@ -84,11 +87,15 @@ const styles = StyleSheet.create({
 });
 
 const salesColumnWidths = [18, 10, 20, 13, 7, 8, 8, 8, 8] as const;
+const directStockOutColumnWidths = [13, 17, 8, 8, 5, 6, 6, 7, 8, 9, 13] as const;
 
-function getColumnLayout(columnCount: number, columnIndex: number) {
-  if (columnCount !== salesColumnWidths.length) return { flex: 1 };
+function getColumnLayout(reportType: ReportType, columnCount: number, columnIndex: number) {
+  const widths = reportType === "DIRECT_STOCK_OUT"
+    ? directStockOutColumnWidths
+    : salesColumnWidths;
+  if (columnCount !== widths.length) return { flex: 1 };
 
-  const width = `${salesColumnWidths[columnIndex]}%`;
+  const width = `${widths[columnIndex]}%`;
   return { width, flexBasis: width, flexGrow: 0, flexShrink: 0 };
 }
 
@@ -107,7 +114,7 @@ export default function ReportPdfDocument({
 
   return (
     <Document title={reportTitle} author={report.business.name}>
-      <Page size={[612, 936]} style={styles.page} wrap>
+      <Page size={reportType === "DIRECT_STOCK_OUT" ? [936, 612] : [612, 936]} style={styles.page} wrap>
         <View style={styles.header} fixed>
           <Text style={styles.reportTitle}>{reportTitle}</Text>
           <Text style={styles.brand}>{report.business.name}</Text>
@@ -127,23 +134,23 @@ export default function ReportPdfDocument({
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>Summary</Text>
+        <Text style={[styles.sectionTitle, reportType === "DIRECT_STOCK_OUT" ? styles.directSectionTitle : undefined]}>Summary</Text>
         <View style={styles.summary}>
           {summary.map(([label, value]) => (
             <View key={label} style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>{label}</Text>
-              <Text style={styles.summaryValue}>{value}</Text>
+              <Text style={[styles.summaryLabel, reportType === "DIRECT_STOCK_OUT" ? styles.directSummaryText : undefined]}>{label}</Text>
+              <Text style={[styles.summaryValue, reportType === "DIRECT_STOCK_OUT" ? styles.directSummaryText : undefined]}>{value}</Text>
             </View>
           ))}
         </View>
 
         {sections.map((section) => (
           <View key={section.title} wrap>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
+            <Text style={[styles.sectionTitle, reportType === "DIRECT_STOCK_OUT" ? styles.directSectionTitle : undefined]}>{section.title}</Text>
             <View style={styles.table}>
               <View style={styles.tableHeader}>
                 {section.headers.map((header, columnIndex) => (
-                  <Text key={header} style={[styles.headerCell, getColumnLayout(section.headers.length, columnIndex)]}>
+                  <Text key={header} style={[styles.headerCell, reportType === "DIRECT_STOCK_OUT" ? styles.directTableCell : undefined, getColumnLayout(reportType, section.headers.length, columnIndex)]}>
                     {header}
                   </Text>
                 ))}
@@ -155,7 +162,8 @@ export default function ReportPdfDocument({
                       key={`${index}-${cellIndex}`}
                       style={[
                         styles.cell,
-                        getColumnLayout(section.headers.length, cellIndex),
+                        reportType === "DIRECT_STOCK_OUT" ? styles.directTableCell : undefined,
+                        getColumnLayout(reportType, section.headers.length, cellIndex),
                         isReportNumericHeader(section.headers[cellIndex] ?? "") ? styles.cellRight : undefined,
                       ]}
                     >

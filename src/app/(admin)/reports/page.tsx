@@ -2,7 +2,6 @@
 import { adminFetch, invalidateCurrentAdminApiPaths } from "@/lib/admin-data-cache";
 
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import {
   AlertCircle,
   BarChart3,
@@ -32,8 +31,14 @@ import {
   getReportSummaryRows,
   getReportTitle,
   isReportNumericHeader,
+  type DirectStockOutReportData,
   type ReportType,
 } from "@/lib/report-document";
+import {
+  DIRECT_STOCK_OUT_REASON_LABELS,
+  DIRECT_STOCK_OUT_REASON_VALUES,
+  getDirectStockOutReasonLabel,
+} from "@/lib/direct-stock-out";
 
 type CategoryOption = {
   id: string;
@@ -143,7 +148,50 @@ type ReportState = {
   categories: CategoryOption[];
   channelBreakdown: ReportBreakdown;
   paymentBreakdown: ReportBreakdown;
+  directStockOut?: DirectStockOutReportData;
 };
+
+type DirectStockOutResponse = DirectStockOutReportData & {
+  pagination: { page: number; pageSize: number; totalCount: number; totalPages: number };
+};
+
+function filterDirectStockOutData(data: DirectStockOutReportData, searchTerm: string): DirectStockOutReportData {
+  const query = searchTerm.trim().toLocaleLowerCase();
+  const transactions = query
+    ? data.transactions.filter((record) => [
+        record.productDisplayName,
+        record.variantSku ?? "",
+        getDirectStockOutReasonLabel(record.reason),
+        record.remarks ?? "",
+        record.performedByName ?? "",
+      ].some((value) => value.toLocaleLowerCase().includes(query)))
+    : data.transactions;
+
+  const groups = new Map<string, DirectStockOutReportData["reasonBreakdown"][number]>();
+  const summary = transactions.reduce((totals, record) => {
+    const group = groups.get(record.reason) ?? {
+      reason: record.reason,
+      entries: 0,
+      units: 0,
+      estimatedValue: 0,
+      unvaluedEntries: 0,
+    };
+    group.entries += 1;
+    group.units += record.quantity;
+    if (record.estimatedLossValue == null) group.unvaluedEntries += 1;
+    else group.estimatedValue += record.estimatedLossValue;
+    groups.set(record.reason, group);
+
+    return {
+      entries: totals.entries + 1,
+      units: totals.units + record.quantity,
+      estimatedValue: totals.estimatedValue + (record.estimatedLossValue ?? 0),
+      unvaluedEntries: totals.unvaluedEntries + (record.estimatedLossValue == null ? 1 : 0),
+    };
+  }, { entries: 0, units: 0, estimatedValue: 0, unvaluedEntries: 0 });
+
+  return { summary, reasonBreakdown: [...groups.values()], transactions };
+}
 
 type PrintScope = {
   periodLabel: string;
@@ -197,6 +245,13 @@ export default function ReportsPage() {
   const [category, setCategory] = useState("");
   const [activePreset, setActivePreset] = useState<string>("today");
   const [searchQuery, setSearchQuery] = useState("");
+  const [directStockOutReason, setDirectStockOutReason] = useState("");
+  const [directStockOutPage, setDirectStockOutPage] = useState(1);
+  const [directStockOutRefreshVersion, setDirectStockOutRefreshVersion] = useState(0);
+  const [directStockOutReport, setDirectStockOutReport] = useState<DirectStockOutResponse | null>(null);
+  const [settledDirectStockOutRequestKey, setSettledDirectStockOutRequestKey] = useState<string | null>(null);
+  const [directStockOutFailure, setDirectStockOutFailure] = useState<{ requestKey: string; message: string } | null>(null);
+  const [directStockOutExportError, setDirectStockOutExportError] = useState("");
   const [printStatus, setPrintStatus] = useState<"loading" | "preparing" | "ready" | "error" | null>(null);
   const [printError, setPrintError] = useState("");
   const [isPdfExporting, setIsPdfExporting] = useState(false);
@@ -209,6 +264,20 @@ export default function ReportsPage() {
   const reportLoadError = reportLoadFailure?.requestKey === reportRequestKey
     ? reportLoadFailure.message
     : "";
+  const directStockOutRequestKey = JSON.stringify([
+    startDate,
+    endDate,
+    directStockOutReason,
+    directStockOutPage,
+    directStockOutRefreshVersion,
+  ]);
+  const isDirectStockOutLoading = reportType === "DIRECT_STOCK_OUT" &&
+    settledDirectStockOutRequestKey !== directStockOutRequestKey;
+  const directStockOutError = (
+    directStockOutFailure?.requestKey === directStockOutRequestKey
+      ? directStockOutFailure.message
+      : ""
+  ) || directStockOutExportError;
 
   const fetchReportData = useCallback(
     async (
@@ -231,6 +300,58 @@ export default function ReportsPage() {
     },
     [category, endDate, startDate]
   );
+
+  const fetchDirectStockOutData = useCallback(async (
+    selectedStartDate = startDate,
+    selectedEndDate = endDate,
+    selectedReason = directStockOutReason,
+    page = directStockOutPage,
+    exportAll = false,
+    signal?: AbortSignal,
+  ) => {
+    const params = new URLSearchParams();
+    if (selectedStartDate) params.set("startDate", selectedStartDate);
+    if (selectedEndDate) params.set("endDate", selectedEndDate);
+    if (selectedReason) params.set("reason", selectedReason);
+    if (exportAll) params.set("export", "1");
+    else params.set("page", String(page));
+
+    const response = await adminFetch(`/api/admin/reports/direct-stock-out?${params.toString()}`, {
+      cache: "no-store",
+      signal,
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok) {
+      throw new Error(data?.message ?? "Unable to load the direct stock-out report.");
+    }
+    return data as DirectStockOutResponse;
+  }, [directStockOutPage, directStockOutReason, endDate, startDate]);
+
+  useEffect(() => {
+    if (reportType !== "DIRECT_STOCK_OUT") return;
+    const controller = new AbortController();
+    const requestKey = directStockOutRequestKey;
+
+    void fetchDirectStockOutData(startDate, endDate, directStockOutReason, directStockOutPage, false, controller.signal)
+      .then((data) => {
+        if (controller.signal.aborted) return;
+        setDirectStockOutReport(data);
+        setDirectStockOutFailure(null);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.error("Failed to load direct stock-out report", error);
+        setDirectStockOutFailure({
+          requestKey,
+          message: error instanceof Error ? error.message : "Unable to load the direct stock-out report.",
+        });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSettledDirectStockOutRequestKey(requestKey);
+      });
+
+    return () => controller.abort();
+  }, [directStockOutPage, directStockOutReason, directStockOutRefreshVersion, directStockOutRequestKey, endDate, fetchDirectStockOutData, reportType, startDate]);
 
   const loadReport = useCallback(
     async (
@@ -299,6 +420,22 @@ export default function ReportsPage() {
     return () => window.removeEventListener("apc-admin-live-event", handleLiveEvent);
   }, [loadReport]);
 
+  useEffect(() => {
+    if (reportType !== "DIRECT_STOCK_OUT") return;
+    const handleInventoryUpdate = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (
+        message?.type === "inventory-updated" ||
+        message?.type === "inventory-history-updated" ||
+        message?.type === "admin-data-invalidated"
+      ) {
+        setDirectStockOutRefreshVersion((version) => version + 1);
+      }
+    };
+    window.addEventListener("apc-admin-live-event", handleInventoryUpdate);
+    return () => window.removeEventListener("apc-admin-live-event", handleInventoryUpdate);
+  }, [reportType]);
+
   const handleRetryReportLoad = () => {
     invalidateCurrentAdminApiPaths(["/api/admin/reports"]);
     setReportRequestVersion((version) => version + 1);
@@ -307,6 +444,7 @@ export default function ReportsPage() {
   // Preset handlers
   const handleApplyPreset = (preset: "today" | "7days" | "30days" | "month" | "all") => {
     setActivePreset(preset);
+    setDirectStockOutPage(1);
     const today = new Date();
     if (preset === "today") {
       setStartDate(formatInputDate(today));
@@ -334,6 +472,8 @@ export default function ReportsPage() {
     setStartDate(formatInputDate(new Date()));
     setEndDate(formatInputDate(new Date()));
     setCategory("");
+    setDirectStockOutReason("");
+    setDirectStockOutPage(1);
     setSearchQuery("");
   };
 
@@ -394,7 +534,21 @@ export default function ReportsPage() {
     );
   }, [report.topProducts, searchQuery]);
 
+  const filteredDirectStockOutTransactions = useMemo(() => {
+    const transactions = directStockOutReport?.transactions ?? [];
+    const query = searchQuery.trim().toLocaleLowerCase();
+    if (!query) return transactions;
+    return transactions.filter((record) => [
+      record.productDisplayName,
+      record.variantSku ?? "",
+      getDirectStockOutReasonLabel(record.reason),
+      record.remarks ?? "",
+      record.performedByName ?? "",
+    ].some((value) => value.toLocaleLowerCase().includes(query)));
+  }, [directStockOutReport?.transactions, searchQuery]);
+
   const renderReportContent = (data: ReportState, type: ReportType, hasSearchFilter: boolean) => {
+    const reportClass = type.toLowerCase().replaceAll("_", "-");
     const summary = getReportSummaryRows(data, type)
       .map(([label, value]) => `<div class="summary-item"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`)
       .join("");
@@ -426,11 +580,13 @@ export default function ReportsPage() {
       .join("");
 
     return `
-      <section class="summary-section">
-        <h2 class="section-title">Summary</h2>
-        <dl class="summary-list">${summary}</dl>
-      </section>
-      ${sections}
+      <main class="report-document report-${reportClass}">
+        <section class="summary-section">
+          <h2 class="section-title">Summary</h2>
+          <dl class="summary-list">${summary}</dl>
+        </section>
+        ${sections}
+      </main>
     `;
   };
 
@@ -439,6 +595,7 @@ export default function ReportsPage() {
     title: string,
     content: string,
     scope: PrintScope,
+    landscape = false,
   ): Promise<boolean> => {
     const printFrame = document.createElement("iframe");
     printFrame.setAttribute("aria-hidden", "true");
@@ -480,7 +637,7 @@ export default function ReportsPage() {
 
     const styles = `
       @page {
-        size: 8.5in 13in portrait;
+        size: ${landscape ? "13in 8.5in landscape" : "8.5in 13in portrait"};
         margin: 14mm;
       }
       * { box-sizing: border-box; }
@@ -551,6 +708,12 @@ export default function ReportsPage() {
         column-gap: 22px;
         margin: 0 0 4px;
       }
+      .report-direct-stock-out .summary-list {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        column-gap: 18px;
+      }
+      .report-section { margin-bottom: 16px; }
+      .report-direct-stock-out .section-title { text-align: left; }
       .summary-item {
         display: flex;
         justify-content: space-between;
@@ -584,6 +747,19 @@ export default function ReportsPage() {
       .report-table-9 col:nth-child(7),
       .report-table-9 col:nth-child(8),
       .report-table-9 col:nth-child(9) { width: 8%; }
+      .report-table-11 col:nth-child(1) { width: 13%; }
+      .report-table-11 col:nth-child(2) { width: 17%; }
+      .report-table-11 col:nth-child(3) { width: 8%; }
+      .report-table-11 col:nth-child(4) { width: 8%; }
+      .report-table-11 col:nth-child(5) { width: 5%; }
+      .report-table-11 col:nth-child(6),
+      .report-table-11 col:nth-child(7) { width: 6%; }
+      .report-table-11 col:nth-child(8) { width: 7%; }
+      .report-table-11 col:nth-child(9) { width: 8%; }
+      .report-table-11 col:nth-child(10) { width: 9%; }
+      .report-table-11 col:nth-child(11) { width: 13%; }
+      .report-direct-stock-out .report-table-11 th,
+      .report-direct-stock-out .report-table-11 td { padding: 7px 5px; font-size: 6.5pt; }
       th, td {
         padding: 5px 4px;
         border-bottom: 1px solid #e1e7e2;
@@ -741,21 +917,40 @@ export default function ReportsPage() {
     const selectedSearch = searchQuery;
 
     try {
-      const loadedReport = await fetchReportData(
-        selectedStartDate,
-        selectedEndDate,
-        selectedCategory,
-        controller.signal,
-      );
-      if (controller.signal.aborted) return;
-
-      setReport(loadedReport);
-      setHasLoadedReport(true);
-      const filteredReport = filterReportDocumentData(loadedReport, selectedSearch);
+      let filteredReport: ReportState;
+      let categoryLabel: string;
+      if (selectedReportType === "DIRECT_STOCK_OUT") {
+        const loadedDirectStockOut = await fetchDirectStockOutData(
+          selectedStartDate,
+          selectedEndDate,
+          directStockOutReason,
+          1,
+          true,
+          controller.signal,
+        );
+        if (controller.signal.aborted) return;
+        setDirectStockOutReport(loadedDirectStockOut);
+        filteredReport = {
+          ...report,
+          directStockOut: filterDirectStockOutData(loadedDirectStockOut, selectedSearch),
+        };
+        categoryLabel = "Not applicable";
+      } else {
+        const loadedReport = await fetchReportData(
+          selectedStartDate,
+          selectedEndDate,
+          selectedCategory,
+          controller.signal,
+        );
+        if (controller.signal.aborted) return;
+        setReport(loadedReport);
+        setHasLoadedReport(true);
+        filteredReport = filterReportDocumentData(loadedReport, selectedSearch);
+        categoryLabel = selectedCategory
+          ? loadedReport.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
+          : "All categories";
+      }
       const periodLabel = getReportPeriodLabel(selectedStartDate, selectedEndDate, selectedReportType);
-      const categoryLabel = selectedCategory
-        ? loadedReport.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
-        : "All categories";
       const searchLabel = selectedSearch.trim() || "Not applied";
       const generatedAt = new Date();
       const reportTitle = getReportTitle(selectedReportType);
@@ -767,12 +962,12 @@ export default function ReportsPage() {
         categoryLabel,
         searchLabel,
         generatedAt: formatReportGeneratedAt(generatedAt),
-        businessName: loadedReport.business.name,
-        businessAddress: loadedReport.business.address,
+        businessName: filteredReport.business.name,
+        businessAddress: filteredReport.business.address,
       };
       const content = renderReportContent(filteredReport, selectedReportType, Boolean(selectedSearch.trim()));
 
-      if (!(await printOfficialDocument(reportTitle, content, printScope))) {
+      if (!(await printOfficialDocument(reportTitle, content, printScope, selectedReportType === "DIRECT_STOCK_OUT"))) {
         throw new Error("The print preview could not be created.");
       }
     } catch (error) {
@@ -787,20 +982,44 @@ export default function ReportsPage() {
     }
   };
   const handleExportCsv = async () => {
+    setDirectStockOutExportError("");
     const selectedStartDate = startDate;
     const selectedEndDate = endDate;
     const selectedCategory = category;
     const selectedReportType = reportType;
     const selectedSearch = searchQuery;
-    const loadedReport = await loadReport(selectedStartDate, selectedEndDate, selectedCategory);
-    if (!loadedReport) return;
-
-    const data = filterReportDocumentData(loadedReport, selectedSearch);
+    let data: ReportState;
+    let business: ReportState["business"];
+    let categoryLabel: string;
+    if (selectedReportType === "DIRECT_STOCK_OUT") {
+      try {
+        const loadedDirectStockOut = await fetchDirectStockOutData(
+          selectedStartDate,
+          selectedEndDate,
+          directStockOutReason,
+          1,
+          true,
+        );
+        setDirectStockOutReport(loadedDirectStockOut);
+        data = { ...report, directStockOut: filterDirectStockOutData(loadedDirectStockOut, selectedSearch) };
+        business = report.business;
+        categoryLabel = "Not applicable";
+      } catch (error) {
+        console.error("Unable to export direct stock-out report:", error);
+        setDirectStockOutExportError(error instanceof Error ? error.message : "Unable to export the direct stock-out report.");
+        return;
+      }
+    } else {
+      const loadedReport = await loadReport(selectedStartDate, selectedEndDate, selectedCategory);
+      if (!loadedReport) return;
+      data = filterReportDocumentData(loadedReport, selectedSearch);
+      business = loadedReport.business;
+      categoryLabel = selectedCategory
+        ? loadedReport.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
+        : "All categories";
+    }
     const reportTitle = getReportTitle(selectedReportType);
     const periodLabel = getReportPeriodLabel(selectedStartDate, selectedEndDate, selectedReportType);
-    const categoryLabel = selectedCategory
-      ? loadedReport.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
-      : "All categories";
     const searchLabel = selectedSearch.trim() || "Not applied";
     const generatedAt = new Date();
     const lines: string[] = [reportTitle];
@@ -811,8 +1030,8 @@ export default function ReportsPage() {
     };
 
     addSection("Report details", ["Field", "Value"], [
-      ["Business name", loadedReport.business.name],
-      ["Business address", loadedReport.business.address],
+      ["Business name", business.name],
+      ["Business address", business.address],
       ["Reporting period", periodLabel],
       ["Category", categoryLabel],
       ["Search", searchLabel],
@@ -845,14 +1064,29 @@ export default function ReportsPage() {
       const selectedCategory = category;
       const selectedReportType = reportType;
       const selectedSearch = searchQuery;
-      const loadedReport = await fetchReportData(selectedStartDate, selectedEndDate, selectedCategory);
-      setReport(loadedReport);
-      setHasLoadedReport(true);
-      const data = filterReportDocumentData(loadedReport, selectedSearch);
+      let data: ReportState;
+      let categoryLabel: string;
+      if (selectedReportType === "DIRECT_STOCK_OUT") {
+        const loadedDirectStockOut = await fetchDirectStockOutData(
+          selectedStartDate,
+          selectedEndDate,
+          directStockOutReason,
+          1,
+          true,
+        );
+        setDirectStockOutReport(loadedDirectStockOut);
+        data = { ...report, directStockOut: filterDirectStockOutData(loadedDirectStockOut, selectedSearch) };
+        categoryLabel = "Not applicable";
+      } else {
+        const loadedReport = await fetchReportData(selectedStartDate, selectedEndDate, selectedCategory);
+        setReport(loadedReport);
+        setHasLoadedReport(true);
+        data = filterReportDocumentData(loadedReport, selectedSearch);
+        categoryLabel = selectedCategory
+          ? loadedReport.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
+          : "All categories";
+      }
       const periodLabel = getReportPeriodLabel(selectedStartDate, selectedEndDate, selectedReportType);
-      const categoryLabel = selectedCategory
-        ? loadedReport.categories.find((item) => item.id === selectedCategory)?.name ?? "Selected category"
-        : "All categories";
       const searchLabel = selectedSearch.trim() || "Not applied";
       const reportTitle = getReportTitle(selectedReportType);
       const generatedAt = new Date();
@@ -888,10 +1122,18 @@ export default function ReportsPage() {
   const currentReportLabel = useMemo(() => {
     return getReportTitle(reportType);
   }, [reportType]);
+  const isReportActionLoading = isReportLoading || (
+    reportType === "DIRECT_STOCK_OUT" && isDirectStockOutLoading
+  );
 
   const handleSelectReportType = (type: ReportType) => {
     setReportType(type);
     setSearchQuery("");
+    if (type === "DIRECT_STOCK_OUT") {
+      setDirectStockOutPage(1);
+      setDirectStockOutRefreshVersion((version) => version + 1);
+      setDirectStockOutExportError("");
+    }
   };
 
   return (
@@ -907,16 +1149,10 @@ export default function ReportsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href="/reports/direct-stock-out"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-800 shadow-sm transition hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200 dark:hover:bg-rose-950/70"
-            >
-              Direct stock-out report
-            </Link>
             <button
               type="button"
               onClick={() => void handlePrintCurrentReport()}
-              disabled={isReportLoading || printStatus !== null || isPdfExporting}
+              disabled={isReportActionLoading || printStatus !== null || isPdfExporting}
               className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-60 dark:bg-emerald-500 dark:hover:bg-emerald-600"
             >
               {printStatus === "loading" || printStatus === "preparing" ? (
@@ -929,7 +1165,7 @@ export default function ReportsPage() {
             <button
               type="button"
               onClick={() => void handleExportCsv()}
-              disabled={isReportLoading || printStatus !== null || isPdfExporting}
+              disabled={isReportActionLoading || printStatus !== null || isPdfExporting}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
             >
               <Download className="h-3.5 w-3.5" />
@@ -938,7 +1174,7 @@ export default function ReportsPage() {
             <button
               type="button"
               onClick={() => void handleExportPdf()}
-              disabled={isReportLoading || printStatus !== null || isPdfExporting}
+              disabled={isReportActionLoading || printStatus !== null || isPdfExporting}
               className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-semibold text-emerald-800 shadow-sm transition hover:bg-emerald-100 disabled:cursor-wait disabled:opacity-50 dark:border-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-950"
             >
               {isPdfExporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
@@ -954,7 +1190,7 @@ export default function ReportsPage() {
 
         {/* 2. Report Scope Tabs (Filter by Report) */}
         <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800/80">
-          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
               {(
                 [
                   {
@@ -991,6 +1227,13 @@ export default function ReportsPage() {
                     icon: TrendingUp,
                     activeClass: "border-teal-300 bg-teal-100 text-teal-800 dark:border-teal-700 dark:bg-teal-950/70 dark:text-teal-200",
                     idleClass: "border-teal-200 bg-teal-50/60 text-teal-700 hover:bg-teal-100 dark:border-teal-900 dark:bg-teal-950/30 dark:text-teal-300 dark:hover:bg-teal-950/60",
+                  },
+                  {
+                    id: "DIRECT_STOCK_OUT",
+                    label: "Direct Stock-out",
+                    icon: AlertCircle,
+                    activeClass: "border-rose-300 bg-rose-100 text-rose-800 dark:border-rose-700 dark:bg-rose-950/70 dark:text-rose-200",
+                    idleClass: "border-rose-200 bg-rose-50/60 text-rose-700 hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/30 dark:text-rose-300 dark:hover:bg-rose-950/60",
                   },
                 ] as const
               ).map((tab) => {
@@ -1044,7 +1287,7 @@ export default function ReportsPage() {
             </div>
           </div>
 
-          <div className="mt-4 grid w-full grid-cols-1 gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2 lg:grid-cols-4 dark:border-slate-800/80">
+          <div className={`mt-4 grid w-full grid-cols-1 gap-3 border-t border-slate-100 pt-3 sm:grid-cols-2 ${reportType === "DIRECT_STOCK_OUT" ? "lg:grid-cols-3" : "lg:grid-cols-4"} dark:border-slate-800/80`}>
             <div className="min-w-0">
               <label
                 htmlFor="report-start-date"
@@ -1060,6 +1303,7 @@ export default function ReportsPage() {
                 max={endDate || undefined}
                 onChange={(e) => {
                   setStartDate(e.target.value);
+                  setDirectStockOutPage(1);
                   setActivePreset("custom");
                 }}
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
@@ -1081,12 +1325,13 @@ export default function ReportsPage() {
                 max={formatInputDate(new Date())}
                 onChange={(e) => {
                   setEndDate(e.target.value);
+                  setDirectStockOutPage(1);
                   setActivePreset("custom");
                 }}
                 className="mt-1 h-9 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-800 shadow-sm outline-none transition focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
-            <div className="min-w-0">
+            {reportType !== "DIRECT_STOCK_OUT" && <div className="min-w-0">
               <label
                 htmlFor="report-category"
                 className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 dark:text-slate-300"
@@ -1107,7 +1352,7 @@ export default function ReportsPage() {
                   </option>
                 ))}
               </select>
-            </div>
+            </div>}
             <div className="flex items-end">
               <button
                 type="button"
@@ -1139,7 +1384,7 @@ export default function ReportsPage() {
         </div>
       ) : null}
 
-      {!hasLoadedReport ? (
+      {!hasLoadedReport && reportType !== "DIRECT_STOCK_OUT" ? (
         isReportLoading ? (
           <section className="space-y-5 rounded-xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900" aria-busy="true" aria-live="polite" role="status">
             <div className="flex items-center gap-3">
@@ -1718,6 +1963,186 @@ export default function ReportsPage() {
             <span className="font-bold text-slate-900 dark:text-white">
               {filteredTopProducts.reduce((sum, item) => sum + item.unitsSold, 0)} units sold
             </span>
+          </div>
+        </section>
+      )}
+
+      {reportType === "DIRECT_STOCK_OUT" && (
+        <section className="space-y-5 border-t border-slate-200 pt-5 dark:border-slate-800">
+          <div className="flex flex-col items-stretch justify-between gap-4 sm:flex-row sm:items-end">
+            <div>
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-rose-600 dark:text-rose-400" />
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">Direct Stock-out</h2>
+              </div>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                Manual inventory deductions by reason. Sales transactions are excluded.
+              </p>
+            </div>
+            <div className="grid w-full grid-cols-1 gap-3 sm:w-auto sm:grid-cols-[minmax(11rem,0.8fr)_minmax(14rem,1.2fr)_auto] sm:items-end">
+              <label className="block space-y-1 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                <span className="block">Reason</span>
+                <select
+                  value={directStockOutReason}
+                  onChange={(event) => { setDirectStockOutReason(event.target.value); setDirectStockOutPage(1); }}
+                  className="block h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-800 shadow-sm dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+                >
+                  <option value="">All reasons</option>
+                  {DIRECT_STOCK_OUT_REASON_VALUES.map((reason) => (
+                    <option key={reason} value={reason}>{DIRECT_STOCK_OUT_REASON_LABELS[reason]}</option>
+                  ))}
+                  <option value="UNSPECIFIED">Unspecified (older entries)</option>
+                </select>
+              </label>
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                <span className="mb-1 block">Search records</span>
+                <span className="relative block">
+                  <Search className="absolute left-3 top-3 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search product, SKU, notes..."
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs font-normal outline-none focus:border-emerald-500 focus:bg-white dark:border-slate-700 dark:bg-slate-800"
+                />
+                </span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setDirectStockOutRefreshVersion((version) => version + 1)}
+                disabled={isDirectStockOutLoading}
+                className="h-10 rounded-lg border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+              >
+                {isDirectStockOutLoading ? "Refreshing..." : "Refresh"}
+              </button>
+            </div>
+          </div>
+
+          {directStockOutError && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-200" role="alert">
+              {directStockOutError}
+            </div>
+          )}
+
+          {(() => {
+            const summary = directStockOutReport?.summary ?? { entries: 0, units: 0, estimatedValue: 0, unvaluedEntries: 0 };
+            return (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  ["Stock-out entries", summary.entries.toLocaleString("en-PH"), "For the selected period"],
+                  ["Units removed", summary.units.toLocaleString("en-PH"), "Total quantity deducted"],
+                  ["Estimated stock loss", formatCurrency(summary.estimatedValue), "Based on recorded unit costs"],
+                  ["Entries without cost", summary.unvaluedEntries.toLocaleString("en-PH"), "Not included in the estimate"],
+                ].map(([label, value, detail]) => (
+                  <div key={label} className="min-h-24 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</p>
+                    <p className="mt-2 text-lg font-bold leading-tight text-slate-900 dark:text-white">{value}</p>
+                    <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{detail}</p>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Stock-out by reason</h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Entry count, quantity removed, and estimated value by reason.</p>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+              <table className="w-full min-w-[560px] text-left text-xs">
+                <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
+                  <tr>
+                    <th className="px-4 py-3">Reason</th>
+                    <th className="px-4 py-3 text-right">Entries</th>
+                    <th className="px-4 py-3 text-right">Units</th>
+                    <th className="px-4 py-3 text-right">Estimated loss</th>
+                    <th className="px-4 py-3 text-right">Unvalued</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {(directStockOutReport?.reasonBreakdown ?? []).length > 0 ? directStockOutReport?.reasonBreakdown.map((group) => (
+                    <tr key={group.reason}>
+                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-200">{getDirectStockOutReasonLabel(group.reason)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{group.entries.toLocaleString("en-PH")}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{group.units.toLocaleString("en-PH")}</td>
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatCurrency(group.estimatedValue)}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{group.unvaluedEntries.toLocaleString("en-PH")}</td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={5} className="px-4 py-6 text-center text-slate-500">No direct stock-outs in this period.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 dark:text-white">Transaction details</h3>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Manual inventory deductions recorded during the selected period.</p>
+            </div>
+          <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+            <table className="w-full min-w-[1260px] text-left text-xs">
+              <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
+                <tr>
+                  <th className="whitespace-nowrap px-4 py-3">Date and time</th>
+                  <th className="px-4 py-3">Product</th>
+                  <th className="px-4 py-3">SKU</th>
+                  <th className="px-4 py-3">Reason</th>
+                  <th className="px-4 py-3 text-right">Qty</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right">Stock before</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right">Stock after</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right">Unit cost</th>
+                  <th className="whitespace-nowrap px-4 py-3 text-right">Estimated loss</th>
+                  <th className="whitespace-nowrap px-4 py-3">Recorded by</th>
+                  <th className="px-4 py-3">Remarks</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {isDirectStockOutLoading ? (
+                  <tr><td colSpan={11} className="py-12 text-center text-xs text-slate-500">Loading direct stock-out records...</td></tr>
+                ) : filteredDirectStockOutTransactions.length > 0 ? filteredDirectStockOutTransactions.map((record) => (
+                  <tr key={record.id} className="transition hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-500">{new Date(record.createdAt).toLocaleString("en-PH", { timeZone: "Asia/Manila" })}</td>
+                    <td className="px-3 py-3 font-semibold text-slate-900 dark:text-slate-100">{record.productDisplayName}</td>
+                    <td className="px-3 py-3 font-mono text-[11px] text-slate-500">{record.variantSku || "—"}</td>
+                    <td className="px-3 py-3">{getDirectStockOutReasonLabel(record.reason)}</td>
+                    <td className="px-3 py-3 text-right font-semibold">{record.quantity.toLocaleString("en-PH")}</td>
+                    <td className="px-3 py-3 text-right">{record.stockBefore?.toLocaleString("en-PH") ?? "—"}</td>
+                    <td className="px-3 py-3 text-right">{record.stockAfter?.toLocaleString("en-PH") ?? "—"}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right">{record.unitCostSnapshot == null ? "Unvalued" : formatCurrency(record.unitCostSnapshot)}</td>
+                    <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-rose-700 dark:text-rose-300">{record.estimatedLossValue == null ? "Unvalued" : formatCurrency(record.estimatedLossValue)}</td>
+                    <td className="px-3 py-3">{record.performedByName || "System"}</td>
+                    <td className="max-w-56 px-3 py-3 text-slate-500">{record.remarks || "—"}</td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={11} className="py-12 text-center text-xs text-slate-500">No direct stock-out entries match these filters.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+            <span>
+              Showing {filteredDirectStockOutTransactions.length} of {directStockOutReport?.pagination.totalCount ?? 0} entries
+              {searchQuery.trim() ? " on this page matching search" : ""}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setDirectStockOutPage((page) => Math.max(1, page - 1))}
+                disabled={isDirectStockOutLoading || directStockOutPage <= 1}
+                className="rounded-lg border border-slate-200 px-2.5 py-1.5 font-semibold disabled:opacity-40 dark:border-slate-700"
+              >Previous</button>
+              <span>Page {directStockOutReport?.pagination.page ?? directStockOutPage} of {directStockOutReport?.pagination.totalPages ?? 1}</span>
+              <button
+                type="button"
+                onClick={() => setDirectStockOutPage((page) => Math.min(directStockOutReport?.pagination.totalPages ?? page, page + 1))}
+                disabled={isDirectStockOutLoading || directStockOutPage >= (directStockOutReport?.pagination.totalPages ?? 1)}
+                className="rounded-lg border border-slate-200 px-2.5 py-1.5 font-semibold disabled:opacity-40 dark:border-slate-700"
+              >Next</button>
+            </div>
           </div>
         </section>
       )}
