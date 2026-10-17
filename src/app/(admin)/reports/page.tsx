@@ -686,7 +686,7 @@ export default function ReportsPage() {
         text-align: center;
       }
       .meta-strip div { display: grid; justify-items: center; gap: 4px; min-width: 0; }
-      .meta-strip span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .meta-strip span { max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
       .meta-strip strong {
         color: #526257;
         font-size: 7pt;
@@ -728,9 +728,8 @@ export default function ReportsPage() {
         font-weight: 700;
       }
       .summary-item dt, .summary-item dd {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
       table {
         width: 100%;
@@ -766,10 +765,8 @@ export default function ReportsPage() {
         text-align: left;
         vertical-align: middle;
         line-height: 1.25;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        overflow-wrap: normal;
+        white-space: normal;
+        overflow-wrap: anywhere;
       }
       th {
         padding-top: 6px;
@@ -1515,7 +1512,7 @@ export default function ReportsPage() {
                   >
                     <div className="flex items-center gap-2 min-w-0 pr-2">
                       <span className="shrink-0 font-semibold text-slate-500">{idx + 1}.</span>
-                      <span className="truncate font-medium text-slate-800 dark:text-slate-200">
+                      <span className="font-medium text-slate-800 dark:text-slate-200">
                         {prod.name}
                       </span>
                     </div>
@@ -1556,7 +1553,7 @@ export default function ReportsPage() {
                     className="flex items-center justify-between border-b border-slate-100 py-2.5 text-xs dark:border-slate-800"
                   >
                     <div className="min-w-0 pr-2">
-                      <p className="truncate font-semibold text-slate-800 dark:text-slate-200">
+                      <p className="font-semibold text-slate-800 dark:text-slate-200">
                         {item.name}
                       </p>
                       <p className="text-[10px] text-slate-500">
@@ -2171,7 +2168,7 @@ export default function ReportsPage() {
                   </span>
                   <div className="min-w-0">
                     <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">Print preview</p>
-                    <h2 id="report-print-dialog-title" className="mt-0.5 truncate text-base font-semibold text-slate-950 dark:text-white">
+                    <h2 id="report-print-dialog-title" className="mt-0.5 break-words text-base font-semibold text-slate-950 dark:text-white">
                       {printPreview?.reportTitle ?? currentReportLabel}
                     </h2>
                   </div>
