@@ -71,7 +71,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#82948a",
   },
-  headerCell: { flex: 1, paddingVertical: 6, paddingHorizontal: 3, fontSize: 7, fontWeight: 700, color: "#405148", textAlign: "center" },
+  headerCell: { flex: 1, paddingVertical: 6, paddingHorizontal: 3, fontSize: 7, fontWeight: 700, color: "#405148" },
+  headerCellLeft: { textAlign: "left" },
+  headerCellRight: { textAlign: "right" },
   row: { flexDirection: "row", borderBottomWidth: 0.6, borderBottomColor: "#d5ded6", minHeight: 20 },
   cell: { flex: 1, paddingVertical: 5, paddingHorizontal: 3, fontSize: 7, color: "#26332b" },
   cellRight: { textAlign: "right" },
@@ -87,12 +89,31 @@ const styles = StyleSheet.create({
 });
 
 const salesColumnWidths = [18, 10, 20, 13, 7, 8, 8, 8, 8] as const;
-const directStockOutColumnWidths = [13, 17, 8, 8, 5, 6, 6, 7, 8, 9, 13] as const;
+function estimatePdfTextWidth(value: string, fontSize: number) {
+  const units = [...value].reduce((total, character) => {
+    if (/\s/.test(character)) return total + 0.34;
+    if (/[ilI1.,:;!'|`]/.test(character)) return total + 0.32;
+    if (/[mwMW@%#&]/.test(character)) return total + 0.84;
+    if (/[A-Z0-9]/.test(character)) return total + 0.64;
+    return total + 0.54;
+  }, 0);
+  return units * fontSize * 1.12;
+}
 
-function getColumnLayout(reportType: ReportType, columnCount: number, columnIndex: number) {
-  const widths = reportType === "DIRECT_STOCK_OUT"
-    ? directStockOutColumnWidths
-    : salesColumnWidths;
+function getDirectStockOutColumnWidths(section: ReturnType<typeof getReportSections>[number]) {
+  return section.headers.map((header, columnIndex) => {
+    const longestWidth = [header, ...section.rows.map((row) => row[columnIndex] ?? "")]
+      .reduce((maxWidth, value) => Math.max(maxWidth, estimatePdfTextWidth(value, 6.5)), 0);
+    return Math.max(28, longestWidth + 10);
+  });
+}
+
+function getColumnLayout(reportType: ReportType, columnCount: number, columnIndex: number, directWidths?: number[]) {
+  if (reportType === "DIRECT_STOCK_OUT" && directWidths?.length === columnCount) {
+    const width = `${directWidths[columnIndex]}pt`;
+    return { width, flexBasis: width, flexGrow: 0, flexShrink: 0 };
+  }
+  const widths = salesColumnWidths;
   if (columnCount !== widths.length) return { flex: 1 };
 
   const width = `${widths[columnIndex]}%`;
@@ -111,10 +132,17 @@ export default function ReportPdfDocument({
   const hasSearchFilter = searchLabel !== "Not applied";
   const sections = getReportSections(report, reportType, hasSearchFilter);
   const summary = getReportSummaryRows(report, reportType);
+  const directSectionWidths = reportType === "DIRECT_STOCK_OUT"
+    ? sections.map((section) => getDirectStockOutColumnWidths(section))
+    : [];
+  const directPageWidth = Math.max(
+    936,
+    ...directSectionWidths.map((widths) => widths.reduce((total, width) => total + width, 0) + 76),
+  );
 
   return (
     <Document title={reportTitle} author={report.business.name}>
-      <Page size={reportType === "DIRECT_STOCK_OUT" ? [936, 612] : [612, 936]} style={styles.page} wrap>
+      <Page size={reportType === "DIRECT_STOCK_OUT" ? [directPageWidth, 612] : [612, 936]} style={styles.page} wrap>
         <View style={styles.header} fixed>
           <Text style={styles.reportTitle}>{reportTitle}</Text>
           <Text style={styles.brand}>{report.business.name}</Text>
@@ -144,39 +172,47 @@ export default function ReportPdfDocument({
           ))}
         </View>
 
-        {sections.map((section) => (
-          <View key={section.title} wrap>
-            <Text style={[styles.sectionTitle, reportType === "DIRECT_STOCK_OUT" ? styles.directSectionTitle : undefined]}>{section.title}</Text>
-            <View style={styles.table}>
-              <View style={styles.tableHeader}>
-                {section.headers.map((header, columnIndex) => (
-                  <Text key={header} style={[styles.headerCell, reportType === "DIRECT_STOCK_OUT" ? styles.directTableCell : undefined, getColumnLayout(reportType, section.headers.length, columnIndex)]}>
-                    {header}
-                  </Text>
-                ))}
-              </View>
-              {section.rows.length ? section.rows.map((row, index) => (
-                <View key={`${section.title}-${index}`} style={styles.row} wrap={false}>
-                  {row.map((value, cellIndex) => (
-                    <Text
-                      key={`${index}-${cellIndex}`}
-                      style={[
-                        styles.cell,
-                        reportType === "DIRECT_STOCK_OUT" ? styles.directTableCell : undefined,
-                        getColumnLayout(reportType, section.headers.length, cellIndex),
-                        isReportNumericHeader(section.headers[cellIndex] ?? "") ? styles.cellRight : undefined,
-                      ]}
-                    >
-                      {value}
+        {sections.map((section, sectionIndex) => {
+          const columnWidths = directSectionWidths[sectionIndex];
+          return (
+            <View key={section.title} wrap>
+              <Text style={[styles.sectionTitle, reportType === "DIRECT_STOCK_OUT" ? styles.directSectionTitle : undefined]}>{section.title}</Text>
+              <View style={styles.table}>
+                <View style={styles.tableHeader}>
+                  {section.headers.map((header, columnIndex) => (
+                    <Text key={header} style={[
+                      styles.headerCell,
+                      isReportNumericHeader(header) ? styles.headerCellRight : styles.headerCellLeft,
+                      reportType === "DIRECT_STOCK_OUT" ? styles.directTableCell : undefined,
+                      getColumnLayout(reportType, section.headers.length, columnIndex, columnWidths),
+                    ]}>
+                      {header}
                     </Text>
                   ))}
                 </View>
-              )) : (
-                <Text style={styles.empty}>{section.emptyMessage}</Text>
-              )}
+                {section.rows.length ? section.rows.map((row, index) => (
+                  <View key={`${section.title}-${index}`} style={styles.row} wrap={false}>
+                    {row.map((value, cellIndex) => (
+                      <Text
+                        key={`${index}-${cellIndex}`}
+                        style={[
+                          styles.cell,
+                          reportType === "DIRECT_STOCK_OUT" ? styles.directTableCell : undefined,
+                          getColumnLayout(reportType, section.headers.length, cellIndex, columnWidths),
+                          isReportNumericHeader(section.headers[cellIndex] ?? "") ? styles.cellRight : undefined,
+                        ]}
+                      >
+                        {reportType === "DIRECT_STOCK_OUT" ? value.replace(/\s+/g, " ") : value}
+                      </Text>
+                    ))}
+                  </View>
+                )) : (
+                  <Text style={styles.empty}>{section.emptyMessage}</Text>
+                )}
+              </View>
             </View>
-          </View>
-        ))}
+          );
+        })}
 
         <View style={styles.footer} fixed>
           <Text render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />

@@ -88,7 +88,7 @@ export type ReportSection = {
 };
 
 export function isReportNumericHeader(header: string) {
-  return /qty|quantity|units|on hand|minimum|stock|cost|price|value|revenue|profit|orders|collected|rank|total|restock|amount/i.test(header);
+  return /qty|quantity|units|on hand|minimum|stock|cost|price|value|revenue|profit|orders|entries|unvalued|collected|rank|total|restock|amount/i.test(header);
 }
 
 export const getReportTitle = (type: ReportType) => ({

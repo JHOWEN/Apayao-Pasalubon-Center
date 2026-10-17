@@ -556,6 +556,10 @@ export default function ReportsPage() {
       .map((section) => {
         const tableClass = `report-table report-table-${section.headers.length}`;
         const columns = section.headers.map(() => "<col>").join("");
+        const headers = section.headers.map((header) => {
+          const align = isReportNumericHeader(header) ? "right" : "left";
+          return `<th class="${align}">${escapeHtml(header)}</th>`;
+        }).join("");
         const rows = section.rows.length
           ? section.rows.map((row) => `<tr>${row.map((value, index) => {
               const header = section.headers[index] ?? "";
@@ -571,7 +575,7 @@ export default function ReportsPage() {
             <h2 class="section-title">${escapeHtml(section.title)}</h2>
             <table class="${tableClass}">
               <colgroup>${columns}</colgroup>
-              <thead><tr>${section.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}</tr></thead>
+              <thead><tr>${headers}</tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </section>
@@ -709,8 +713,8 @@ export default function ReportsPage() {
         margin: 0 0 4px;
       }
       .report-direct-stock-out .summary-list {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        column-gap: 18px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 24px;
       }
       .report-section { margin-bottom: 16px; }
       .report-direct-stock-out .section-title { text-align: left; }
@@ -731,6 +735,8 @@ export default function ReportsPage() {
         white-space: normal;
         overflow-wrap: anywhere;
       }
+      .report-direct-stock-out .summary-item dt,
+      .report-direct-stock-out .summary-item dd { white-space: nowrap; }
       table {
         width: 100%;
         border-collapse: collapse;
@@ -758,7 +764,17 @@ export default function ReportsPage() {
       .report-table-11 col:nth-child(10) { width: 9%; }
       .report-table-11 col:nth-child(11) { width: 13%; }
       .report-direct-stock-out .report-table-11 th,
-      .report-direct-stock-out .report-table-11 td { padding: 7px 5px; font-size: 6.5pt; }
+      .report-direct-stock-out .report-table-11 td {
+        padding: 4px 3px;
+        font-size: 5.5pt;
+        white-space: nowrap;
+        overflow-wrap: normal;
+      }
+      .report-direct-stock-out .report-table-11 {
+        width: max-content;
+        min-width: 100%;
+        table-layout: auto;
+      }
       th, td {
         padding: 5px 4px;
         border-bottom: 1px solid #e1e7e2;
@@ -777,8 +793,15 @@ export default function ReportsPage() {
         font-weight: 700;
         text-align: center;
       }
+      .report-direct-stock-out .report-table-11 th {
+        padding: 4px 3px;
+        font-size: 5.5pt;
+        white-space: nowrap;
+        overflow-wrap: normal;
+      }
       td { font-size: 7pt; }
-      td.right { text-align: right; }
+      th.left, td.left { text-align: left; }
+      th.right, td.right { text-align: right; }
       @media screen {
         body { visibility: hidden; }
       }
@@ -2032,8 +2055,8 @@ export default function ReportsPage() {
                   ["Entries without cost", summary.unvaluedEntries.toLocaleString("en-PH"), "Not included in the estimate"],
                 ].map(([label, value, detail]) => (
                   <div key={label} className="min-h-24 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</p>
-                    <p className="mt-2 text-lg font-bold leading-tight text-slate-900 dark:text-white">{value}</p>
+                    <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">{label}</p>
+                    <p className="mt-2 whitespace-nowrap text-lg font-bold leading-tight text-slate-900 dark:text-white">{value}</p>
                     <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{detail}</p>
                   </div>
                 ))}
@@ -2047,7 +2070,7 @@ export default function ReportsPage() {
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Entry count, quantity removed, and estimated value by reason.</p>
             </div>
             <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-              <table className="w-full min-w-[560px] text-left text-xs">
+              <table className="w-full min-w-[560px] whitespace-nowrap text-left text-xs">
                 <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
                   <tr>
                     <th className="px-4 py-3">Reason</th>
@@ -2080,7 +2103,7 @@ export default function ReportsPage() {
               <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Manual inventory deductions recorded during the selected period.</p>
             </div>
           <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-            <table className="w-full min-w-[1260px] text-left text-xs">
+            <table className="w-full min-w-[1500px] table-auto whitespace-nowrap text-left text-xs">
               <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:border-slate-800 dark:bg-slate-800/60 dark:text-slate-400">
                 <tr>
                   <th className="whitespace-nowrap px-4 py-3">Date and time</th>
@@ -2111,7 +2134,7 @@ export default function ReportsPage() {
                     <td className="whitespace-nowrap px-3 py-3 text-right">{record.unitCostSnapshot == null ? "Unvalued" : formatCurrency(record.unitCostSnapshot)}</td>
                     <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-rose-700 dark:text-rose-300">{record.estimatedLossValue == null ? "Unvalued" : formatCurrency(record.estimatedLossValue)}</td>
                     <td className="px-3 py-3">{record.performedByName || "System"}</td>
-                    <td className="max-w-56 px-3 py-3 text-slate-500">{record.remarks || "—"}</td>
+                    <td className="px-3 py-3 text-slate-500">{record.remarks || "—"}</td>
                   </tr>
                 )) : (
                   <tr><td colSpan={11} className="py-12 text-center text-xs text-slate-500">No direct stock-out entries match these filters.</td></tr>
