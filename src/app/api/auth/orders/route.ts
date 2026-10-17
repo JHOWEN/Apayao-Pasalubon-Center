@@ -147,7 +147,12 @@ export async function GET(request: Request) {
     const limit = Number.isInteger(requestedLimit) && requestedLimit > 0 ? Math.min(requestedLimit, 30) : 15;
     const requestedStatus = searchParams.get("status");
     const status = isOrderStatus(requestedStatus) ? requestedStatus : undefined;
-    const where = { userId: payload.sub, ...(status ? { status } : {}) };
+    const requestedOrderId = searchParams.get("orderId")?.trim();
+    const where = {
+      userId: payload.sub,
+      ...(status ? { status } : {}),
+      ...(requestedOrderId ? { id: requestedOrderId } : {}),
+    };
 
     const [orders, statusCounts] = await Promise.all([
       prisma.order.findMany({
@@ -187,8 +192,8 @@ export async function GET(request: Request) {
           user: { select: { email: true, address: true } },
         },
         orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-        skip: (page - 1) * limit,
-        take: limit,
+        skip: requestedOrderId ? 0 : (page - 1) * limit,
+        take: requestedOrderId ? 1 : limit,
       }),
       prisma.order.groupBy({
         by: ["status"],
@@ -226,7 +231,7 @@ export async function GET(request: Request) {
         "Cache-Control": "private, no-store, max-age=0",
         "X-Total-Orders": String(totalOrders),
         "X-Active-Orders": String(activeOrders),
-        "X-Has-More": String(page * limit < matchingOrders),
+        "X-Has-More": String(!requestedOrderId && page * limit < matchingOrders),
       },
     });
   } catch (error) {
@@ -627,7 +632,9 @@ export async function PUT(request: Request) {
       if (updatedOrder.status !== existingOrder.status || updatedOrder.paymentStatus !== existingOrder.paymentStatus) {
         await recordOrderEvent(tx, {
           orderId: updatedOrder.id,
-          eventType: getOrderStatusEventType(updatedOrder.status),
+          eventType: updatedOrder.status !== existingOrder.status
+            ? getOrderStatusEventType(updatedOrder.status)
+            : "PAYMENT_STATUS_CHANGED",
           previousStatus: existingOrder.status,
           newStatus: updatedOrder.status,
           previousPaymentStatus: existingOrder.paymentStatus,

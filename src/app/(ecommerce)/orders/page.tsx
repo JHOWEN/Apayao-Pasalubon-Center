@@ -172,10 +172,11 @@ export default function OrdersPage() {
   const [totalOrders, setTotalOrders] = useState(0);
   const [activeOrderCount, setActiveOrderCount] = useState(0);
   const [trackingOrderId, setTrackingOrderId] = useState<string | null>(null);
+  const [notificationTargetOrderId, setNotificationTargetOrderId] = useState<string | null>(null);
   const [uploadingProofOrderId, setUploadingProofOrderId] = useState<string | null>(null);
   const [selectedStatus, setSelectedStatus] = useState<string>("ALL");
 
-  const fetchOrders = useCallback(async (page = 1, statusFilter = selectedStatus, append = false, background = false) => {
+  const fetchOrders = useCallback(async (page = 1, statusFilter = selectedStatus, append = false, background = false, orderId?: string | null) => {
     try {
       if (append) setIsLoadingMore(true);
       else if (!background) setIsLoading(true);
@@ -193,6 +194,7 @@ export default function OrdersPage() {
 
       const params = new URLSearchParams({ page: String(page), limit: String(ORDERS_PAGE_LIMIT) });
       if (statusFilter !== "ALL") params.set("status", statusFilter);
+      if (orderId) params.set("orderId", orderId);
       const response = await fetchWithTimeout(`/api/auth/orders?${params.toString()}`, {
         cache: "no-store",
       });
@@ -204,14 +206,20 @@ export default function OrdersPage() {
 
       const userOrders = Array.isArray(data) ? (data as OrderSummary[]) : [];
       setOrders((current) => {
+        if (orderId) {
+          const targetIds = new Set(userOrders.map((order) => order.id));
+          return [...userOrders, ...current.filter((order) => !targetIds.has(order.id))];
+        }
         if (!append) return userOrders;
         const existingIds = new Set(current.map((order) => order.id));
         return [...current, ...userOrders.filter((order) => !existingIds.has(order.id))];
       });
-      setOrdersPage(page);
-      setHasMoreOrders(response.headers.get("X-Has-More") === "true");
-      setTotalOrders(Number(response.headers.get("X-Total-Orders") ?? userOrders.length));
-      setActiveOrderCount(Number(response.headers.get("X-Active-Orders") ?? 0));
+      if (!orderId) {
+        setOrdersPage(page);
+        setHasMoreOrders(response.headers.get("X-Has-More") === "true");
+        setTotalOrders(Number(response.headers.get("X-Total-Orders") ?? userOrders.length));
+        setActiveOrderCount(Number(response.headers.get("X-Active-Orders") ?? 0));
+      }
       setMessage("");
       setOrdersLoadFailed(false);
     } catch (error) {
@@ -347,6 +355,13 @@ export default function OrdersPage() {
 
   useEffect(() => {
     async function loadOrders() {
+      const requestedOrderId = new URLSearchParams(window.location.search).get("orderId");
+      if (requestedOrderId) {
+        setNotificationTargetOrderId(requestedOrderId);
+        await fetchOrders();
+        await fetchOrders(1, "ALL", false, true, requestedOrderId);
+        return;
+      }
       await fetchOrders();
     }
 
@@ -358,15 +373,40 @@ export default function OrdersPage() {
     const handleCustomerOrderUpdate = () => {
       void fetchOrders(1, selectedStatus, false, true);
     };
+    const handleOpenCustomerOrder = (event: Event) => {
+      const orderId = (event as CustomEvent<{ orderId?: string }>).detail?.orderId;
+      if (!orderId) return;
+      setNotificationTargetOrderId(orderId);
+      void fetchOrders(1, "ALL", false, true, orderId);
+    };
 
     window.addEventListener("apc-order-review-updated", handleReviewUpdate);
     window.addEventListener("apc-customer-order-live-event", handleCustomerOrderUpdate);
+    window.addEventListener("apc-open-customer-order", handleOpenCustomerOrder);
 
     return () => {
       window.removeEventListener("apc-order-review-updated", handleReviewUpdate);
       window.removeEventListener("apc-customer-order-live-event", handleCustomerOrderUpdate);
+      window.removeEventListener("apc-open-customer-order", handleOpenCustomerOrder);
     };
   }, [fetchOrders, selectedStatus]);
+
+  useEffect(() => {
+    if (!notificationTargetOrderId) return;
+    if (!orders.some((order) => order.id === notificationTargetOrderId)) return;
+
+    setTrackingOrderId(notificationTargetOrderId);
+    window.history.replaceState(window.history.state, "", window.location.pathname);
+    const frameId = window.requestAnimationFrame(() => {
+      document.getElementById(`order-${notificationTargetOrderId}`)?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+    setNotificationTargetOrderId(null);
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [notificationTargetOrderId, orders]);
 
   const orderStatusSteps = [
     { key: "PENDING", label: "Pending" },
@@ -538,7 +578,8 @@ export default function OrdersPage() {
               return (
                 <article
                   key={order.id}
-                  className="rounded-3xl border border-white/10 bg-[#12141c] p-5 sm:p-6 space-y-5 transition hover:border-white/20 shadow-lg"
+                  id={`order-${order.id}`}
+                  className="scroll-mt-32 rounded-3xl border border-white/10 bg-[#12141c] p-5 sm:p-6 space-y-5 transition hover:border-white/20 shadow-lg"
                 >
                   {/* Order Card Header */}
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">

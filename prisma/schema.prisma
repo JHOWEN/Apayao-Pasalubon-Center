@@ -197,6 +197,7 @@ model OrderEvent {
   newStatus             OrderStatus?
   previousPaymentStatus PaymentStatus?
   newPaymentStatus      PaymentStatus?
+  customerReadAt        DateTime?
   actorUserId           String?
   actorName             String?
   actorType             String
@@ -207,6 +208,7 @@ model OrderEvent {
 
   @@index([orderId, createdAt])
   @@index([eventType, createdAt])
+  @@index([customerReadAt, createdAt])
   @@index([actorUserId, createdAt])
 }
 

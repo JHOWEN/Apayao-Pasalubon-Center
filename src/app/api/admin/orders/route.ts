@@ -763,7 +763,9 @@ export async function PUT(request: Request) {
       if (updatedOrder.status !== existingOrder.status || updatedOrder.paymentStatus !== existingOrder.paymentStatus) {
         await recordOrderEvent(tx, {
           orderId: updatedOrder.id,
-          eventType: getOrderStatusEventType(updatedOrder.status),
+          eventType: updatedOrder.status !== existingOrder.status
+            ? getOrderStatusEventType(updatedOrder.status)
+            : "PAYMENT_STATUS_CHANGED",
           previousStatus: existingOrder.status,
           newStatus: updatedOrder.status,
           previousPaymentStatus: existingOrder.paymentStatus,
