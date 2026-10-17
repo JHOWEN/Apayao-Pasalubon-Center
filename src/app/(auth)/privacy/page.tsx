@@ -1,4 +1,5 @@
-import Link from "next/link";
+import { Suspense } from "react";
+import LegalPageNavigation, { LegalPageNavigationFallback } from "@/components/auth/legal-page-navigation";
 
 const sections = [
   {
@@ -19,12 +20,7 @@ const sections = [
   },
 ];
 
-export default async function PrivacyPage({ searchParams }: { searchParams: Promise<{ from?: string }> }) {
-  const fromRegistration = (await searchParams).from === "register";
-  const backHref = fromRegistration ? "/register" : "/";
-  const backLabel = fromRegistration ? "Back to registration" : "Back to store";
-  const termsHref = fromRegistration ? "/terms?from=register" : "/terms?from=store";
-
+export default function PrivacyPage() {
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-800 sm:px-6 lg:px-8">
       <div className="mx-auto w-full max-w-4xl">
@@ -49,14 +45,9 @@ export default async function PrivacyPage({ searchParams }: { searchParams: Prom
           If you need help with your personal data, please contact the store through the available support channels.
         </div>
 
-        <div className="mt-8 flex flex-wrap gap-3">
-          <Link href={backHref} className="inline-flex rounded-2xl bg-orange-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-orange-600">
-            {backLabel}
-          </Link>
-          <Link href={termsHref} className="inline-flex rounded-2xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-            Read terms and conditions
-          </Link>
-        </div>
+        <Suspense fallback={<LegalPageNavigationFallback page="privacy" />}>
+          <LegalPageNavigation page="privacy" />
+        </Suspense>
       </div>
     </main>
   );

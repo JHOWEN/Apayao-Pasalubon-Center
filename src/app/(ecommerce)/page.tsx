@@ -147,11 +147,29 @@ function ProductGridSkeleton({ count, label }: { count: number; label: string })
   );
 }
 
+function StorefrontQuerySync({
+  onChange,
+}: {
+  onChange: (searchQuery: string, categoryQuery: string) => void;
+}) {
+  const searchParams = useSearchParams();
+  const searchQuery = searchParams.get("search")?.trim() ?? "";
+  const categoryQuery = searchParams.get("category")?.trim() ?? "";
+
+  useEffect(() => {
+    onChange(searchQuery, categoryQuery);
+  }, [categoryQuery, onChange, searchQuery]);
+
+  return null;
+}
+
 function EcommerceHomeContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryQuery, setCategoryQuery] = useState("");
+  const [isQueryReady, setIsQueryReady] = useState(false);
   const [categoryLoadError, setCategoryLoadError] = useState<string | null>(null);
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -165,9 +183,12 @@ function EcommerceHomeContent() {
   const [isCategoryMenuOpen, setIsCategoryMenuOpen] = useState(false);
   const [sortBy, setSortBy] = useState<"featured" | "popular" | "rating" | "price-low" | "price-high">("featured");
   const [storeInfo, setStoreInfo] = useState<StoreContactSettings>(defaultStoreContactSettings);
-  const searchQuery = searchParams.get("search")?.trim() ?? "";
-  const categoryQuery = searchParams.get("category")?.trim() ?? "";
   const isTimeoutError = (catalogError ?? "").toLowerCase().includes("timed out");
+  const syncQueryState = useCallback((nextSearchQuery: string, nextCategoryQuery: string) => {
+    setSearchQuery(nextSearchQuery);
+    setCategoryQuery(nextCategoryQuery);
+    setIsQueryReady(true);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -212,6 +233,8 @@ function EcommerceHomeContent() {
   }, []);
 
   useEffect(() => {
+    if (!isQueryReady) return;
+
     async function loadProducts(background = false) {
       const pagesToLoad = background ? Math.max(1, catalogPageRef.current) : 1;
       if (!background) {
@@ -305,7 +328,7 @@ function EcommerceHomeContent() {
     window.addEventListener("apc-storefront-live-event", handleStorefrontUpdate);
 
     return () => window.removeEventListener("apc-storefront-live-event", handleStorefrontUpdate);
-  }, [searchQuery, categoryQuery]);
+  }, [isQueryReady, searchQuery, categoryQuery]);
 
   async function loadMoreProducts() {
     if (isLoadingMore || !hasMoreProducts) return;
@@ -427,6 +450,9 @@ function EcommerceHomeContent() {
 
   return (
     <main className="storefront-home min-h-screen bg-[#0a0d14] pb-16 text-slate-100">
+      <Suspense fallback={null}>
+        <StorefrontQuerySync onChange={syncQueryState} />
+      </Suspense>
       <style>{`
         @keyframes shimmer {
           0% { background-position: 200% 0; }
@@ -987,17 +1013,5 @@ function EcommerceHomeContent() {
 }
 
 export default function EcommerceHomePage() {
-  return (
-    <Suspense
-      fallback={
-        <main className="min-h-screen bg-[#0a0d14] px-4 py-8">
-          <div className="mx-auto max-w-7xl rounded-2xl border border-white/10 bg-[#12141c] p-12 text-center text-slate-400 animate-pulse">
-            <div className="mx-auto h-4 w-40 rounded bg-white/10" />
-          </div>
-        </main>
-      }
-    >
-      <EcommerceHomeContent />
-    </Suspense>
-  );
+  return <EcommerceHomeContent />;
 }
