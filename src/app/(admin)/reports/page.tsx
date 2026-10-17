@@ -2,6 +2,7 @@
 import { adminFetch, invalidateCurrentAdminApiPaths } from "@/lib/admin-data-cache";
 
 import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
   BarChart3,
@@ -906,6 +907,12 @@ export default function ReportsPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/reports/direct-stock-out"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-semibold text-rose-800 shadow-sm transition hover:bg-rose-100 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-200 dark:hover:bg-rose-950/70"
+            >
+              Direct stock-out report
+            </Link>
             <button
               type="button"
               onClick={() => void handlePrintCurrentReport()}

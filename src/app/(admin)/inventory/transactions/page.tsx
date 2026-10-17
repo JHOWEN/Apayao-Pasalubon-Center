@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { AdminModalPortal } from "@/components/admin/admin-modal-portal";
+import { getDirectStockOutReasonLabel } from "@/lib/direct-stock-out";
 
 interface ActivityRecord {
   id: string;
@@ -35,6 +36,7 @@ interface ActivityRecord {
   reservedBefore?: number | null;
   reservedAfter?: number | null;
   remarks?: string | null;
+  reason?: string | null;
   createdAt: string;
   performedByName?: string | null;
   performedByType?: string | null;
@@ -434,6 +436,7 @@ export default function InventoryTransactionsPage() {
           "Performed by user ID",
           "Actor type",
           "Channel",
+          "Stock-out reason",
           "Customer",
           "Order",
           "Order ID",
@@ -463,6 +466,7 @@ export default function InventoryTransactionsPage() {
           record.performedById || "",
           record.performedByType || "SYSTEM",
           sourceLabel(record.source),
+          record.reason ? getDirectStockOutReasonLabel(record.reason) : "",
           record.customerName || "",
           record.orderNumber || "",
           record.orderId || "",
@@ -893,7 +897,7 @@ export default function InventoryTransactionsPage() {
                       </span>
                       {record.orderNumber && record.customerName && <span className="mt-0.5 block text-[11px] leading-4 text-slate-500 dark:text-slate-400">{record.customerName}</span>}
                       <span className="mt-2 line-clamp-2 block wrap-break-word text-[12px] leading-4 text-slate-600 dark:text-slate-400" title={record.remarks || undefined}>
-                        {record.remarks || "No reason recorded"}
+                        {record.remarks || (record.reason ? getDirectStockOutReasonLabel(record.reason) : "No reason recorded")}
                       </span>
                     </td>
                   </tr>
@@ -1127,8 +1131,9 @@ export default function InventoryTransactionsPage() {
                     Reason and notes
                   </div>
                   <p className="mt-3 whitespace-pre-wrap wrap-break-word rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800/70">
-                    {selectedRecord.remarks ||
-                      "No remarks provided for this transaction entry."}
+                    {[selectedRecord.reason ? getDirectStockOutReasonLabel(selectedRecord.reason) : "", selectedRecord.remarks || ""]
+                      .filter(Boolean)
+                      .join(" — ") || "No remarks provided for this transaction entry."}
                   </p>
                 </div>
               </div>

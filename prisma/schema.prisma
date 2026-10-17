@@ -220,7 +220,9 @@ model InventoryTransaction {
   performedById    String?
   type             InventoryType
   eventType        String?
+  reason           String?
   quantity         Int
+  unitCostSnapshot Decimal?                    @db.Decimal(10, 2)
   stockBefore      Int?
   stockAfter       Int?
   minStockBefore   Int?

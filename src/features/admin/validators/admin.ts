@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DIRECT_STOCK_OUT_REASON_VALUES } from "@/lib/direct-stock-out";
 
 const idSchema = z.string().trim().min(1).max(128);
 const optionalText = (max: number) => z.string().trim().max(max).optional();
@@ -76,6 +77,7 @@ export const inventoryMovementSchema = z.object({
   type: z.enum(["STOCK_IN", "STOCK_OUT", "ADJUSTMENT", "RETURN"]),
   quantity: z.number().int().min(0).max(1_000_000),
   remarks: optionalText(500),
+  reason: z.enum(DIRECT_STOCK_OUT_REASON_VALUES).optional(),
   minStock: z.number().int().min(0).max(1_000_000).optional(),
 });
 
