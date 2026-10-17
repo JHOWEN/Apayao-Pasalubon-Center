@@ -1,0 +1,193 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1125" role="img" aria-labelledby="title description">
+  <title id="title">Apayao Pasalubong Center three-tier system architecture</title>
+  <desc id="description">Three-tier diagram of the deployed Vercel-hosted Next.js storefront and admin app, its API routes and business services, and PostgreSQL and supporting managed services.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M0 0L10 5L0 10z" fill="#111827" />
+    </marker>
+    <marker id="arrow-start" markerWidth="10" markerHeight="10" refX="2" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M10 0L0 5L10 10z" fill="#111827" />
+    </marker>
+    <style>
+      text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; fill: #111827; }
+      .title { font-size: 31px; font-weight: 760; letter-spacing: -.5px; }
+      .subtitle { font-size: 20px; font-weight: 480; }
+      .tier { fill: #fff; stroke: #111827; stroke-width: 1.8; }
+      .tier-label { fill: #111827; }
+      .tier-label-text { fill: #fff; font-size: 18px; font-weight: 760; letter-spacing: .45px; }
+      .card { fill: #fff; stroke: #111827; stroke-width: 1.8; }
+      .card-title { font-size: 17px; font-weight: 730; }
+      .body { font-size: 13px; font-weight: 440; }
+      .small { font-size: 12px; font-weight: 430; }
+      .icon { fill: none; stroke: #111827; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+      .icon-thin { fill: none; stroke: #111827; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      .flow { fill: none; stroke: #111827; stroke-width: 2.2; marker-end: url(#arrow); }
+      .duplex { fill: none; stroke: #111827; stroke-width: 2.2; marker-start: url(#arrow-start); marker-end: url(#arrow); }
+      .live-flow { fill: none; stroke: #111827; stroke-width: 2; stroke-dasharray: 6 5; marker-end: url(#arrow); }
+      .label-bg { fill: #fff; stroke: #111827; stroke-width: 1.4; }
+      .flow-label { font-size: 12px; font-weight: 680; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1125" fill="#fafafa" />
+  <text x="800" y="47" text-anchor="middle" class="title">Apayao Pasalubong Center</text>
+  <text x="800" y="78" text-anchor="middle" class="subtitle">3-Tier System Architecture · Deployed on Vercel</text>
+
+  <!-- The three tiers frame the request path from the browser to managed data services. -->
+  <rect x="24" y="112" width="1552" height="340" rx="17" class="tier" />
+  <rect x="24" y="474" width="1552" height="316" rx="17" class="tier" />
+  <rect x="24" y="808" width="1552" height="286" rx="17" class="tier" />
+
+  <rect x="44" y="130" width="300" height="42" rx="21" class="tier-label" />
+  <text x="194" y="157" text-anchor="middle" class="tier-label-text">PRESENTATION LAYER</text>
+  <rect x="44" y="492" width="300" height="42" rx="21" class="tier-label" />
+  <text x="194" y="519" text-anchor="middle" class="tier-label-text">APPLICATION LAYER</text>
+  <rect x="44" y="826" width="176" height="42" rx="21" class="tier-label" />
+  <text x="132" y="853" text-anchor="middle" class="tier-label-text">DATA LAYER</text>
+
+  <!-- Communication paths are behind the component cards. -->
+  <path d="M315 294H355" class="flow" />
+  <path d="M525 294H580" class="flow" />
+  <path d="M905 294H968V195H1015" class="flow" />
+  <path d="M905 294H1015" class="flow" />
+  <path d="M905 294H968V393H1015" class="flow" />
+  <path d="M738 375V545" class="flow" />
+  <path d="M771 545V375" class="live-flow" />
+
+  <path d="M425 635H565" class="flow" />
+  <path d="M910 625H984V560H1025" class="flow" />
+  <path d="M910 640H984V665H1025" class="flow" />
+  <path d="M910 650H984V754H1025" class="flow" />
+
+  <path d="M738 710V825H400V850" class="flow" />
+  <path d="M560 925H630" class="duplex" />
+  <path d="M910 682H960V818H1325V835" class="flow" />
+
+  <!-- Presentation tier -->
+  <rect x="55" y="226" width="260" height="136" rx="13" class="card" />
+  <g class="icon" transform="translate(150 239)">
+    <circle cx="33" cy="16" r="10" />
+    <circle cx="11" cy="26" r="8" />
+    <circle cx="55" cy="26" r="8" />
+    <path d="M16 58c1-12 8-19 17-19s16 7 17 19M0 57c0-9 4-15 11-15 4 0 7 2 9 5M50 47c2-3 5-5 9-5 7 0 11 6 11 15" />
+  </g>
+  <text x="185" y="319" text-anchor="middle" class="card-title">Users</text>
+  <text x="185" y="340" text-anchor="middle" class="small">Administrator · Staff</text>
+  <text x="185" y="356" text-anchor="middle" class="small">Customer</text>
+
+  <rect x="355" y="226" width="170" height="136" rx="13" class="card" />
+  <g class="icon" transform="translate(404 238)">
+    <circle cx="36" cy="39" r="29" />
+    <path d="M7 39h58M36 10c-9 9-13 19-13 29s4 20 13 29M36 10c9 9 13 19 13 29s-4 20-13 29M12 25h48M12 53h48" />
+  </g>
+  <text x="440" y="331" text-anchor="middle" class="card-title">Internet</text>
+
+  <rect x="580" y="210" width="325" height="165" rx="14" class="card" />
+  <circle cx="742" cy="249" r="25" fill="#111827" />
+  <path d="M733 260v-22l19 22v-22" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+  <text x="742" y="300" text-anchor="middle" class="card-title">Next.js Frontend</text>
+  <text x="742" y="326" text-anchor="middle" class="body">Vercel-hosted App Router</text>
+  <text x="742" y="350" text-anchor="middle" class="small">React pages and shared components</text>
+
+  <rect x="1015" y="153" width="520" height="84" rx="12" class="card" />
+  <g class="icon" transform="translate(1041 167)">
+    <circle cx="26" cy="16" r="11" />
+    <path d="M5 56c1-15 8-23 21-23s20 8 21 23M18 10c-4 5-4 10 0 14M34 10c4 5 4 10 0 14" />
+  </g>
+  <text x="1110" y="185" class="card-title">Customer Storefront</text>
+  <text x="1110" y="211" class="body">Catalog · Cart · Checkout · Orders · Profile</text>
+
+  <rect x="1015" y="251" width="520" height="84" rx="12" class="card" />
+  <g class="icon" transform="translate(1045 262)">
+    <circle cx="23" cy="15" r="10" />
+    <path d="M7 55c1-15 6-23 16-23s15 8 16 23M14 15c0-8 4-12 10-12s10 4 10 12M12 40l11 8 11-8" />
+  </g>
+  <text x="1110" y="283" class="card-title">Staff Pages</text>
+  <text x="1110" y="309" class="body">POS · Products · Profile and security</text>
+
+  <rect x="1015" y="349" width="520" height="84" rx="12" class="card" />
+  <g class="icon" transform="translate(1042 362)">
+    <circle cx="27" cy="27" r="11" />
+    <path d="M27 2v7M27 45v7M2 27h7M45 27h7M9 9l5 5M40 40l5 5M45 9l-5 5M14 40l-5 5M20 2h14l2 7a20 20 0 0 1 5 3l7-1 7 12-5 5a20 20 0 0 1 0 7l5 5-7 12-7-1a20 20 0 0 1-5 3l-2 7H20l-2-7a20 20 0 0 1-5-3l-7 1L-1 40l5-5a20 20 0 0 1 0-7l-5-5 7-12 7 1a20 20 0 0 1 5-3z" transform="translate(5 0) scale(.78)" />
+  </g>
+  <text x="1110" y="381" class="card-title">Admin Pages</text>
+  <text x="1110" y="407" class="small">Dashboard · POS · Orders · Products · Inventory · Reports · Settings</text>
+
+  <!-- Application tier -->
+  <rect x="75" y="580" width="350" height="110" rx="13" class="card" />
+  <g class="icon" transform="translate(102 601)">
+    <circle cx="31" cy="34" r="24" />
+    <path d="M31 19v16l11 7M48 12l8 7-8 7M56 19H43" />
+  </g>
+  <text x="175" y="619" class="card-title">Reservation-expiry task</text>
+  <text x="175" y="646" class="body">Vercel Cron · scheduled HTTPS call</text>
+  <text x="175" y="669" class="small">Expires held wallet reservations</text>
+
+  <rect x="565" y="545" width="345" height="165" rx="14" class="card" />
+  <g class="icon" transform="translate(680 563)">
+    <rect x="0" y="0" width="66" height="26" rx="5" />
+    <rect x="0" y="34" width="66" height="26" rx="5" />
+    <rect x="0" y="68" width="66" height="26" rx="5" />
+    <circle cx="12" cy="13" r="2" fill="#111827" stroke="none" />
+    <circle cx="12" cy="47" r="2" fill="#111827" stroke="none" />
+    <circle cx="12" cy="81" r="2" fill="#111827" stroke="none" />
+    <path d="M25 13h29M25 47h29M25 81h29" />
+  </g>
+  <text x="738" y="684" text-anchor="middle" class="card-title">Next.js API Routes</text>
+  <text x="738" y="704" text-anchor="middle" class="small">Vercel server functions</text>
+
+  <rect x="1025" y="520" width="480" height="80" rx="12" class="card" />
+  <path d="M1068 538l22 8v17c0 15-11 23-22 29-11-6-22-14-22-29v-17z" class="icon" />
+  <path d="M1058 563l7 7 13-15" class="icon-thin" />
+  <text x="1110" y="554" class="card-title">Authentication &amp; Authorization</text>
+  <text x="1110" y="579" class="body">JWT cookies · session checks · role-based access</text>
+
+  <rect x="1025" y="620" width="480" height="90" rx="12" class="card" />
+  <path d="M1070 639l22 13v26l-22 13-22-13v-26zM1048 652l22 13 22-13M1070 665v26" class="icon" />
+  <text x="1110" y="651" class="card-title">Business Logic</text>
+  <text x="1110" y="677" class="body">Catalog · Inventory · POS · Orders · Payments</text>
+  <text x="1110" y="697" class="small">Customers · Analytics · Reports</text>
+
+  <rect x="1025" y="724" width="480" height="60" rx="12" class="card" />
+  <path d="M1052 763a20 20 0 1 1 36 0M1070 762l11-14M1061 769h18" class="icon" />
+  <text x="1110" y="760" class="card-title">Validation &amp; Rate Limiting</text>
+  <text x="1390" y="760" class="small">Request schemas · Upstash / database limits</text>
+
+  <!-- Request path labels between tiers -->
+  <rect x="696" y="433" width="84" height="27" rx="7" class="label-bg" />
+  <text x="738" y="451" text-anchor="middle" class="flow-label">HTTPS</text>
+  <rect x="749" y="477" width="56" height="24" rx="7" class="label-bg" />
+  <text x="777" y="493" text-anchor="middle" class="flow-label">SSE</text>
+
+  <!-- Data tier -->
+  <rect x="250" y="850" width="310" height="150" rx="13" class="card" />
+  <path d="M285 880l29-17 29 17-29 49zM285 880v33l29 17v-33M343 880v33l-29 17" class="icon" />
+  <text x="365" y="891" class="card-title">Prisma ORM</text>
+  <text x="365" y="920" class="body">Data access from API routes</text>
+  <text x="275" y="973" class="small">Queries and transactions</text>
+
+  <rect x="630" y="840" width="405" height="170" rx="13" class="card" />
+  <g class="icon" transform="translate(662 867)">
+    <ellipse cx="28" cy="9" rx="25" ry="9" />
+    <path d="M3 9v78c0 5 11 9 25 9s25-4 25-9V9M3 35c0 5 11 9 25 9s25-4 25-9M3 61c0 5 11 9 25 9s25-4 25-9" />
+  </g>
+  <text x="735" y="879" class="card-title">PostgreSQL</text>
+  <text x="735" y="908" class="body">Users · Products · Inventory · Orders</text>
+  <text x="735" y="934" class="body">Carts · Reviews · Transactions · Settings</text>
+  <text x="735" y="976" class="small">Prisma Client over a TLS database connection</text>
+
+  <rect x="1115" y="835" width="420" height="185" rx="13" class="card" />
+  <g class="icon" transform="translate(1140 857)">
+    <path d="M8 57H3a16 16 0 0 1 0-32 24 24 0 0 1 45-5 19 19 0 0 1 9 36h-5" />
+    <ellipse cx="31" cy="55" rx="20" ry="8" />
+    <path d="M11 55v28c0 5 9 8 20 8s20-3 20-8V55M11 70c0 5 9 8 20 8s20-3 20-8" />
+  </g>
+  <text x="1210" y="872" class="card-title">Supporting Services</text>
+  <text x="1210" y="899" class="body">Supabase Storage · product and profile media,</text>
+  <text x="1210" y="920" class="body">reviews, payment proofs and QR images</text>
+  <text x="1210" y="949" class="body">Upstash Redis · rate limits, revoked tokens,</text>
+  <text x="1210" y="970" class="body">shared live-event relay</text>
+  <text x="1210" y="997" class="body">Resend API or SMTP · account and payment emails</text>
+
+  <text x="45" y="1070" class="small">Wallet payments are recorded in the app and reviewed by staff; the current flow does not use an external payment gateway.</text>
+</svg>
