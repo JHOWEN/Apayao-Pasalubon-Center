@@ -14,7 +14,11 @@ import {
 } from "lucide-react";
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
 import { AdminQueryProvider, getAdminQueryClient } from "@/components/providers/admin-query-provider";
-import { adminFetch, invalidateAdminDataForEvent } from "@/lib/admin-data-cache";
+import {
+  adminFetch,
+  invalidateAdminDataForEvent,
+  withAdminRefreshLock,
+} from "@/lib/admin-data-cache";
 import {
   dismissPickupAlert,
   getDismissedPickupAlertIds,
@@ -27,16 +31,6 @@ import { getPickupDateKey } from "@/lib/order";
 const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo.png";
 const ADMIN_SESSION_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
 type ThemeMode = "light" | "dark" | "system";
-
-function withAdminRefreshLock<T>(task: () => Promise<T>): Promise<T> {
-  const lockManager = (navigator as unknown as {
-    locks?: { request: (name: string, callback: () => Promise<T>) => Promise<T> };
-  }).locks;
-
-  return lockManager
-    ? lockManager.request("apc-admin-session-refresh", task)
-    : task();
-}
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   return (

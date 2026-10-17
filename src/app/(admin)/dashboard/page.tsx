@@ -175,7 +175,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let isActive = true;
-    void loadSystemStatus()
+    void loadSystemStatus(true)
       .then((data) => {
         if (!isActive) return;
         setSystemStatus(data);

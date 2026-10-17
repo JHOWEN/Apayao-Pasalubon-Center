@@ -21,6 +21,24 @@ type AdminRealtimeEvent =
   | "users-updated"
   | "admin-data-invalidated";
 
+const ADMIN_SESSION_REFRESH_LOCK = "apc-admin-session-refresh";
+let localAdminRefreshQueue: Promise<unknown> = Promise.resolve();
+
+export function withAdminRefreshLock<T>(task: () => Promise<T>): Promise<T> {
+  const lockManager =
+    typeof navigator === "undefined"
+      ? undefined
+      : (navigator as unknown as {
+          locks?: { request: (name: string, callback: () => Promise<T>) => Promise<T> };
+        }).locks;
+
+  if (lockManager) return lockManager.request(ADMIN_SESSION_REFRESH_LOCK, task);
+
+  const queuedTask = localAdminRefreshQueue.then(task, task);
+  localAdminRefreshQueue = queuedTask.then(() => undefined, () => undefined);
+  return queuedTask;
+}
+
 const cacheableAdminPaths = new Set([
   "/api/auth/profile",
   "/api/admin/analytics",
@@ -203,6 +221,37 @@ function responseFromCache(snapshot: CachedResponse) {
   });
 }
 
+async function fetchAdminResponse(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  requestUrl: URL,
+  method: string,
+) {
+  const response = await fetch(input, init);
+  const canRecoverAdminSession =
+    response.status === 401 &&
+    method === "GET" &&
+    (requestUrl.pathname.startsWith("/api/admin/") || requestUrl.pathname === "/api/auth/profile");
+
+  if (!canRecoverAdminSession) return response;
+
+  return withAdminRefreshLock(async () => {
+    // Another request may have refreshed the shared cookie while this request was in flight.
+    const retriedResponse = await fetch(input, init);
+    if (retriedResponse.status !== 401) return retriedResponse;
+
+    let refreshResponse: Response;
+    try {
+      refreshResponse = await fetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+    } catch {
+      return retriedResponse;
+    }
+
+    if (!refreshResponse.ok && refreshResponse.status !== 409) return retriedResponse;
+    return fetch(input, init);
+  });
+}
+
 export async function adminFetch(input: RequestInfo | URL, init?: RequestInit) {
   const requestUrl = getRequestUrl(input);
   const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
@@ -217,7 +266,7 @@ export async function adminFetch(input: RequestInfo | URL, init?: RequestInit) {
       queryKey,
       staleTime: cacheStaleTimeForPath(requestUrl.pathname),
       queryFn: async () => {
-        const response = await fetch(input, init);
+        const response = await fetchAdminResponse(input, init, requestUrl, method);
         return {
           body: await response.text(),
           status: response.status,
@@ -234,7 +283,7 @@ export async function adminFetch(input: RequestInfo | URL, init?: RequestInit) {
     return responseFromCache(snapshot);
   }
 
-  const response = await fetch(input, init);
+  const response = await fetchAdminResponse(input, init, requestUrl, method);
   if (method !== "GET" && response.ok && requestUrl.origin === window.location.origin) {
     invalidateAdminApiPaths(queryClient, queryKeysForMutation(requestUrl.pathname));
   }
