@@ -175,7 +175,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     let isActive = true;
-    void loadSystemStatus()
+    void loadSystemStatus(true)
       .then((data) => {
         if (!isActive) return;
         setSystemStatus(data);
@@ -302,7 +302,21 @@ export default function DashboardPage() {
     return `₱${Number.isFinite(numericValue) ? numericValue.toLocaleString() : "0"}`;
   };
 
-  function printDashboardReport() {
+  async function printDashboardReport() {
+    let businessName = "APAYAO PASALUBONG CENTER";
+    let businessAddress = "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region";
+
+    try {
+      const settingsResponse = await adminFetch("/api/admin/settings", { cache: "no-store" });
+      if (settingsResponse.ok) {
+        const settingsData = await settingsResponse.json();
+        businessName = settingsData?.settings?.registeredBusinessName?.trim() || businessName;
+        businessAddress = settingsData?.settings?.businessAddress?.trim() || businessAddress;
+      }
+    } catch {
+      // Keep the report's standard business details if settings cannot be loaded.
+    }
+
     const printFrame = document.createElement("iframe");
     printFrame.setAttribute("aria-hidden", "true");
     printFrame.title = "Dashboard performance report print preview";
@@ -343,14 +357,14 @@ export default function DashboardPage() {
       hour: "2-digit",
       minute: "2-digit",
     });
-    const logoUrl = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo.png";
+    const rangeLabel = range.charAt(0) + range.slice(1).toLowerCase();
 
     const channelRows =
       stats.channelComparison.length > 0
         ? stats.channelComparison
             .map(
               (channel) =>
-                `<tr><td>${escapeHtml(channel.name)}</td><td>${escapeHtml(channel.orders)}</td><td>${formatReportCurrency(channel.revenue)}</td></tr>`
+                `<tr><td>${escapeHtml(channel.name)}</td><td class="right">${escapeHtml(channel.orders)}</td><td class="right">${formatReportCurrency(channel.revenue)}</td></tr>`
             )
             .join("")
         : `<tr><td colspan="3">No completed channel sales in this period.</td></tr>`;
@@ -360,9 +374,9 @@ export default function DashboardPage() {
         ? stats.topProducts
             .map(
               (product, index) =>
-                `<tr><td>${index + 1}</td><td>${escapeHtml(product.name)}</td><td>${escapeHtml(
+                `<tr><td class="right">${index + 1}</td><td>${escapeHtml(product.name)}</td><td>${escapeHtml(
                   product.categoryName ?? "Uncategorized"
-                )}</td><td>${escapeHtml(product.quantity)}</td><td>${formatReportCurrency(product.revenue)}</td></tr>`
+                )}</td><td class="right">${escapeHtml(product.quantity)}</td><td class="right">${formatReportCurrency(product.revenue)}</td></tr>`
             )
             .join("")
         : `<tr><td colspan="5">No product sales in this period.</td></tr>`;
@@ -372,7 +386,7 @@ export default function DashboardPage() {
         ? stats.lowStock
             .map(
               (item) =>
-                `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.stock)}</td><td>${escapeHtml(
+                `<tr><td>${escapeHtml(item.name)}</td><td class="right">${escapeHtml(item.stock)}</td><td class="right">${escapeHtml(
                   item.minStock
                 )}</td></tr>`
             )
@@ -383,75 +397,94 @@ export default function DashboardPage() {
       <!doctype html>
       <html><head><title>Dashboard Performance Report - Apayao Pasalubong Center</title>
       <style>
-        @page { size: A4 portrait; margin: 0; }
+        @page { size: A4 portrait; margin: 14mm; }
         * { box-sizing: border-box; }
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #0f172a; margin: 14mm 12mm; font-size: 11px; line-height: 1.45; }
-        .report-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 14px; border-bottom: 3px solid #059669; margin-bottom: 14px; }
-        .brand-lockup { display: flex; align-items: center; gap: 12px; }
-        .brand-logo { width: 52px; height: 52px; flex: 0 0 auto; object-fit: contain; }
-        .brand-name { color: #0f172a; font-size: 17px; font-weight: 800; }
-        .brand-contact { margin-top: 3px; color: #64748b; font-size: 9.5px; }
-        .report-meta { text-align: right; }
-        .meta-badge { display: inline-block; background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; padding: 2px 8px; border-radius: 4px; font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
-        .report-title { margin-top: 4px; color: #0f172a; font-size: 15px; font-weight: 800; }
-        .report-date { margin-top: 2px; color: #64748b; font-size: 9.5px; }
-        .meta-strip { display: flex; gap: 20px; flex-wrap: wrap; margin: 0 0 16px; padding: 8px 12px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; font-size: 10px; color: #475569; }
-        h2 { margin: 24px 0 8px; font-size: 14px; font-weight: 600; border-bottom: 2px solid #059669; padding-bottom: 4px; }
-        p { margin: 3px 0; color: #475569; }
-        .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
-        .metric { border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px 12px; background: #f8fafc; }
-        .metric-label { color: #64748b; font-size: 11px; text-transform: uppercase; font-weight: 600; letter-spacing: 0.05em; }
-        .metric-value { margin-top: 4px; font-size: 18px; font-weight: 700; color: #0f172a; }
-        table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
-        th, td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
-        th { background: #f1f5f9; font-size: 11px; text-transform: uppercase; font-weight: 600; color: #475569; }
-        td:nth-child(n+2), th:nth-child(n+2) { text-align: right; }
+        html, body { width: auto; min-width: 0; }
+        body { margin: 0; background: #ffffff; color: #17211b; font-family: Arial, Helvetica, sans-serif; font-size: 9pt; line-height: 1.45; }
+        .report-header { display: block; padding-bottom: 12px; border-bottom: 1px solid #a8b8ad; margin-bottom: 13px; text-align: center; }
+        .report-title { margin: 0; color: #142a20; font-size: 17pt; font-weight: 700; }
+        .brand-name { margin-top: 5px; color: #174c37; font-size: 10pt; font-weight: 700; }
+        .brand-location { margin-top: 2px; color: #526257; font-size: 8pt; }
+        .meta-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 15px; padding: 0 0 10px; border-bottom: 1px solid #d5ded6; color: #374151; font-size: 8pt; text-align: center; }
+        .meta-strip div { display: grid; justify-items: center; gap: 4px; min-width: 0; }
+        .meta-strip span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .meta-strip strong { color: #526257; font-size: 7pt; letter-spacing: 0.03em; text-transform: uppercase; }
+        .section-title { margin: 16px 0 7px; padding-bottom: 6px; border-bottom: 1px solid #cbd5cd; color: #26332b; font-size: 10pt; font-weight: 700; text-align: center; }
+        .summary-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 22px; margin: 0 0 4px; }
+        .summary-item { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid #e1e7e2; }
+        .summary-item dt { color: #526257; }
+        .summary-item dd { margin: 0; color: #17211b; font-weight: 700; }
+        .summary-item dt, .summary-item dd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        table { width: 100%; border-collapse: collapse; margin-top: 5px; table-layout: fixed; }
+        .channel-table th:nth-child(1) { width: 46%; }
+        .channel-table th:nth-child(2) { width: 25%; }
+        .channel-table th:nth-child(3) { width: 29%; }
+        .product-table th:nth-child(1) { width: 6%; }
+        .product-table th:nth-child(2) { width: 35%; }
+        .product-table th:nth-child(3) { width: 25%; }
+        .product-table th:nth-child(4) { width: 12%; }
+        .product-table th:nth-child(5) { width: 22%; }
+        .low-stock-table th:nth-child(1) { width: 46%; }
+        .low-stock-table th:nth-child(2), .low-stock-table th:nth-child(3) { width: 27%; }
+        .today-table th:nth-child(1) { width: 70%; }
+        .today-table th:nth-child(2) { width: 30%; }
+        th, td { padding: 5px 4px; border-bottom: 1px solid #e1e7e2; text-align: left; vertical-align: middle; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+        th { padding-top: 6px; padding-bottom: 6px; border-bottom: 1px solid #82948a; color: #405148; font-size: 7pt; font-weight: 700; text-align: center; }
+        td { font-size: 7pt; }
+        td.right { text-align: right; }
         @media screen { body { visibility: hidden; } }
         @media print {
           body { visibility: visible; }
-          .report-header, .summary, thead, tr { break-inside: avoid; }
+          .report-header, .meta-strip, .summary-section { break-inside: avoid; page-break-inside: avoid; }
+          .section-title { break-after: avoid; page-break-after: avoid; }
+          thead { display: table-header-group; }
+          tr { break-inside: avoid; page-break-inside: avoid; }
+          table { break-inside: auto; page-break-inside: auto; }
         }
       </style></head><body>
         <header class="report-header">
-          <div class="brand-lockup">
-            <img class="brand-logo" src="${escapeHtml(logoUrl)}" alt="Apayao Pasalubong Center logo">
-            <div>
-              <div class="brand-name">Apayao Pasalubong Center</div>
-              <div class="brand-contact">San Isidro Sur, Luna, Apayao, Philippines | apcstore@example.com | +63 912 345 6789</div>
-            </div>
-          </div>
-          <div class="report-meta">
-            <span class="meta-badge">Management Report</span>
-            <div class="report-title">Dashboard Performance Report</div>
-            <div class="report-date">Generated: ${generatedDate} ${generatedTime}</div>
-          </div>
+          <h1 class="report-title">Dashboard Performance Report</h1>
+          <div class="brand-name">${escapeHtml(businessName)}</div>
+          <div class="brand-location">${escapeHtml(businessAddress)}</div>
         </header>
         <div class="meta-strip">
-          <div><strong>Reporting Period:</strong> ${escapeHtml(formatDateDisplay(startDate))} - ${escapeHtml(formatDateDisplay(endDate))}</div>
-          <div><strong>Generated By:</strong> ${escapeHtml(userName)}</div>
-          <div><strong>Document Status:</strong> Certified Official Copy</div>
+          <div><strong>Reporting period</strong><span>${escapeHtml(formatDateDisplay(startDate))} - ${escapeHtml(formatDateDisplay(endDate))}</span></div>
+          <div><strong>Range</strong><span>${escapeHtml(rangeLabel)}</span></div>
+          <div><strong>Generated by</strong><span>${escapeHtml(userName)}</span></div>
+          <div><strong>Generated</strong><span>${escapeHtml(`${generatedDate} ${generatedTime}`)}</span></div>
         </div>
-        <div class="summary">
-          <div class="metric"><div class="metric-label">Revenue</div><div class="metric-value">${formatReportCurrency(stats.revenue)}</div></div>
-          <div class="metric"><div class="metric-label">Gross Profit (current costs)</div><div class="metric-value">${formatReportCurrency(stats.grossProfit)}</div></div>
-          <div class="metric"><div class="metric-label">Orders</div><div class="metric-value">${escapeHtml(stats.orders)}</div></div>
-          <div class="metric"><div class="metric-label">Completed Orders</div><div class="metric-value">${escapeHtml(stats.completedOrders)}</div></div>
-          <div class="metric"><div class="metric-label">Active Products</div><div class="metric-value">${escapeHtml(stats.products)}</div></div>
-          <div class="metric"><div class="metric-label">Inventory Cost</div><div class="metric-value">${formatReportCurrency(stats.totalCost)}</div></div>
-          <div class="metric"><div class="metric-label">Inventory Price</div><div class="metric-value">${formatReportCurrency(stats.totalPrice)}</div></div>
-        </div>
-        <h2>Sales Channels</h2>
-        <table><thead><tr><th>Channel</th><th>Completed Orders</th><th>Revenue</th></tr></thead><tbody>${channelRows}</tbody></table>
-        <h2>Top Selling Products</h2>
-        <table><thead><tr><th>#</th><th>Product</th><th>Category</th><th>Sold</th><th>Revenue</th></tr></thead><tbody>${productRows}</tbody></table>
-        <h2>Low Stock Alerts</h2>
-        <table><thead><tr><th>Product</th><th>Stock Left</th><th>Minimum Stock</th></tr></thead><tbody>${lowStockRows}</tbody></table>
-        <h2>Today Overview</h2>
-        <table><thead><tr><th>Status</th><th>Orders</th></tr></thead><tbody>
-          <tr><td>Pending</td><td>${todayStats.pendingOrders}</td></tr>
-          <tr><td>Completed</td><td>${todayStats.completedOrders}</td></tr>
-          <tr><td>Cancelled</td><td>${todayStats.cancelledOrders}</td></tr>
-        </tbody></table>
+        <section class="summary-section">
+          <h2 class="section-title">Summary</h2>
+          <dl class="summary-list">
+            <div class="summary-item"><dt>Revenue</dt><dd>${formatReportCurrency(stats.revenue)}</dd></div>
+            <div class="summary-item"><dt>Gross profit</dt><dd>${formatReportCurrency(stats.grossProfit)}</dd></div>
+            <div class="summary-item"><dt>Orders</dt><dd>${escapeHtml(stats.orders)}</dd></div>
+            <div class="summary-item"><dt>Completed orders</dt><dd>${escapeHtml(stats.completedOrders)}</dd></div>
+            <div class="summary-item"><dt>Active products</dt><dd>${escapeHtml(stats.products)}</dd></div>
+            <div class="summary-item"><dt>Inventory cost</dt><dd>${formatReportCurrency(stats.totalCost)}</dd></div>
+            <div class="summary-item"><dt>Inventory price</dt><dd>${formatReportCurrency(stats.totalPrice)}</dd></div>
+          </dl>
+        </section>
+        <section class="report-section">
+          <h2 class="section-title">Sales Channels</h2>
+          <table class="channel-table"><thead><tr><th>Channel</th><th>Completed Orders</th><th>Revenue</th></tr></thead><tbody>${channelRows}</tbody></table>
+        </section>
+        <section class="report-section">
+          <h2 class="section-title">Top Selling Products</h2>
+          <table class="product-table"><thead><tr><th>#</th><th>Product</th><th>Category</th><th>Sold</th><th>Revenue</th></tr></thead><tbody>${productRows}</tbody></table>
+        </section>
+        <section class="report-section">
+          <h2 class="section-title">Low Stock Alerts</h2>
+          <table class="low-stock-table"><thead><tr><th>Product</th><th>Stock Left</th><th>Minimum Stock</th></tr></thead><tbody>${lowStockRows}</tbody></table>
+        </section>
+        <section class="report-section">
+          <h2 class="section-title">Today Overview</h2>
+          <table class="today-table"><thead><tr><th>Status</th><th>Orders</th></tr></thead><tbody>
+            <tr><td>Pending</td><td class="right">${todayStats.pendingOrders}</td></tr>
+            <tr><td>Completed</td><td class="right">${todayStats.completedOrders}</td></tr>
+            <tr><td>Cancelled</td><td class="right">${todayStats.cancelledOrders}</td></tr>
+          </tbody></table>
+        </section>
       </body></html>
     `);
     printDocument.close();

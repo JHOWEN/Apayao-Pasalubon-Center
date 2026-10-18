@@ -37,6 +37,7 @@ import {
   compressUploadImages,
   PRODUCT_IMAGE_COMPRESSION,
 } from "@/utils/compress-upload-image";
+import { DIRECT_STOCK_OUT_REASON_LABELS, DIRECT_STOCK_OUT_REASON_VALUES } from "@/lib/direct-stock-out";
 
 interface ProductRecord {
   id: string;
@@ -154,6 +155,7 @@ export default function InventoryPage() {
   const [movementCategoryFilter, setMovementCategoryFilter] = useState("");
   const [movementQuantity, setMovementQuantity] = useState("1");
   const [movementRemarks, setMovementRemarks] = useState("");
+  const [movementReason, setMovementReason] = useState("");
   const [movementMinStock, setMovementMinStock] = useState("5");
   const [movementError, setMovementError] = useState("");
   const [isSubmittingMovement, setIsSubmittingMovement] = useState(false);
@@ -274,6 +276,8 @@ export default function InventoryPage() {
     }
     setMovementProductId(target?.productId ?? "");
     setMovementVariantId(target?.variantId ?? "");
+    setMovementReason("");
+    setMovementRemarks("");
     setMovementError("");
     window.location.hash = action;
     setActiveInventorySection(action);
@@ -300,6 +304,7 @@ export default function InventoryPage() {
     setMovementProductSearch("");
     setMovementQuantity("1");
     setMovementRemarks("");
+    setMovementReason("");
     setMovementError("");
   }
 
@@ -332,6 +337,14 @@ export default function InventoryPage() {
       setMovementError(`Cannot remove ${quantity} units. Available stock for this item is only ${currentStock} units.`);
       return;
     }
+    if (action === "stock-out" && !movementReason) {
+      setMovementError("Select a reason for this direct stock out.");
+      return;
+    }
+    if (action === "stock-out" && movementReason === "OTHER" && !movementRemarks.trim()) {
+      setMovementError("Add a note when the reason is Other.");
+      return;
+    }
 
     setIsSubmittingMovement(true);
     try {
@@ -349,7 +362,8 @@ export default function InventoryPage() {
             variantId: hasVariants ? movementVariantId || undefined : undefined,
             type: action === "stock-out" ? ("STOCK_OUT" as const) : ("STOCK_IN" as const),
             quantity,
-            remarks: movementRemarks.trim() || (action === "stock-out" ? "Stock out entry" : "Stock in entry"),
+            remarks: movementRemarks.trim() || (action === "stock-out" ? undefined : "Stock in entry"),
+            ...(action === "stock-out" ? { reason: movementReason } : {}),
           };
       const response = await adminFetch("/api/admin/inventory", {
         method: "POST",
@@ -376,6 +390,7 @@ export default function InventoryPage() {
       );
       setMovementQuantity("1");
       setMovementRemarks("");
+      setMovementReason("");
     } catch {
       setMovementError("An unexpected error occurred while saving the inventory update.");
     } finally {
@@ -1725,14 +1740,42 @@ export default function InventoryPage() {
                     {movementAction === "stock-out" ? <p className="mt-1 text-[11px] text-slate-500">Maximum available to deduct: {movementCurrentStock} units</p> : null}
                   </div>
                 )}
+                {movementAction === "stock-out" ? (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                      Stock-out reason <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={movementReason}
+                      onChange={(event) => setMovementReason(event.target.value)}
+                      required
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                    >
+                      <option value="">Select a reason</option>
+                      {DIRECT_STOCK_OUT_REASON_VALUES.map((reason) => (
+                        <option key={reason} value={reason}>{DIRECT_STOCK_OUT_REASON_LABELS[reason]}</option>
+                      ))}
+                    </select>
+                  </div>
+                ) : null}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Remarks / Audit Reason</label>
-                  <textarea value={movementRemarks} onChange={(event) => setMovementRemarks(event.target.value)} rows={2} placeholder="Add a reason for this inventory update" className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" />
+                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">
+                    {movementAction === "stock-out" ? "Notes" : "Remarks / Audit Reason"}
+                    {movementAction === "stock-out" && movementReason === "OTHER" ? <span className="text-rose-500"> *</span> : null}
+                  </label>
+                  <textarea
+                    value={movementRemarks}
+                    onChange={(event) => setMovementRemarks(event.target.value)}
+                    rows={2}
+                    required={movementAction === "stock-out" && movementReason === "OTHER"}
+                    placeholder={movementAction === "stock-out" ? "Optional details (e.g. theft, internal use, count correction)" : "Add a reason for this inventory update"}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100"
+                  />
                 </div>
               </div>
 
               <div className="flex gap-3">
-                <button type="submit" disabled={!movementProductId || isLoadingMovementProducts || Boolean(movementProductId && !movementProduct) || (movementHasVariants && !movementVariantId) || (!movementAction.includes("threshold") && movementQuantityNumber <= 0) || (movementAction === "stock-out" && movementQuantityNumber > movementCurrentStock) || isSubmittingMovement} className={`flex-1 rounded-lg px-4 py-2.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 ${movementAction === "stock-in" ? "bg-emerald-600 hover:bg-emerald-700" : movementAction === "stock-out" ? "bg-rose-600 hover:bg-rose-700" : "bg-amber-600 hover:bg-amber-700"}`}>
+                <button type="submit" disabled={!movementProductId || isLoadingMovementProducts || Boolean(movementProductId && !movementProduct) || (movementHasVariants && !movementVariantId) || (!movementAction.includes("threshold") && movementQuantityNumber <= 0) || (movementAction === "stock-out" && (movementQuantityNumber > movementCurrentStock || !movementReason || (movementReason === "OTHER" && !movementRemarks.trim()))) || isSubmittingMovement} className={`flex-1 rounded-lg px-4 py-2.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 ${movementAction === "stock-in" ? "bg-emerald-600 hover:bg-emerald-700" : movementAction === "stock-out" ? "bg-rose-600 hover:bg-rose-700" : "bg-amber-600 hover:bg-amber-700"}`}>
                   {isSubmittingMovement ? "Saving update..." : movementAction === "stock-in" ? "Save Stock In" : movementAction === "stock-out" ? "Save Stock Out" : "Save Threshold"}
                 </button>
               </div>

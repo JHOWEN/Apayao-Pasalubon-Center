@@ -35,6 +35,7 @@ export const productReviewCreateSchema = z.object({
   productId: z.string().trim().min(1).max(128),
   rating: z.number().int().min(1).max(5),
   comment: z.string().trim().max(2000).optional(),
+  imageKeys: z.array(z.string().trim().min(1).max(512)).max(5).optional(),
   optionValue: z.string().trim().max(120).optional(),
 });
 

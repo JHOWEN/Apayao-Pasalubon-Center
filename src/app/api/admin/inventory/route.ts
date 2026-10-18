@@ -72,6 +72,7 @@ export async function GET(request: Request) {
           OR: [
             { productName: { contains: search, mode: "insensitive" as const } },
             { remarks: { contains: search, mode: "insensitive" as const } },
+            { reason: { contains: search, mode: "insensitive" as const } },
             { performedByName: { contains: search, mode: "insensitive" as const } },
             { customerName: { contains: search, mode: "insensitive" as const } },
             { orderNumber: { contains: search, mode: "insensitive" as const } },
@@ -277,7 +278,7 @@ export async function POST(request: Request) {
     if (!parsed.success) return parsed.response;
     const body = parsed.data;
 
-    const { productId, variantId, type, quantity, remarks, minStock } = body;
+    const { productId, variantId, type, quantity, remarks, reason, minStock } = body;
 
     if (!productId || !type || quantity === undefined) {
       return NextResponse.json(
@@ -298,6 +299,12 @@ export async function POST(request: Request) {
     if (isThresholdOnlyUpdate && minStock === undefined) {
       return NextResponse.json({ success: false, message: "A minimum stock threshold is required." }, { status: 400 });
     }
+    if (type === "STOCK_OUT" && !reason) {
+      return NextResponse.json({ success: false, message: "Select a reason for this direct stock out." }, { status: 400 });
+    }
+    if (type === "STOCK_OUT" && reason === "OTHER" && !remarks?.trim()) {
+      return NextResponse.json({ success: false, message: "Add a note when the reason is Other." }, { status: 400 });
+    }
     const product = await prisma.product.findUnique({
       where: { id: productId },
     });
@@ -312,7 +319,7 @@ export async function POST(request: Request) {
     }
 
     const variant = variantId
-      ? await prisma.productVariant.findFirst({ where: { id: String(variantId), productId }, select: { id: true, sku: true, stock: true, minStock: true, isActive: true } })
+      ? await prisma.productVariant.findFirst({ where: { id: String(variantId), productId }, select: { id: true, sku: true, stock: true, minStock: true, cost: true, isActive: true } })
       : null;
     if (variantId && (!variant || !variant.isActive)) {
       return NextResponse.json({ success: false, message: "Variant not found or inactive." }, { status: 404 });
@@ -342,7 +349,7 @@ export async function POST(request: Request) {
         : type === "STOCK_IN"
           ? "Direct stock addition by admin"
           : type === "STOCK_OUT"
-            ? "Direct stock deduction by admin"
+            ? null
             : "Direct inventory adjustment by admin");
 
     const transaction = await prisma.$transaction(async (tx) => {
@@ -352,7 +359,7 @@ export async function POST(request: Request) {
         await tx.product.update({ where: { id: productId, stock: type === "STOCK_OUT" || type === "ADJUSTMENT" ? { gte: type === "ADJUSTMENT" && !isThresholdOnlyUpdate ? 0 : quantityValue } : undefined }, data: { stock: newStock, minStock: isThresholdOnlyUpdate ? minStockValue : product.minStock } });
       }
 
-      return tx.inventoryTransaction.create({ data: { productId, productName: product.name, variantId: variant?.id ?? null, variantSku: variant?.sku ?? null, type, eventType: isThresholdOnlyUpdate ? "THRESHOLD_ADJUSTMENT" : type, quantity: isThresholdOnlyUpdate ? minStockValue : quantityValue, stockBefore: baseStock, stockAfter: newStock, minStockBefore: isThresholdOnlyUpdate ? baseMinStock : null, minStockAfter: isThresholdOnlyUpdate ? minStockValue : null, remarks: normalizedRemarks, performedById: actor.id, performedByName: actor.name, performedByType: actor.role, source: "INVENTORY" } });
+      return tx.inventoryTransaction.create({ data: { productId, productName: product.name, variantId: variant?.id ?? null, variantSku: variant?.sku ?? null, type, eventType: isThresholdOnlyUpdate ? "THRESHOLD_ADJUSTMENT" : type, reason: type === "STOCK_OUT" ? reason ?? null : null, quantity: isThresholdOnlyUpdate ? minStockValue : quantityValue, unitCostSnapshot: type === "STOCK_OUT" ? variant?.cost ?? product.cost : null, stockBefore: baseStock, stockAfter: newStock, minStockBefore: isThresholdOnlyUpdate ? baseMinStock : null, minStockAfter: isThresholdOnlyUpdate ? minStockValue : null, remarks: normalizedRemarks, performedById: actor.id, performedByName: actor.name, performedByType: actor.role, source: "INVENTORY" } });
     });
 
     revalidateTag("public-products", { expire: 0 });

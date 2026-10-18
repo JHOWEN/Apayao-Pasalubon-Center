@@ -5,6 +5,7 @@ Use this index to find setup instructions and project references. For applicatio
 ## Setup and operations
 
 - [Product requirements document](PRD.md): repository-derived goals, scope, priorities, metrics, and rollout.
+- [System architecture](system-architecture.md): application components, managed services, and request flows.
 - [Environment setup](development/environment-setup.md): local and hosted environment variables.
 - [Deployment runbook](operations/deployment-runbook.md): production services and release checks.
 

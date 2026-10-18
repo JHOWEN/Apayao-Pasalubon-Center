@@ -59,7 +59,7 @@ async function checkStorage(): Promise<CheckResult> {
     return {
       status: "attention",
       label: "Not configured",
-      detail: "Product images and uploaded payment proof use Supabase Storage.",
+      detail: "Product images, review photos, and payment proofs use Supabase Storage.",
       action: "Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY on the server, then confirm the required storage buckets exist.",
     };
   }
@@ -74,6 +74,7 @@ async function checkStorage(): Promise<CheckResult> {
     const requiredBuckets = [
       process.env.SUPABASE_PRODUCT_BUCKET?.trim() || "product-images",
       process.env.SUPABASE_PROFILE_BUCKET?.trim() || "profile-images",
+      process.env.SUPABASE_RATING_IMAGE_BUCKET?.trim() || "RATINGS_IMAGES",
       process.env.SUPABASE_RECEIPT_BUCKET?.trim() || "payment-proofs",
       process.env.SUPABASE_PAYMENT_QR_BUCKET?.trim() || "payment-qr",
     ];

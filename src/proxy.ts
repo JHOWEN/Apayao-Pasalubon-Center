@@ -54,6 +54,32 @@ function redirectToLogin(
   return response;
 }
 
+function continueAdminPageForSessionRecovery(
+  request: NextRequest,
+  isDirectAdminPage: boolean,
+  keyPrefix: string,
+  internalPath: string,
+  requestId: string,
+) {
+  if (isDirectAdminPage) {
+    const response = NextResponse.redirect(
+      new URL(`${keyPrefix}${request.nextUrl.pathname}${request.nextUrl.search}`, request.url),
+    );
+    response.headers.set("x-request-id", requestId);
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  }
+
+  // The client admin layout verifies or refreshes the session before showing page content.
+  // Admin APIs continue to require a valid access token throughout this recovery path.
+  const rewrittenUrl = request.nextUrl.clone();
+  rewrittenUrl.pathname = internalPath;
+  const response = NextResponse.rewrite(rewrittenUrl);
+  response.headers.set("x-request-id", requestId);
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}
+
 function getRouteKey() {
   const key = process.env.ADMIN_ROUTE_KEY?.trim() ?? "";
   return /^[A-Za-z0-9_-]{32,}$/.test(key) ? key : null;
@@ -109,6 +135,15 @@ export async function proxy(request: NextRequest) {
         { status: 401 },
       );
     }
+    if (keyedAdminPage || directAdminPage) {
+      return continueAdminPageForSessionRecovery(
+        request,
+        directAdminPage,
+        keyPrefix,
+        internalPath,
+        requestId,
+      );
+    }
     return redirectToLogin(request, "login-required", requestId);
   }
 
@@ -119,6 +154,15 @@ export async function proxy(request: NextRequest) {
         return NextResponse.json(
           { success: false, message: "Unauthorized." },
           { status: 401 },
+        );
+      }
+      if (keyedAdminPage || directAdminPage) {
+        return continueAdminPageForSessionRecovery(
+          request,
+          directAdminPage,
+          keyPrefix,
+          internalPath,
+          requestId,
         );
       }
       return redirectToLogin(request, "session-expired", requestId);

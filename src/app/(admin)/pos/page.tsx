@@ -84,6 +84,7 @@ function escapeReceiptHtml(value: unknown) {
 const defaultReceiptHeader = {
   registeredBusinessName: "APAYAO PASALUBONG CENTER",
   businessAddress: "San Isidro Sur, Luna, Apayao, Cordillera Administrative Region",
+  posNumber: "POS 1",
   tinNumber: "",
 };
 
@@ -112,13 +113,29 @@ export default function POSPage() {
   const [currentDate, setCurrentDate] = useState("");
   const [productView, setProductView] = useState<"grid" | "list">("list");
   const [cashierName, setCashierName] = useState("");
-  const [terminalNumber, setTerminalNumber] = useState("");
   const [receiptHeader, setReceiptHeader] = useState(defaultReceiptHeader);
   const [isUsbPrinting, setIsUsbPrinting] = useState(false);
   const [usbPrintMessage, setUsbPrintMessage] = useState("");
   const [usbPrintError, setUsbPrintError] = useState("");
   const productRequestSequence = useRef(0);
   const checkoutAttemptRef = useRef<CheckoutAttempt | null>(null);
+
+  const loadReceiptHeader = useCallback(async () => {
+    try {
+      const response = await fetch("/api/admin/receipt-settings", { cache: "no-store" });
+      const data = await response.json();
+      if (response.ok && data?.settings) {
+        setReceiptHeader({
+          registeredBusinessName: data.settings.registeredBusinessName || defaultReceiptHeader.registeredBusinessName,
+          businessAddress: data.settings.businessAddress || defaultReceiptHeader.businessAddress,
+          posNumber: data.settings.posNumber || defaultReceiptHeader.posNumber,
+          tinNumber: data.settings.tinNumber || "",
+        });
+      }
+    } catch {
+      // Keep the current receipt header if settings cannot be loaded.
+    }
+  }, []);
 
   const loadProducts = useCallback(async () => {
     const requestSequence = ++productRequestSequence.current;
@@ -151,16 +168,6 @@ export default function POSPage() {
   }, [debouncedSearchQuery, productPage]);
 
   useEffect(() => {
-    const terminalStorageKey = "apc-pos-terminal-number";
-    const storedTerminalNumber = window.localStorage.getItem(terminalStorageKey);
-    if (storedTerminalNumber) {
-      window.setTimeout(() => setTerminalNumber(storedTerminalNumber), 0);
-    } else {
-      const generatedTerminalNumber = `POS-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-      window.localStorage.setItem(terminalStorageKey, generatedTerminalNumber);
-      window.setTimeout(() => setTerminalNumber(generatedTerminalNumber), 0);
-    }
-
     const updateClock = () => {
       setCurrentDate(
         new Date().toLocaleString("en-US", {
@@ -188,29 +195,16 @@ export default function POSPage() {
       }
     }
 
-    async function loadReceiptHeader() {
-      try {
-        const response = await adminFetch("/api/admin/receipt-settings", { cache: "no-store" });
-        const data = await response.json();
-        if (response.ok && data?.settings) {
-          setReceiptHeader({
-            registeredBusinessName: data.settings.registeredBusinessName || defaultReceiptHeader.registeredBusinessName,
-            businessAddress: data.settings.businessAddress || defaultReceiptHeader.businessAddress,
-            tinNumber: data.settings.tinNumber || "",
-          });
-        }
-      } catch {
-        // Keep the standard receipt header if settings cannot be loaded.
-      }
-    }
-
     void loadCashierProfile();
-    void loadReceiptHeader();
+    const receiptHeaderTimeoutId = window.setTimeout(() => {
+      void loadReceiptHeader();
+    }, 0);
 
     return () => {
       window.clearInterval(clockInterval);
+      window.clearTimeout(receiptHeaderTimeoutId);
     };
-  }, []);
+  }, [loadReceiptHeader]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -252,6 +246,18 @@ export default function POSPage() {
       window.removeEventListener("apc-admin-live-event", handleAdminLiveEvent);
     };
   }, [isSubmitting, loadProducts, showReceipt]);
+
+  useEffect(() => {
+    const handleSettingsUpdated = (event: Event) => {
+      const message = (event as CustomEvent<{ type?: string }>).detail;
+      if (message?.type === "settings-updated" || message?.type === "admin-data-invalidated") {
+        void loadReceiptHeader();
+      }
+    };
+
+    window.addEventListener("apc-admin-live-event", handleSettingsUpdated);
+    return () => window.removeEventListener("apc-admin-live-event", handleSettingsUpdated);
+  }, [loadReceiptHeader]);
 
   function getSelectedVariant(product: Product) {
     const variantId = selectedVariantIds[product.id];
@@ -579,7 +585,7 @@ export default function POSPage() {
         <div class="meta-row"><strong>TIME:</strong><span>${receiptDate.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</span></div>
         <div class="meta-row"><strong>ORDER NO.:</strong><span>${escapeReceiptHtml(receiptOrderNumber)}</span></div>
         <div class="meta-row"><strong>CASHIER:</strong><span>${escapeReceiptHtml(cashierName || "Unknown user")}</span></div>
-        <div class="meta-row"><strong>TERMINAL:</strong><span>${escapeReceiptHtml(terminalNumber || "POS-LOCAL")}</span></div>
+        <div class="meta-row"><strong>POS NO.:</strong><span>${escapeReceiptHtml(receiptHeader.posNumber.trim() || defaultReceiptHeader.posNumber)}</span></div>
 
         <div class="rule">${separator}</div>
         <div class="items-header"><span>QTY</span><span>ITEM</span><span>AMOUNT</span></div>
@@ -653,7 +659,7 @@ export default function POSPage() {
         businessAddress: receiptHeader.businessAddress || defaultReceiptHeader.businessAddress,
         tinNumber: receiptHeader.tinNumber,
         cashier: cashierName || "Unknown user",
-        terminal: terminalNumber || "POS-LOCAL",
+        posNumber: receiptHeader.posNumber.trim() || defaultReceiptHeader.posNumber,
         paymentMethod,
         subtotal: receiptSubtotal,
         tender: receiptTender,
@@ -854,7 +860,7 @@ export default function POSPage() {
               </span>
               <span>•</span>
               <span>
-                Terminal: <strong className="font-semibold text-slate-700 dark:text-slate-200">{terminalNumber || "POS-01"}</strong>
+                POS No.: <strong className="font-semibold text-slate-700 dark:text-slate-200">{receiptHeader.posNumber || defaultReceiptHeader.posNumber}</strong>
               </span>
             </div>
           </div>
@@ -966,7 +972,7 @@ export default function POSPage() {
                   <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TIME:</dt><dd>{receiptDateToShow.toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" })}</dd></div>
                   <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>ORDER NO.:</dt><dd className="break-all">{orderNumber}</dd></div>
                   <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>CASHIER:</dt><dd className="wrap-break-word">{cashierName || "Unknown user"}</dd></div>
-                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>TERMINAL:</dt><dd className="wrap-break-word">{terminalNumber || "POS-LOCAL"}</dd></div>
+                  <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-1"><dt>POS NO.:</dt><dd className="wrap-break-word">{receiptHeader.posNumber || defaultReceiptHeader.posNumber}</dd></div>
                 </dl>
 
                 <div aria-hidden="true" className="my-1.5 overflow-hidden whitespace-nowrap">{receiptSeparator}</div>

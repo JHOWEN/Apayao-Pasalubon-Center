@@ -14,7 +14,11 @@ import {
 } from "lucide-react";
 import { AdminSidebar } from "@/components/layout/admin-sidebar";
 import { AdminQueryProvider, getAdminQueryClient } from "@/components/providers/admin-query-provider";
-import { adminFetch, invalidateAdminDataForEvent } from "@/lib/admin-data-cache";
+import {
+  adminFetch,
+  invalidateAdminDataForEvent,
+  withAdminRefreshLock,
+} from "@/lib/admin-data-cache";
 import {
   dismissPickupAlert,
   getDismissedPickupAlertIds,
@@ -25,8 +29,7 @@ import {
 import { getPickupDateKey } from "@/lib/order";
 
 const fallbackAvatarSrc = process.env.NEXT_PUBLIC_APP_LOGO_URL ?? "/logo/apc-inventory-logo.png";
-const ADMIN_IDLE_TIMEOUT_MS = 15 * 60 * 1000;
-const ADMIN_ACTIVITY_STORAGE_KEY = "apc-admin-last-activity";
+const ADMIN_SESSION_REFRESH_INTERVAL_MS = 4 * 60 * 60 * 1000;
 type ThemeMode = "light" | "dark" | "system";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
@@ -139,7 +142,9 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
       try {
         let response = await adminFetch("/api/admin/profile", { cache: "reload" });
         if (response.status === 401) {
-          const refreshResponse = await adminFetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+          const refreshResponse = await withAdminRefreshLock(() =>
+            adminFetch("/api/auth/refresh", { method: "POST", cache: "no-store" }),
+          );
           if (refreshResponse.ok || refreshResponse.status === 409) {
             response = await adminFetch("/api/admin/profile", { cache: "reload" });
           }
@@ -177,14 +182,6 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
       }
     }
 
-    const revalidateVisibleSession = () => {
-      if (document.visibilityState !== "visible") return;
-      setSessionStatus("checking");
-      void loadProfileAvatar();
-    };
-    const handlePageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) revalidateVisibleSession();
-    };
     const handleSessionEnded = (event: StorageEvent) => {
       if (event.key === "apc-auth-session-ended" && event.newValue) {
         window.location.replace("/login?reason=session-expired");
@@ -194,15 +191,11 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
     loadProfileAvatar();
 
     window.addEventListener("apc-user-updated", loadProfileAvatar);
-    document.addEventListener("visibilitychange", revalidateVisibleSession);
-    window.addEventListener("pageshow", handlePageShow);
     window.addEventListener("storage", handleSessionEnded);
 
     return () => {
       isActive = false;
       window.removeEventListener("apc-user-updated", loadProfileAvatar);
-      document.removeEventListener("visibilitychange", revalidateVisibleSession);
-      window.removeEventListener("pageshow", handlePageShow);
       window.removeEventListener("storage", handleSessionEnded);
     };
   }, [sessionRetryVersion]);
@@ -215,135 +208,23 @@ function AdminLayoutContent({ children }: { children: ReactNode }) {
       if (isRefreshing) return;
       isRefreshing = true;
       try {
-        const response = await adminFetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
-        if (response.status === 401) {
-          window.location.replace("/login?reason=session-expired");
-        } else if (response.status === 409) {
-          const profileResponse = await adminFetch("/api/admin/profile", { cache: "reload" });
-          if (profileResponse.status === 401) {
+        await withAdminRefreshLock(async () => {
+          const response = await adminFetch("/api/auth/refresh", { method: "POST", cache: "no-store" });
+          if (response.status === 401) {
             window.location.replace("/login?reason=session-expired");
           }
-        }
+          // A conflict can mean another tab already rotated the shared refresh cookie.
+          // The next scheduled refresh will use that cookie; avoid a tab-focus retry here.
+        });
       } catch {
         // Keep the current session state; the next interval will retry.
       } finally {
         isRefreshing = false;
       }
     };
-    const refreshInterval = window.setInterval(() => void refreshSession(), 4 * 60 * 1000);
+    void refreshSession();
+    const refreshInterval = window.setInterval(() => void refreshSession(), ADMIN_SESSION_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(refreshInterval);
-  }, [sessionStatus]);
-
-  useEffect(() => {
-    if (sessionStatus !== "verified") return;
-
-    let lastActivityAt = Date.now();
-    let lastActivityRequestAt = 0;
-    let lastBroadcastAt = 0;
-    let activityRequestInFlight = false;
-    let idleTimer = 0;
-
-    const leaveDashboard = () => {
-      setSessionStatus("checking");
-      window.location.replace("/login?reason=session-expired");
-    };
-
-    const scheduleIdleTimeout = () => {
-      window.clearTimeout(idleTimer);
-      const remaining = ADMIN_IDLE_TIMEOUT_MS - (Date.now() - lastActivityAt);
-      if (remaining <= 0) {
-        leaveDashboard();
-        return;
-      }
-      idleTimer = window.setTimeout(scheduleIdleTimeout, remaining);
-    };
-
-    const sendActivity = async () => {
-      const now = Date.now();
-      if (activityRequestInFlight || now - lastActivityRequestAt < 30_000) return;
-      lastActivityRequestAt = now;
-      activityRequestInFlight = true;
-
-      try {
-        let response = await adminFetch("/api/auth/activity", {
-          method: "POST",
-          cache: "no-store",
-        });
-
-        if (response.status === 401) {
-          const refreshResponse = await adminFetch("/api/auth/refresh", {
-            method: "POST",
-            cache: "no-store",
-          });
-          if (!refreshResponse.ok && refreshResponse.status !== 409) return;
-          response = await adminFetch("/api/auth/activity", {
-            method: "POST",
-            cache: "no-store",
-          });
-        }
-
-        if (response.status === 401) leaveDashboard();
-        else if (response.status === 403) window.location.replace("/login?reason=access-denied");
-      } catch {
-        // The local idle timer still expires the dashboard if the server cannot be reached.
-      } finally {
-        activityRequestInFlight = false;
-      }
-    };
-
-    const recordActivity = (broadcast: boolean) => {
-      if (document.visibilityState !== "visible") return;
-      lastActivityAt = Date.now();
-      scheduleIdleTimeout();
-
-      if (broadcast && lastActivityAt - lastBroadcastAt >= 10_000) {
-        lastBroadcastAt = lastActivityAt;
-        try {
-          window.localStorage.setItem(ADMIN_ACTIVITY_STORAGE_KEY, String(lastActivityAt));
-        } catch {
-          // The server-side idle timeout remains authoritative if browser storage is unavailable.
-        }
-      }
-
-      void sendActivity();
-    };
-
-    const handleStorageActivity = (event: StorageEvent) => {
-      if (event.key !== ADMIN_ACTIVITY_STORAGE_KEY || !event.newValue) return;
-      const activityAt = Number(event.newValue);
-      if (Number.isFinite(activityAt) && activityAt > lastActivityAt && activityAt <= Date.now() + 5_000) {
-        lastActivityAt = activityAt;
-        scheduleIdleTimeout();
-      }
-    };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") recordActivity(true);
-    };
-    const handlePageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) recordActivity(true);
-    };
-
-    const activityEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "touchstart"];
-    const handleUserActivity = () => recordActivity(true);
-    for (const eventName of activityEvents) {
-      window.addEventListener(eventName, handleUserActivity, { passive: true });
-    }
-    window.addEventListener("scroll", handleUserActivity, { passive: true, capture: true });
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("pageshow", handlePageShow);
-    window.addEventListener("storage", handleStorageActivity);
-    scheduleIdleTimeout();
-
-    return () => {
-      window.clearTimeout(idleTimer);
-      for (const eventName of activityEvents) {
-        window.removeEventListener(eventName, handleUserActivity);
-      }
-      window.removeEventListener("scroll", handleUserActivity, true);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("pageshow", handlePageShow);
-      window.removeEventListener("storage", handleStorageActivity);
-    };
   }, [sessionStatus]);
 
   useEffect(() => {

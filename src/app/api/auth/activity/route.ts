@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import { touchAdminIdleSession, validateAccessToken, verifyAccessToken } from "@/lib/auth-sessions";
+import { validateAccessToken, verifyAccessToken } from "@/lib/auth-sessions";
 import { getRequestId, logError } from "@/lib/logger";
 
 function noStoreJson(body: unknown, status = 200) {
@@ -36,10 +36,6 @@ export async function POST(request: Request) {
     }
     if (user.role !== "ADMIN" && user.role !== "STAFF") {
       return noStoreJson({ success: false, message: "Admin access required." }, 403);
-    }
-
-    if (!(await touchAdminIdleSession(claims.sid))) {
-      return noStoreJson({ success: false, message: "Session expired." }, 401);
     }
 
     return noStoreJson({ success: true });

@@ -3,7 +3,7 @@
 import Image from "@/components/safe-image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { CART_UPDATED_EVENT, clearStoredUser, getCartCount, getStoredUser, saveStoredUser } from "@/features/cart/lib/cart";
 import { invalidatePublicDataForEvent, type StorefrontDataEvent } from "@/lib/public-data-cache";
 import { AlertTriangle, Bell, Heart, LogOut, Menu, Moon, Search, ShoppingCart, Sun, User, X } from "lucide-react";
@@ -17,8 +17,14 @@ type EcommerceUser = {
 
 type OrderStatusNotification = {
   id: string;
+  orderId: string;
   orderNumber: string;
+  eventType: string;
+  previousStatus: string | null;
   status: string;
+  note: string | null;
+  createdAt: string;
+  readAt: string | null;
 };
 
 const orderStatusLabels: Record<string, string> = {
@@ -29,6 +35,22 @@ const orderStatusLabels: Record<string, string> = {
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
 };
+
+function getOrderNotificationMessage(notification: OrderStatusNotification) {
+  if (notification.eventType === "ORDER_CREATED") return "We received your order.";
+  if (notification.eventType === "RESERVATION_EXPIRED") {
+    return notification.note || "The reservation expired. Please place a new order if you still need these items.";
+  }
+
+  switch (notification.status) {
+    case "CONFIRMED": return "Your order has been confirmed.";
+    case "PREPARING": return "We’re preparing your order.";
+    case "READY_FOR_PICKUP": return "Your order is ready for pickup.";
+    case "COMPLETED": return "Your order is complete.";
+    case "CANCELLED": return notification.note || "Your order was cancelled.";
+    default: return "Your order status has been updated.";
+  }
+}
 
 function subscribeToCartCount(onStoreChange: () => void) {
   window.addEventListener("storage", onStoreChange);
@@ -58,7 +80,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
   );
   const [theme, setTheme] = useState<"light" | "dark">("light");
   const [user, setUser] = useState<EcommerceUser | null>(null);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [activeHeaderMenu, setActiveHeaderMenu] = useState<"profile" | "notifications" | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [navSearch, setNavSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -66,8 +88,49 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
   const [cartStockWarning, setCartStockWarning] = useState<string | null>(null);
   const [notificationCount, setNotificationCount] = useState(0);
   const [orderNotifications, setOrderNotifications] = useState<OrderStatusNotification[]>([]);
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const profileMenuOpen = activeHeaderMenu === "profile";
+  const isNotificationsOpen = activeHeaderMenu === "notifications";
   const [activeSection, setActiveSection] = useState<"home" | "shop" | "categories" | "contact" | "orders">("home");
+  const toggleHeaderMenu = (menu: "profile" | "notifications") => {
+    setActiveHeaderMenu((current) => current === menu ? null : menu);
+  };
+
+  useEffect(() => {
+    const closeHeaderMenuOnOutsideClick = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest("[data-storefront-header-menu]")) return;
+      setActiveHeaderMenu(null);
+    };
+    const closeHeaderMenuOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActiveHeaderMenu(null);
+    };
+
+    document.addEventListener("pointerdown", closeHeaderMenuOnOutsideClick);
+    document.addEventListener("keydown", closeHeaderMenuOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeHeaderMenuOnOutsideClick);
+      document.removeEventListener("keydown", closeHeaderMenuOnEscape);
+    };
+  }, []);
+
+  const loadOrderNotifications = useCallback(async () => {
+    if (user?.role !== "CUSTOMER") {
+      setOrderNotifications([]);
+      setNotificationCount(0);
+      return;
+    }
+
+    try {
+      const response = await fetch("/api/auth/order-notifications", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!data?.success || !Array.isArray(data.notifications)) return;
+      setOrderNotifications(data.notifications as OrderStatusNotification[]);
+      setNotificationCount(Number(data.unreadCount) || 0);
+    } catch {
+      // Retain the last known notifications when the network is unavailable.
+    }
+  }, [user?.role]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -243,58 +306,18 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
   }, [user]);
 
   useEffect(() => {
-    if (!user) return;
+    if (user?.role !== "CUSTOMER") {
+      setOrderNotifications([]);
+      setNotificationCount(0);
+      return;
+    }
 
-    const notificationsKey = "apc-customer-order-status-notifications";
-
-    const readNotifications = (): OrderStatusNotification[] => {
-      try {
-        const stored = JSON.parse(window.localStorage.getItem(notificationsKey) ?? "[]");
-        return Array.isArray(stored) ? stored : [];
-      } catch {
-        return [];
-      }
-    };
-
-    const saveNotifications = (next: OrderStatusNotification[]) => {
-      window.localStorage.setItem(notificationsKey, JSON.stringify(next));
-      setOrderNotifications(next);
-      setNotificationCount(next.length);
-    };
-
-    const loadOrderStatuses = async () => {
-      const storedNotifications = readNotifications();
-      setOrderNotifications(storedNotifications);
-      setNotificationCount(storedNotifications.length);
-
-      try {
-        const response = await fetch("/api/auth/orders", { cache: "no-store" });
-        if (!response.ok) return;
-        const orders = await response.json();
-        if (!Array.isArray(orders)) return;
-
-        const activeOrders = (orders as Array<{ id: string; orderNumber: string; status: string }>)
-          .filter((order) => order.status !== "COMPLETED" && order.status !== "CANCELLED")
-          .map((order) => {
-            return {
-              id: order.id,
-              orderNumber: order.orderNumber,
-              status: order.status,
-            };
-          });
-
-        saveNotifications(activeOrders);
-      } catch {
-        // Keep the existing notifications when status polling is unavailable.
-      }
-    };
-
-    void loadOrderStatuses();
+    void loadOrderNotifications();
     const handleCustomerOrderUpdate = () => {
-      void loadOrderStatuses();
+      void loadOrderNotifications();
       window.dispatchEvent(new Event("apc-customer-order-live-event"));
     };
-    const eventSource = user.role === "CUSTOMER" ? new EventSource("/api/auth/live") : null;
+    const eventSource = new EventSource("/api/auth/live");
     eventSource?.addEventListener("customer-order-updated", handleCustomerOrderUpdate);
     let hasConnectedOnce = false;
     const handleCustomerStreamOpen = () => {
@@ -304,23 +327,67 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     eventSource?.addEventListener("open", handleCustomerStreamOpen);
     const handleNetworkRestore = () => handleCustomerOrderUpdate();
     window.addEventListener("online", handleNetworkRestore);
-    const fallbackIntervalId = window.setInterval(() => void loadOrderStatuses(), 60_000);
+    const fallbackIntervalId = window.setInterval(() => void loadOrderNotifications(), 60_000);
 
     return () => {
       window.clearInterval(fallbackIntervalId);
       eventSource?.close();
       window.removeEventListener("online", handleNetworkRestore);
     };
-  }, [user]);
+  }, [loadOrderNotifications, user?.role]);
+
+  async function markAllOrderNotificationsRead() {
+    setOrderNotifications((current) => current.map((notification) => ({
+      ...notification,
+      readAt: notification.readAt ?? new Date().toISOString(),
+    })));
+    setNotificationCount(0);
+    try {
+      const response = await fetch("/api/auth/order-notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ markAll: true }),
+      });
+      if (!response.ok) void loadOrderNotifications();
+    } catch {
+      void loadOrderNotifications();
+    }
+  }
+
+  function openOrderNotification(notification: OrderStatusNotification) {
+    if (!notification.readAt) {
+      const readAt = new Date().toISOString();
+      setOrderNotifications((current) => current.map((item) =>
+        item.id === notification.id ? { ...item, readAt } : item,
+      ));
+      setNotificationCount((count) => Math.max(0, count - 1));
+      void fetch("/api/auth/order-notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [notification.id] }),
+      }).then((response) => {
+        if (!response.ok) void loadOrderNotifications();
+      }).catch(() => void loadOrderNotifications());
+    }
+
+    setActiveHeaderMenu(null);
+    setMobileMenuOpen(false);
+    router.push(`/orders?orderId=${encodeURIComponent(notification.orderId)}`);
+    if (pathname === "/orders") {
+      window.dispatchEvent(new CustomEvent("apc-open-customer-order", {
+        detail: { orderId: notification.orderId },
+      }));
+    }
+  }
 
   function renderNotificationButton(isMobileDrawer = false) {
     return (
-      <div className={isMobileDrawer ? "relative w-full" : "relative"}>
+      <div className={isMobileDrawer ? "relative w-full" : "relative"} data-storefront-header-menu>
         <button
           type="button"
           aria-label={`View order status notifications${notificationCount > 0 ? `, ${notificationCount} unread` : ""}`}
           aria-expanded={isNotificationsOpen}
-          onClick={() => setIsNotificationsOpen((open) => !open)}
+          onClick={() => toggleHeaderMenu("notifications")}
           className={`relative flex items-center rounded-xl border border-white/10 bg-transparent text-white shadow-xs transition-all duration-150 hover:border-white/20 hover:bg-transparent hover:text-amber-200 active:scale-95 ${
             isMobileDrawer ? "h-10 w-full justify-start gap-2 px-3" : "h-9.5 w-9.5 justify-center"
           }`}
@@ -344,21 +411,34 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                 <span className="text-xs font-bold uppercase tracking-wider text-white">Order updates</span>
               </div>
               {orderNotifications.length > 0 && (
-                <Link
-                  href="/orders"
-                  onClick={() => setIsNotificationsOpen(false)}
-                  className="rounded-lg px-2 py-0.5 text-[11px] font-semibold text-[#ffb36f] transition-colors hover:bg-white/5 hover:text-[#ff8a1e]"
-                >
-                  View orders
-                </Link>
+                <div className="flex items-center gap-1">
+                  {notificationCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => void markAllOrderNotificationsRead()}
+                      className="rounded-lg px-2 py-0.5 text-[11px] font-semibold text-slate-300 transition-colors hover:bg-white/5 hover:text-white"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                  <Link
+                    href="/orders"
+                    onClick={() => setActiveHeaderMenu(null)}
+                    className="rounded-lg px-2 py-0.5 text-[11px] font-semibold text-[#ffb36f] transition-colors hover:bg-white/5 hover:text-[#ff8a1e]"
+                  >
+                    View orders
+                  </Link>
+                </div>
               )}
             </div>
             <div className="max-h-72 space-y-2 overflow-y-auto pt-3 pr-0.5">
               {orderNotifications.length > 0 ? (
                 orderNotifications.map((notification) => (
-                  <div
+                  <button
+                    type="button"
                     key={notification.id}
-                    className="group rounded-xl border border-white/5 bg-white/3 p-3 text-xs text-slate-300 transition-all hover:border-white/15 hover:bg-white/6"
+                    onClick={() => openOrderNotification(notification)}
+                    className={`group w-full rounded-xl border p-3 text-left text-xs transition-all hover:border-white/15 hover:bg-white/6 ${notification.readAt ? "border-white/5 bg-white/3 text-slate-400" : "border-amber-400/20 bg-amber-400/6 text-slate-200"}`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <span className="font-semibold text-white group-hover:text-amber-200 transition-colors">
@@ -368,7 +448,11 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                         {orderStatusLabels[notification.status] ?? notification.status}
                       </span>
                     </div>
-                  </div>
+                    <span className="mt-1.5 block leading-relaxed">{getOrderNotificationMessage(notification)}</span>
+                    <span className="mt-2 block text-[10px] text-slate-500">
+                      {new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(new Date(notification.createdAt))}
+                    </span>
+                  </button>
                 ))
               ) : (
                 <div className="py-6 text-center text-xs text-slate-400">
@@ -396,9 +480,8 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
     } catch {
       // Other tabs will detect the cleared cookies on their next session check.
     }
-    setProfileMenuOpen(false);
+    setActiveHeaderMenu(null);
     setMobileMenuOpen(false);
-    setIsNotificationsOpen(false);
     window.dispatchEvent(new Event("apc-user-updated"));
     router.push("/");
   }
@@ -446,6 +529,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
   }
 
   function handleNavClick(href: string, section: (typeof links)[number]["section"]) {
+    setActiveHeaderMenu(null);
     setActiveSection(section);
     router.push(href);
   }
@@ -682,10 +766,10 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
 
               {/* User Profile / Auth Controls */}
               {user ? (
-                <div className="relative">
+                <div className="relative" data-storefront-header-menu>
                   <button
                     type="button"
-                    onClick={() => setProfileMenuOpen((open) => !open)}
+                    onClick={() => toggleHeaderMenu("profile")}
                     className="relative flex h-9.5 w-9.5 items-center justify-center rounded-full border border-white/10 bg-slate-800/90 p-0 text-white transition-transform duration-150 hover:scale-105 hover:bg-slate-700 active:scale-95"
                     aria-label="User profile menu"
                     aria-expanded={profileMenuOpen}
@@ -724,7 +808,7 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                       <div className="mt-1 space-y-1">
                         <Link
                           href="/profile"
-                          onClick={() => setProfileMenuOpen(false)}
+                          onClick={() => setActiveHeaderMenu(null)}
                           className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10 hover:text-white"
                         >
                           <User className="h-4 w-4 text-slate-400" />
@@ -864,7 +948,10 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
 
               <Link
                 href="/favorites"
-                onClick={() => setMobileMenuOpen(false)}
+                onClick={() => {
+                  setActiveHeaderMenu(null);
+                  setMobileMenuOpen(false);
+                }}
                 className="mt-2 flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-sm font-bold text-slate-300 transition-all hover:bg-white/5 hover:text-white"
               >
                 <Heart className="h-4 w-4" />
@@ -875,7 +962,10 @@ export default function EcommerceLayout({ children }: { children: React.ReactNod
                 <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/10 pt-3">
                   <Link
                     href="/profile"
-                    onClick={() => setMobileMenuOpen(false)}
+                    onClick={() => {
+                      setActiveHeaderMenu(null);
+                      setMobileMenuOpen(false);
+                    }}
                     className="flex h-10 items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 text-xs font-semibold text-slate-200 transition-colors hover:bg-white/10 hover:text-white"
                   >
                     <User className="h-4 w-4" />

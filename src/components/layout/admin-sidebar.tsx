@@ -128,6 +128,10 @@ export function AdminSidebar({
     }
 
     void loadSidebarProfile();
+  }, [userRole]);
+
+  useEffect(() => {
+    if (!userRole) return;
 
     const syncCount = () => {
       const count = getAdminNotificationCount();

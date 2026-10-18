@@ -6,9 +6,8 @@ import { prisma } from "@/lib/prisma";
 export const ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
 const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const REMEMBERED_REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+const ADMIN_ACCESS_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const REVOKED_JTI_KEY_PREFIX = "auth:revoked:jti:";
-export const ADMIN_IDLE_TIMEOUT_SECONDS = 15 * 60 + 45;
-const ADMIN_IDLE_SESSION_KEY_PREFIX = "auth:admin:idle:";
 const DEVELOPMENT_JWT_SECRET = randomBytes(32).toString("base64url");
 
 type AccessTokenClaims = jwt.JwtPayload & {
@@ -50,22 +49,6 @@ function isAdminRole(role: string) {
   return role === "ADMIN" || role === "STAFF";
 }
 
-function getAdminIdleSessionKey(sessionId: string) {
-  return `${ADMIN_IDLE_SESSION_KEY_PREFIX}${sessionId}`;
-}
-
-async function hasActiveAdminIdleSession(sessionId: string) {
-  const redis = requireRedis();
-  if (!redis) return true;
-  return (await redis.exists(getAdminIdleSessionKey(sessionId))) === 1;
-}
-
-export async function touchAdminIdleSession(sessionId: string) {
-  const redis = requireRedis();
-  if (!redis) return process.env.NODE_ENV !== "production";
-  return (await redis.expire(getAdminIdleSessionKey(sessionId), ADMIN_IDLE_TIMEOUT_SECONDS)) === 1;
-}
-
 function getJwtSecret() {
   const configuredSecret = process.env.JWT_SECRET?.trim();
   if (configuredSecret) return configuredSecret;
@@ -94,14 +77,23 @@ export function verifyAccessToken(token: string) {
   }
 }
 
-export function signAccessToken(userId: string, sessionId: string, sessionVersion: number) {
+export function signAccessToken(
+  userId: string,
+  sessionId: string,
+  sessionVersion: number,
+  sessionOnly = false,
+) {
   const secret = getJwtSecret();
   if (!secret) throw new Error("JWT_SECRET must be configured in production.");
 
   return jwt.sign(
     { sub: userId, sid: sessionId, ver: sessionVersion },
     secret,
-    { algorithm: "HS256", expiresIn: ACCESS_TOKEN_TTL_SECONDS, jwtid: randomUUID() }
+    {
+      algorithm: "HS256",
+      expiresIn: sessionOnly ? ADMIN_ACCESS_TOKEN_TTL_SECONDS : ACCESS_TOKEN_TTL_SECONDS,
+      jwtid: randomUUID(),
+    }
   );
 }
 
@@ -109,30 +101,24 @@ export async function createAuthSession(
   userId: string,
   sessionVersion: number,
   rememberMe = false,
-  role?: string,
+  sessionOnly = false,
 ) {
   const redis = requireRedis();
   if (redis) await redis.ping();
 
-  const expiresAt = new Date(
-    Date.now() + (rememberMe ? REMEMBERED_REFRESH_TOKEN_TTL_SECONDS : REFRESH_TOKEN_TTL_SECONDS) * 1000
-  );
+  const refreshTtlSeconds = sessionOnly
+    ? REFRESH_TOKEN_TTL_SECONDS
+    : rememberMe
+      ? REMEMBERED_REFRESH_TOKEN_TTL_SECONDS
+      : REFRESH_TOKEN_TTL_SECONDS;
+  const expiresAt = new Date(Date.now() + refreshTtlSeconds * 1000);
   const id = randomUUID();
   const refreshToken = createRefreshToken();
-  const accessToken = signAccessToken(userId, id, sessionVersion);
+  const accessToken = signAccessToken(userId, id, sessionVersion, sessionOnly);
 
   await prisma.authSession.create({
     data: { id, userId, refreshTokenHash: hashRefreshToken(refreshToken), expiresAt },
   });
-
-  if (role && isAdminRole(role) && redis) {
-    try {
-      await redis.set(getAdminIdleSessionKey(id), "1", { ex: ADMIN_IDLE_TIMEOUT_SECONDS });
-    } catch (error) {
-      await prisma.authSession.deleteMany({ where: { id } });
-      throw error;
-    }
-  }
 
   return { accessToken, refreshToken, refreshExpiresAt: expiresAt };
 }
@@ -155,24 +141,24 @@ export async function rotateAuthSession(refreshToken: string) {
     return null;
   }
 
-  if (isAdminRole(user.role) && !(await hasActiveAdminIdleSession(existing.id))) {
-    await prisma.authSession.deleteMany({ where: { id: existing.id } });
-    return null;
-  }
-
+  const sessionOnly = isAdminRole(user.role);
+  const nextExpiresAt = sessionOnly
+    ? new Date(now.getTime() + REFRESH_TOKEN_TTL_SECONDS * 1000)
+    : existing.expiresAt;
   const nextRefreshToken = createRefreshToken();
   const nextHash = hashRefreshToken(nextRefreshToken);
   const updated = await prisma.authSession.updateMany({
     where: { id: existing.id, refreshTokenHash: currentHash, expiresAt: { gt: now } },
-    data: { refreshTokenHash: nextHash },
+    data: { refreshTokenHash: nextHash, expiresAt: nextExpiresAt },
   });
   if (updated.count !== 1) return null;
 
-  const accessToken = signAccessToken(user.id, existing.id, user.sessionVersion);
+  const accessToken = signAccessToken(user.id, existing.id, user.sessionVersion, sessionOnly);
   return {
     accessToken,
     refreshToken: nextRefreshToken,
-    refreshExpiresAt: existing.expiresAt,
+    refreshExpiresAt: nextExpiresAt,
+    sessionOnly,
   };
 }
 
@@ -207,7 +193,6 @@ export async function validateAccessToken(token: string) {
   ]);
 
   if (!user || !session || user.isBlocked || user.sessionVersion !== claims.ver) return null;
-  if (isAdminRole(user.role) && !(await hasActiveAdminIdleSession(claims.sid))) return null;
   return { ...user, sub: user.id };
 }
 

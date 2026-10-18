@@ -1,0 +1,2 @@
+ALTER TABLE "AppSetting"
+  ADD COLUMN "posNumber" TEXT NOT NULL DEFAULT 'POS 1';

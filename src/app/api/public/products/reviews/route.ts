@@ -6,6 +6,7 @@ import { Prisma } from "@prisma/client";
 import { enforceRateLimit } from "@/lib/rate-limit";
 import { prisma } from "@/lib/prisma";
 import { getUserForToken } from "@/lib/auth";
+import { createStorageService, RATING_IMAGE_BUCKET } from "@/lib/storage";
 import { getUserFacingErrorMessage } from "@/lib/api-response";
 import { productReviewCreateSchema } from "@/features/orders/validators/orders";
 import { parseJsonRequestBody } from "@/lib/api-validation";
@@ -15,17 +16,29 @@ function serializeReview(review: {
   rating: number;
   comment: string | null;
   optionValue: string | null;
+  imageUrls: string | null;
   createdAt: Date;
   user: {
     name: string;
     imageUrl: string | null;
   };
 }) {
+  let imageUrls: string[] = [];
+  try {
+    const parsedImageUrls: unknown = JSON.parse(review.imageUrls ?? "[]");
+    if (Array.isArray(parsedImageUrls)) {
+      imageUrls = parsedImageUrls.filter((url): url is string => typeof url === "string");
+    }
+  } catch {
+    imageUrls = [];
+  }
+
   return {
     id: review.id,
     rating: Number(review.rating),
     comment: review.comment,
     optionValue: review.optionValue,
+    imageUrls,
     createdAt: review.createdAt.toISOString(),
     user: {
       name: review.user.name,
@@ -148,7 +161,13 @@ export async function POST(request: Request) {
 
     const parsed = await parseJsonRequestBody(request, productReviewCreateSchema, "Review details are invalid.");
     if (!parsed.success) return parsed.response;
-    const { productId, rating, comment = "", optionValue: submittedOptionValue } = parsed.data;
+    const {
+      productId,
+      rating,
+      comment = "",
+      imageKeys = [],
+      optionValue: submittedOptionValue,
+    } = parsed.data;
 
     const product = await prisma.product.findUnique({
       where: { id: productId },
@@ -196,6 +215,14 @@ export async function POST(request: Request) {
       );
     }
 
+    const imageKeyPrefix = `reviews/${user.id}/`;
+    if (imageKeys.some((key) => !key.startsWith(imageKeyPrefix) || key.includes(".."))) {
+      return NextResponse.json({ success: false, message: "One or more review photos are invalid." }, { status: 400 });
+    }
+    const storageService = imageKeys.length ? createStorageService() : null;
+    const imageUrls = imageKeys.map((key) => storageService!.getPublicUrl(RATING_IMAGE_BUCKET, key));
+    const serializedImageUrls = imageUrls.length ? JSON.stringify(imageUrls) : null;
+
     const optionValue = submittedOptionValue || null;
     const existingReview = await prisma.productReview.findFirst({
       where: { productId, userId: user.id },
@@ -213,6 +240,7 @@ export async function POST(request: Request) {
             rating,
             comment: comment || null,
             optionValue,
+            imageUrls: serializedImageUrls,
           },
           include: {
             user: {
@@ -227,6 +255,7 @@ export async function POST(request: Request) {
             rating,
             comment: comment || null,
             optionValue,
+            imageUrls: serializedImageUrls,
           },
           include: {
             user: {
@@ -245,6 +274,7 @@ export async function POST(request: Request) {
         rating: review.rating,
         comment: review.comment,
         optionValue: review.optionValue,
+        imageUrls: review.imageUrls,
         createdAt: review.createdAt,
         user: review.user,
       }),
